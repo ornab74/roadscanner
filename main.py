@@ -625,6 +625,17 @@ app.config.update(SESSION_COOKIE_SECURE=True,
 
 csrf = CSRFProtect(app)
 
+@app.before_request
+def allow_local_insecure_cookies():
+    try:
+        host = (request.host or "").split(":")[0]
+        if host in {"localhost", "127.0.0.1"} or request.remote_addr in {"127.0.0.1", "::1"}:
+            app.config["SESSION_COOKIE_SECURE"] = False
+        else:
+            app.config["SESSION_COOKIE_SECURE"] = True
+    except Exception:
+        app.config["SESSION_COOKIE_SECURE"] = True
+
 @app.after_request
 def apply_csp(response):
     csp_policy = ("default-src 'self'; "
@@ -3409,8 +3420,16 @@ def _mask_secret(val: str, keep: int = 4) -> str:
     if not clean:
         return ""
     if len(clean) <= keep:
-        return "•" * len(clean)
-    return f"{clean[:keep]}••••••"
+        return "*" * len(clean)
+    return f"{clean[:keep]}***"
+
+def _is_masked_secret(val: str) -> bool:
+    if not isinstance(val, str):
+        return False
+    clean = val.strip()
+    if not clean or clean in {"—", "***"}:
+        return True
+    return bool(re.search(r"(\*{3,}|•{3,})", clean))
     
 def _blog_ctx(field: str, rid: Optional[int] = None) -> dict:
     return build_hd_ctx(domain="blog", field=field, rid=rid)
@@ -4208,6 +4227,16 @@ def blog_admin():
     )
 
 def _admin_csrf_guard():
+    token = _csrf_from_request()
+    if not token:
+        return jsonify(ok=False, error="csrf_missing"), 400
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return jsonify(ok=False, error="csrf_invalid"), 400
+    return None
+
+def _user_csrf_guard():
     token = _csrf_from_request()
     if not token:
         return jsonify(ok=False, error="csrf_missing"), 400
@@ -10449,17 +10478,19 @@ def dashboard():
         }
 
         function getCoordinates() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    $('#latitude').val(position.coords.latitude);
-                    $('#longitude').val(position.coords.longitude);
-                    syncWeatherInputs(position.coords.latitude, position.coords.longitude);
-                }, function(error) {
-                    alert("Error obtaining location: " + error.message);
-                });
-            } else {
+            if (!navigator.geolocation) {
                 alert("Geolocation is not supported by this browser.");
+                return;
             }
+            const opts = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
+            navigator.geolocation.getCurrentPosition(function(position) {
+                $('#latitude').val(position.coords.latitude);
+                $('#longitude').val(position.coords.longitude);
+                syncWeatherInputs(position.coords.latitude, position.coords.longitude);
+            }, function(error) {
+                const message = error && error.message ? error.message : "Location permission denied.";
+                alert("Error obtaining location: " + message);
+            }, opts);
         }
 
         function syncWeatherInputs(lat, lon) {
@@ -10475,13 +10506,15 @@ def dashboard():
                 alert("Geolocation is not supported by this browser.");
                 return;
             }
+            const opts = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
             navigator.geolocation.getCurrentPosition(function(position) {
                 const lat = position.coords.latitude;
                 const lon = position.coords.longitude;
                 syncWeatherInputs(lat, lon);
             }, function(error) {
-                alert("Error obtaining location: " + error.message);
-            });
+                const message = error && error.message ? error.message : "Location permission denied.";
+                alert("Error obtaining location: " + message);
+            }, opts);
         }
 
         function syncFromScan() {
@@ -11723,6 +11756,7 @@ def x_dashboard():
       background: rgba(255,255,255,.04);
       color: var(--muted); font-size:13px;
     }
+    .status.warn{border-color: rgba(251,191,36,.45); color:#fbbf24;}
     .tweet{
       padding:14px 16px;
     }
@@ -11799,7 +11833,10 @@ def x_dashboard():
             <input id="xBearer" placeholder="X bearer token" value="{{ x_bearer_mask }}" />
             <input id="oaiKey" placeholder="OpenAI API key" value="{{ oai_key_mask }}" />
             <input id="oaiModel" placeholder="OpenAI model" value="{{ oai_model }}" />
-            <button class="btn" id="btnSave">Save settings</button>
+            <div class="row">
+              <button class="btn" id="btnSave">Save settings</button>
+              <button class="btn danger" id="btnClearSecrets">Clear secrets</button>
+            </div>
             <div class="small">Tip: paste full secrets; they’ll be stored encrypted. This page only shows masked values.</div>
           </div>
 
@@ -11857,7 +11894,10 @@ def x_dashboard():
   let timeboxActive = false;
   let timeboxTick = null;
 
-  function setStatus(s){ elStatus.textContent = s; }
+  function setStatus(s, level){
+    elStatus.textContent = s;
+    elStatus.classList.toggle('warn', level === 'warn');
+  }
 
   function barLine(name, v){
     const pct = Math.max(0, Math.min(1, v||0)) * 100;
@@ -12013,8 +12053,21 @@ def x_dashboard():
       };
       setStatus('Saving…');
       const j = await jpost('/x/api/settings', body);
-      setStatus('Saved. (Refresh page to see masked values updated)');
-    }catch(e){ setStatus('Save error: '+e.message); }
+      if (j && Array.isArray(j.updated) && j.updated.length === 0) {
+        setStatus('Saved. (No changes detected — masked secrets were ignored)', 'warn');
+      } else {
+        setStatus('Saved. (Refresh page to see masked values updated)');
+      }
+    }catch(e){ setStatus('Save error: '+e.message, 'warn'); }
+  };
+
+  document.getElementById('btnClearSecrets').onclick = async ()=>{
+    if(!confirm('Clear stored X bearer + OpenAI key for this account?')) return;
+    try{
+      setStatus('Clearing secrets…');
+      await jpost('/x/api/settings/clear', { keys: ['x_bearer', 'openai_key'] });
+      setStatus('Secrets cleared. Refresh to see blank fields.');
+    }catch(e){ setStatus('Clear error: '+e.message, 'warn'); }
   };
 })();
 </script>
@@ -12034,17 +12087,15 @@ def x_dashboard():
 @app.route("/x/api/settings", methods=["POST"])
 def x_api_settings():
     # Require logged-in user + CSRF for this state-changing route
-    _user_csrf_guard()
+    csrf_fail = _user_csrf_guard()
+    if csrf_fail:
+        return csrf_fail
     uid = _require_user_id_or_abort()
 
     # Enforce JSON content-type (best-effort; still allow if client forgot but sent JSON)
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"ok": False, "error": "Invalid JSON"}), 400
-
-    def _is_masked(s: str) -> bool:
-        return ("••••••" in s) or (s.strip() in {"", "—"})
-
 
     # ---- sanitize / validate inputs ----
     x_user_id = clean_text(str(data.get("x_user_id") or ""), 128)
@@ -12067,14 +12118,14 @@ def x_api_settings():
         vault_set(uid, "x_user_id", x_user_id)
         wrote.append("x_user_id")
 
-    if x_bearer and not _is_masked(x_bearer):
+    if x_bearer and not _is_masked_secret(x_bearer):
         # do NOT bleach/tokenize; store raw secret, but length-cap to avoid abuse
         if len(x_bearer) > 6000:
             return jsonify({"ok": False, "error": "x_bearer too long"}), 400
         vault_set(uid, "x_bearer", x_bearer)
         wrote.append("x_bearer")
 
-    if oai_key and not _is_masked(oai_key):
+    if oai_key and not _is_masked_secret(oai_key):
         if len(oai_key) > 6000:
             return jsonify({"ok": False, "error": "openai_key too long"}), 400
         vault_set(uid, "openai_key", oai_key)
@@ -12086,11 +12137,31 @@ def x_api_settings():
 
     # Optional: return which fields updated (no secrets echoed)
     return jsonify({"ok": True, "updated": wrote})
+
+@app.route("/x/api/settings/clear", methods=["POST"])
+def x_api_settings_clear():
+    csrf_fail = _user_csrf_guard()
+    if csrf_fail:
+        return csrf_fail
+    uid = _require_user_id_or_abort()
+    data = request.get_json(silent=True) or {}
+    keys = data.get("keys") if isinstance(data, dict) else []
+    if not isinstance(keys, list):
+        return jsonify({"ok": False, "error": "keys must be a list"}), 400
+    allowed = {"x_bearer", "openai_key"}
+    cleared = []
+    for key in keys:
+        if key in allowed:
+            vault_set(uid, key, "")
+            cleared.append(key)
+    return jsonify({"ok": True, "cleared": cleared})
     
 @app.route("/x/api/fetch", methods=["POST"])
 def x_api_fetch():
     # Require logged-in user + CSRF for this state-changing route
-    _user_csrf_guard()
+    csrf_fail = _user_csrf_guard()
+    if csrf_fail:
+        return csrf_fail
     uid = _require_user_id_or_abort()
 
     bearer = vault_get(uid, "x_bearer", "") or ""
@@ -12100,7 +12171,7 @@ def x_api_fetch():
     bearer = clean_text(bearer, 4096)
     x_user_id = clean_text(x_user_id, 128)
 
-    if (not bearer) or ("••••••" in bearer) or (not x_user_id) or ("••••••" in x_user_id):
+    if (not bearer) or _is_masked_secret(bearer) or (not x_user_id) or _is_masked_secret(x_user_id):
         return jsonify({"ok": False, "error": "Missing X settings: x_bearer + x_user_id"}), 400
 
     # Clamp max_results to safe bounds
@@ -12163,7 +12234,9 @@ def x_api_fetch():
 
 @app.route("/x/api/carousel", methods=["POST"])
 def x_api_carousel():
-    _user_csrf_guard()
+    csrf_fail = _user_csrf_guard()
+    if csrf_fail:
+        return csrf_fail
     uid = _require_user_id_or_abort()
 
     data = request.get_json(silent=True) or {}
@@ -12180,14 +12253,16 @@ def x_api_carousel():
 @app.route("/x/api/label", methods=["POST"])
 def x_api_label():
     # Require logged-in user + CSRF for this state-changing route
-    _user_csrf_guard()
+    csrf_fail = _user_csrf_guard()
+    if csrf_fail:
+        return csrf_fail
     uid = _require_user_id_or_abort()
 
     # Read vault secrets/settings (masked values should never be stored here)
     api_key = vault_get(uid, "openai_key", "") or ""
     model = clean_text(vault_get(uid, "openai_model", X2_DEFAULT_MODEL) or X2_DEFAULT_MODEL, 128) or X2_DEFAULT_MODEL
 
-    if not api_key or "••••••" in api_key:
+    if not api_key or _is_masked_secret(api_key):
         return jsonify({"ok": False, "error": "Missing OpenAI key in vault"}), 400
 
     # Clamp batch size to avoid abuse
@@ -12457,7 +12532,9 @@ def _restore_legacy_endpoints():
 
     if "api_prefs_set" not in globals():
         def api_prefs_set():  # type: ignore[no-redef]
-            _user_csrf_guard()
+            csrf_fail = _user_csrf_guard()
+            if csrf_fail:
+                return csrf_fail
             uid = _require_user_id_or_abort()
             data = request.get_json(silent=True) or {}
             if not isinstance(data, dict):
