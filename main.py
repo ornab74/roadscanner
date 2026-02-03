@@ -1078,7 +1078,7 @@ def shamir_recover(shares: list[tuple[int, bytes]], t: int) -> bytes:
     return bytes(out)
 
 
-SEALED_DIR   = Path("./sealed_store")
+SEALED_DIR   = Path("/var/data")
 SEALED_FILE  = SEALED_DIR / "sealed.json.enc"
 SEALED_VER   = "SS1"
 SHARDS_ENV   = "QRS_SHARDS_JSON"
