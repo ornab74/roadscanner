@@ -6112,7 +6112,7 @@ Please assess the following:
         # OpenAI (GPT-5.2) preferred when configured; otherwise fall back to Grok; otherwise offline neutral.
         raw_report = await run_openai_response_text(
             grok_prompt,
-            max_output_tokens=260,
+            max_output_tokens=760,
             temperature=0.2,
             reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
         )
