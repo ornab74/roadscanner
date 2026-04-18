@@ -274,6 +274,32 @@ def _gen_passphrase() -> str:
 def bootstrap_env_keys(strict_pq2: bool = True, echo_exports: bool = False) -> None:
 
     exports: list[tuple[str,str]] = []
+    bootstrap_file = Path("./sealed_store/bootstrap_env.json")
+    bootstrap_file.parent.mkdir(parents=True, exist_ok=True)
+    persisted_keys = (
+        "ENCRYPTION_PASSPHRASE",
+        ENV_SALT_B64,
+        ENV_X25519_PUB_B64,
+        ENV_X25519_PRIV_ENC_B64,
+        ENV_PQ_KEM_ALG,
+        ENV_PQ_PUB_B64,
+        ENV_PQ_PRIV_ENC_B64,
+        ENV_SIG_ALG,
+        ENV_SIG_PUB_B64,
+        ENV_SIG_PRIV_ENC_B64,
+    )
+
+    # Rehydrate process env from disk before generating anything new.
+    if bootstrap_file.exists():
+        try:
+            persisted = json.loads(bootstrap_file.read_text(encoding="utf-8"))
+            if isinstance(persisted, dict):
+                for k in persisted_keys:
+                    v = persisted.get(k)
+                    if not os.getenv(k) and isinstance(v, str) and v:
+                        os.environ[k] = v
+        except Exception:
+            logger.warning("Failed to read persisted bootstrap env: %s", bootstrap_file, exc_info=True)
 
 
     if not os.getenv("ENCRYPTION_PASSPHRASE"):
@@ -368,6 +394,13 @@ def bootstrap_env_keys(strict_pq2: bool = True, echo_exports: bool = False) -> N
         for k, v in exports:
             print(f"export {k}='{v}'")
         print("# ------------------------------------------------------------")
+
+    # Persist current bootstrap env so service restarts do not rotate key material.
+    try:
+        snapshot = {k: os.getenv(k, "") for k in persisted_keys}
+        bootstrap_file.write_text(json.dumps(snapshot, separators=(",", ":")), encoding="utf-8")
+    except Exception:
+        logger.warning("Failed to persist bootstrap env: %s", bootstrap_file, exc_info=True)
 
 if 'IDENTIFIER_RE' not in globals():
     IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
@@ -1021,7 +1054,8 @@ class SealedRecord:
 
 class SealedStore:
     def __init__(self, km: "KeyManager"):
-        self.km = km  # no dirs/files created
+        self.km = km
+        SEALED_DIR.mkdir(parents=True, exist_ok=True)
 
     def _derive_split_kek(self, base_kek: bytes) -> bytes:
         shards_b64 = os.getenv(SHARDS_ENV, "")
@@ -1050,7 +1084,9 @@ class SealedStore:
         return json.loads(pt.decode())
 
     def exists(self) -> bool:
-        return bool(os.getenv(ENV_SEALED_B64))
+        if os.getenv(ENV_SEALED_B64):
+            return True
+        return SEALED_FILE.exists() and SEALED_FILE.is_file()
 
     def save_from_current_keys(self):
         try:
@@ -1077,13 +1113,21 @@ class SealedStore:
             split_kek = self._derive_split_kek(base_kek)
             blob = self._seal(split_kek, rec)
             _b64set(ENV_SEALED_B64, blob)
-            logger.debug("Sealed store saved to env.")
+            SEALED_FILE.write_bytes(blob)
+            logger.debug("Sealed store saved to env and file: %s", SEALED_FILE)
         except Exception as e:
             logger.error(f"Sealed save failed: {e}", exc_info=True)
 
     def load_into_km(self) -> bool:
         try:
             blob = _b64get(ENV_SEALED_B64, required=False)
+            if not blob and SEALED_FILE.exists():
+                try:
+                    blob = SEALED_FILE.read_bytes()
+                    _b64set(ENV_SEALED_B64, blob)
+                    logger.debug("Loaded sealed store from file: %s", SEALED_FILE)
+                except Exception:
+                    logger.warning("Failed reading sealed store file: %s", SEALED_FILE, exc_info=True)
             if not blob:
                 return False
 
