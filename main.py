@@ -1021,7 +1021,8 @@ class SealedRecord:
 
 class SealedStore:
     def __init__(self, km: "KeyManager"):
-        self.km = km  # no dirs/files created
+        self.km = km
+        SEALED_DIR.mkdir(parents=True, exist_ok=True)
 
     def _derive_split_kek(self, base_kek: bytes) -> bytes:
         shards_b64 = os.getenv(SHARDS_ENV, "")
@@ -1050,7 +1051,9 @@ class SealedStore:
         return json.loads(pt.decode())
 
     def exists(self) -> bool:
-        return bool(os.getenv(ENV_SEALED_B64))
+        if os.getenv(ENV_SEALED_B64):
+            return True
+        return SEALED_FILE.exists() and SEALED_FILE.is_file()
 
     def save_from_current_keys(self):
         try:
@@ -1077,13 +1080,21 @@ class SealedStore:
             split_kek = self._derive_split_kek(base_kek)
             blob = self._seal(split_kek, rec)
             _b64set(ENV_SEALED_B64, blob)
-            logger.debug("Sealed store saved to env.")
+            SEALED_FILE.write_bytes(blob)
+            logger.debug("Sealed store saved to env and file: %s", SEALED_FILE)
         except Exception as e:
             logger.error(f"Sealed save failed: {e}", exc_info=True)
 
     def load_into_km(self) -> bool:
         try:
             blob = _b64get(ENV_SEALED_B64, required=False)
+            if not blob and SEALED_FILE.exists():
+                try:
+                    blob = SEALED_FILE.read_bytes()
+                    _b64set(ENV_SEALED_B64, blob)
+                    logger.debug("Loaded sealed store from file: %s", SEALED_FILE)
+                except Exception:
+                    logger.warning("Failed reading sealed store file: %s", SEALED_FILE, exc_info=True)
             if not blob:
                 return False
 
