@@ -2192,11 +2192,11 @@ def sanitize_tags_csv(raw: str, max_tags: int = 50) -> str:
     out = ",".join(parts[:max_tags])
     return out[:500]
     
-def _blog_ctx(field: str) -> dict:
-    return build_hd_ctx(domain="blog", field=field, rid=0)
+def _blog_ctx(field: str, rid: Optional[int] = None) -> dict:
+    return build_hd_ctx(domain="blog", field=field, rid=rid)
     
-def blog_encrypt(field: str, plaintext: str) -> str:
-    return encrypt_data(plaintext or "", ctx=_blog_ctx(field))
+def blog_encrypt(field: str, plaintext: str, rid: Optional[int] = None) -> str:
+    return encrypt_data(plaintext or "", ctx=_blog_ctx(field, rid))
     
 def blog_decrypt(ciphertext: Optional[str]) -> str:
     if not ciphertext: return ""
@@ -2442,10 +2442,10 @@ def blog_save(
                 if _slug_exists_local(slug):
                     return False, "Slug conflict; please edit slug", None, None
 
-            title_enc = blog_encrypt("title", title_html)
-            content_enc = blog_encrypt("content", content_html)
-            summary_enc = blog_encrypt("summary", summary_html)
-            tags_enc = blog_encrypt("tags", tags_csv)
+            title_enc = blog_encrypt("title", title_html, post_id)
+            content_enc = blog_encrypt("content", content_html, post_id)
+            summary_enc = blog_encrypt("summary", summary_html, post_id)
+            tags_enc = blog_encrypt("tags", tags_csv, post_id)
 
             if existing:
                 cur.execute(
