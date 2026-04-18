@@ -274,6 +274,32 @@ def _gen_passphrase() -> str:
 def bootstrap_env_keys(strict_pq2: bool = True, echo_exports: bool = False) -> None:
 
     exports: list[tuple[str,str]] = []
+    bootstrap_file = Path("./sealed_store/bootstrap_env.json")
+    bootstrap_file.parent.mkdir(parents=True, exist_ok=True)
+    persisted_keys = (
+        "ENCRYPTION_PASSPHRASE",
+        ENV_SALT_B64,
+        ENV_X25519_PUB_B64,
+        ENV_X25519_PRIV_ENC_B64,
+        ENV_PQ_KEM_ALG,
+        ENV_PQ_PUB_B64,
+        ENV_PQ_PRIV_ENC_B64,
+        ENV_SIG_ALG,
+        ENV_SIG_PUB_B64,
+        ENV_SIG_PRIV_ENC_B64,
+    )
+
+    # Rehydrate process env from disk before generating anything new.
+    if bootstrap_file.exists():
+        try:
+            persisted = json.loads(bootstrap_file.read_text(encoding="utf-8"))
+            if isinstance(persisted, dict):
+                for k in persisted_keys:
+                    v = persisted.get(k)
+                    if not os.getenv(k) and isinstance(v, str) and v:
+                        os.environ[k] = v
+        except Exception:
+            logger.warning("Failed to read persisted bootstrap env: %s", bootstrap_file, exc_info=True)
 
 
     if not os.getenv("ENCRYPTION_PASSPHRASE"):
@@ -368,6 +394,13 @@ def bootstrap_env_keys(strict_pq2: bool = True, echo_exports: bool = False) -> N
         for k, v in exports:
             print(f"export {k}='{v}'")
         print("# ------------------------------------------------------------")
+
+    # Persist current bootstrap env so service restarts do not rotate key material.
+    try:
+        snapshot = {k: os.getenv(k, "") for k in persisted_keys}
+        bootstrap_file.write_text(json.dumps(snapshot, separators=(",", ":")), encoding="utf-8")
+    except Exception:
+        logger.warning("Failed to persist bootstrap env: %s", bootstrap_file, exc_info=True)
 
 if 'IDENTIFIER_RE' not in globals():
     IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
