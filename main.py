@@ -2071,9 +2071,6 @@ def create_tables():
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 author_id INTEGER NOT NULL,
-                sig_alg TEXT,
-                sig_pub_fp8 TEXT,
-                sig_val BLOB,
                 FOREIGN KEY (author_id) REFERENCES users(id)
             )
         """)
@@ -2082,14 +2079,8 @@ def create_tables():
         cursor.execute("PRAGMA table_info(blog_posts)")
         blog_cols = {row[1] for row in cursor.fetchall()}
         blog_alters = {
-            
             "summary_enc": "ALTER TABLE blog_posts ADD COLUMN summary_enc TEXT",
             "tags_enc": "ALTER TABLE blog_posts ADD COLUMN tags_enc TEXT",
-            
-            "sig_alg": "ALTER TABLE blog_posts ADD COLUMN sig_alg TEXT",
-            "sig_pub_fp8": "ALTER TABLE blog_posts ADD COLUMN sig_pub_fp8 TEXT",
-            "sig_val": "ALTER TABLE blog_posts ADD COLUMN sig_val BLOB",
-            
             "featured": "ALTER TABLE blog_posts ADD COLUMN featured INTEGER NOT NULL DEFAULT 0",
             "featured_rank": "ALTER TABLE blog_posts ADD COLUMN featured_rank INTEGER NOT NULL DEFAULT 0",
         }
@@ -2101,7 +2092,30 @@ def create_tables():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_blog_updated ON blog_posts (updated_at DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_blog_featured ON blog_posts (featured, featured_rank DESC, created_at DESC)")
         db.commit()
+
+    run_blog_signature_cleanup_once()
     print("Database tables created and verified successfully.")
+
+BLOG_SIG_CLEANUP_MARKER = Path('/var/data') / '.blog_sig_cleanup_v1.done'
+
+def run_blog_signature_cleanup_once() -> None:
+    if BLOG_SIG_CLEANUP_MARKER.exists():
+        return
+    try:
+        with sqlite3.connect(DB_FILE) as db:
+            cur = db.cursor()
+            cur.execute("PRAGMA table_info(blog_posts)")
+            cols = {row[1] for row in cur.fetchall()}
+            legacy_cols = [c for c in ("sig_alg", "sig_pub_fp8", "sig_val") if c in cols]
+            if legacy_cols:
+                assignments = ", ".join(f"{quote_ident(col)}=NULL" for col in legacy_cols)
+                cur.execute(f"UPDATE blog_posts SET {assignments} WHERE " + " OR ".join(f"{quote_ident(col)} IS NOT NULL" for col in legacy_cols))
+                db.commit()
+                logger.info("Cleared legacy blog signature columns once: %s", ", ".join(legacy_cols))
+            BLOG_SIG_CLEANUP_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            BLOG_SIG_CLEANUP_MARKER.write_text(str(int(time.time())), encoding="utf-8")
+    except Exception as e:
+        logger.error("Legacy blog signature cleanup failed: %s", e, exc_info=True)
 
 class BlogForm(FlaskForm):
     title = StringField('Title', validators=[DataRequired(), Length(min=1, max=160)])
@@ -2178,39 +2192,15 @@ def sanitize_tags_csv(raw: str, max_tags: int = 50) -> str:
     out = ",".join(parts[:max_tags])
     return out[:500]
     
-def _blog_ctx(field: str, rid: Optional[int] = None) -> dict:
-    return build_hd_ctx(domain="blog", field=field, rid=rid)
+def _blog_ctx(field: str) -> dict:
+    return build_hd_ctx(domain="blog", field=field, rid=0)
     
-def blog_encrypt(field: str, plaintext: str, rid: Optional[int] = None) -> str:
-    return encrypt_data(plaintext or "", ctx=_blog_ctx(field, rid))
+def blog_encrypt(field: str, plaintext: str) -> str:
+    return encrypt_data(plaintext or "", ctx=_blog_ctx(field))
     
 def blog_decrypt(ciphertext: Optional[str]) -> str:
     if not ciphertext: return ""
     return decrypt_data(ciphertext) or ""
-    
-def _post_sig_payload(slug: str, title_html: str, content_html: str, summary_html: str, tags_csv: str, status: str, created_at: str, updated_at: str) -> bytes:
-    return _canon_json({
-        "v":"blog1",
-        "slug": slug,
-        "title_html": title_html,
-        "content_html": content_html,
-        "summary_html": summary_html,
-        "tags_csv": tags_csv,
-        "status": status,
-        "created_at": created_at,
-        "updated_at": updated_at
-    })
-def _sign_post(payload: bytes) -> tuple[str, str, bytes]:
-    alg = key_manager.sig_alg_name or "Ed25519"
-    sig = key_manager.sign_blob(payload)
-    pub = getattr(key_manager, "sig_pub", None) or b""
-    return alg, _fp8(pub), sig
-    
-def _verify_post(payload: bytes, sig_alg: str, sig_pub_fp8: str, sig_val: bytes) -> bool:
-    pub = getattr(key_manager, "sig_pub", None) or b""
-    if not pub: return False
-    if _fp8(pub) != sig_pub_fp8: return False
-    return key_manager.verify_blob(pub, sig_val, payload)
     
 def _require_admin() -> Optional[Response]:
     if not session.get('is_admin'):
@@ -2225,15 +2215,17 @@ def _get_userid_or_abort() -> int:
     return int(uid or -1)
 
 def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
-    if not _valid_slug(slug): return None
+    if not _valid_slug(slug):
+        return None
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
         if allow_any_status:
-            cur.execute("SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,sig_alg,sig_pub_fp8,sig_val FROM blog_posts WHERE slug=? LIMIT 1", (slug,))
+            cur.execute("SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id FROM blog_posts WHERE slug=? LIMIT 1", (slug,))
         else:
-            cur.execute("SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,sig_alg,sig_pub_fp8,sig_val FROM blog_posts WHERE slug=? AND status='published' LIMIT 1", (slug,))
+            cur.execute("SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id FROM blog_posts WHERE slug=? AND status='published' LIMIT 1", (slug,))
         row = cur.fetchone()
-    if not row: return None
+    if not row:
+        return None
     post = {
         "id": row[0], "slug": row[1],
         "title": blog_decrypt(row[2]),
@@ -2244,9 +2236,6 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
         "created_at": row[7],
         "updated_at": row[8],
         "author_id": row[9],
-        "sig_alg": row[10] or "",
-        "sig_pub_fp8": row[11] or "",
-        "sig_val": row[12] if isinstance(row[12], (bytes,bytearray)) else (row[12].encode() if row[12] else b""),
     }
     return post
     
@@ -2453,23 +2442,19 @@ def blog_save(
                 if _slug_exists_local(slug):
                     return False, "Slug conflict; please edit slug", None, None
 
-            payload = _post_sig_payload(slug, title_html, content_html, summary_html, tags_csv, status, created_at, now)
-            sig_alg, sig_fp8, sig_val = _sign_post(payload)
-
-            title_enc = blog_encrypt("title", title_html, post_id)
-            content_enc = blog_encrypt("content", content_html, post_id)
-            summary_enc = blog_encrypt("summary", summary_html, post_id)
-            tags_enc = blog_encrypt("tags", tags_csv, post_id)
+            title_enc = blog_encrypt("title", title_html)
+            content_enc = blog_encrypt("content", content_html)
+            summary_enc = blog_encrypt("summary", summary_html)
+            tags_enc = blog_encrypt("tags", tags_csv)
 
             if existing:
                 cur.execute(
                     """
                     UPDATE blog_posts
-                    SET slug=?, title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?,
-                        sig_alg=?, sig_pub_fp8=?, sig_val=?
+                    SET slug=?, title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?
                     WHERE id=?
                     """,
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, now, sig_alg, sig_fp8, sig_val, int(post_id)),
+                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, now, int(post_id)),
                 )
                 db.commit()
                 audit.append("blog_update", {"id": int(post_id), "slug": slug, "status": status}, actor=session.get("username") or "admin")
@@ -2478,10 +2463,10 @@ def blog_save(
                 cur.execute(
                     """
                     INSERT INTO blog_posts
-                      (slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,sig_alg,sig_pub_fp8,sig_val)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                      (slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id)
+                    VALUES (?,?,?,?,?,?,?,?,?)
                     """,
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, now, int(author_id), sig_alg, sig_fp8, sig_val),
+                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, now, int(author_id)),
                 )
                 new_id = cur.lastrowid
                 db.commit()
@@ -2575,8 +2560,6 @@ def blog_view(slug: str):
     post = blog_get_by_slug(slug, allow_any_status=allow_any)
     if not post:
         return "Not found", 404
-    payload = _post_sig_payload(post["slug"], post["title"], post["content"], post["summary"], post["tags"], post["status"], post["created_at"], post["updated_at"])
-    sig_ok = _verify_post(payload, post["sig_alg"], post["sig_pub_fp8"], post["sig_val"] or b"")
     seed = colorsync.sample()
     accent = seed.get("hex", "#49c2ff")
     return render_template_string("""
@@ -2623,7 +2606,6 @@ def blog_view(slug: str):
       {% if post['tags'] %} - {% for t in post['tags'].split(',') if t %}
           <span class="tag">{{ t }}</span>
         {% endfor %}
-      {% endif %} - Integrity: <span class="{{ 'sig-ok' if sig_ok else 'sig-bad' }}">{{ 'Verified' if sig_ok else 'Unverified' }}</span>
       {% if session.get('is_admin') and post['status']!='published' %}
         <span class="badge badge-warning">PREVIEW ({{ post['status'] }})</span>
       {% endif %}
@@ -2634,7 +2616,7 @@ def blog_view(slug: str):
 </main>
 </body>
 </html>
-    """, post=post, sig_ok=sig_ok, accent=accent)
+    """, post=post, accent=accent)
 
                 
 def _csrf_from_request():
@@ -3091,22 +3073,20 @@ def _blog_backup_path() -> Path:
     return p
 
 def export_blog_posts_json() -> dict:
-    # Export plaintext fields + signature metadata; do not export encrypted blobs.
     out: list[dict] = []
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
         cur.execute(
-            "SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,sig_alg,sig_pub_fp8,sig_val "
+            "SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id "
             "FROM blog_posts ORDER BY created_at ASC"
         )
         rows = cur.fetchall()
 
-    for (pid, slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, updated_at, author_id, sig_alg, sig_pub_fp8, sig_val) in rows:
-        title = decrypt_data(title_enc) if title_enc else ""
-        content = decrypt_data(content_enc) if content_enc else ""
-        summary = decrypt_data(summary_enc) if summary_enc else ""
-        tags = decrypt_data(tags_enc) if tags_enc else ""
-        sig_b64 = base64.b64encode(sig_val).decode("ascii") if sig_val else ""
+    for (pid, slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, updated_at, author_id) in rows:
+        title = blog_decrypt(title_enc) if title_enc else ""
+        content = blog_decrypt(content_enc) if content_enc else ""
+        summary = blog_decrypt(summary_enc) if summary_enc else ""
+        tags = blog_decrypt(tags_enc) if tags_enc else ""
         out.append({
             "slug": slug,
             "title": title,
@@ -3117,12 +3097,9 @@ def export_blog_posts_json() -> dict:
             "created_at": created_at,
             "updated_at": updated_at,
             "author_id": int(author_id) if author_id is not None else None,
-            "sig_alg": sig_alg,
-            "sig_pub_fp8": sig_pub_fp8,
-            "sig_val_b64": sig_b64,
         })
 
-    return {"version": 1, "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "posts": out}
+    return {"version": 2, "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "posts": out}
 
 def write_blog_backup_file() -> None:
     try:
@@ -3161,32 +3138,24 @@ def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple
             if not isinstance(author_id, int) or author_id <= 0:
                 author_id = int(default_author_id)
 
-            sig_alg = item.get("sig_alg")
-            sig_pub_fp8 = item.get("sig_pub_fp8")
-            sig_val_b64 = item.get("sig_val_b64") or ""
-            try:
-                sig_val = base64.b64decode(sig_val_b64) if sig_val_b64 else None
-            except Exception:
-                sig_val = None
-
-            title_enc = encrypt_data(str(title))
-            content_enc = encrypt_data(str(content))
-            summary_enc = encrypt_data(str(summary)) if summary else None
-            tags_enc = encrypt_data(str(tags)) if tags else None
+            title_enc = blog_encrypt("title", str(title))
+            content_enc = blog_encrypt("content", str(content))
+            summary_enc = blog_encrypt("summary", str(summary))
+            tags_enc = blog_encrypt("tags", str(tags))
 
             cur.execute("SELECT id FROM blog_posts WHERE slug = ?", (slug,))
             existing = cur.fetchone()
             if existing:
                 cur.execute(
-                    "UPDATE blog_posts SET title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?, author_id=?, sig_alg=?, sig_pub_fp8=?, sig_val=? WHERE slug=?",
-                    (title_enc, content_enc, summary_enc, tags_enc, status, updated_at, author_id, sig_alg, sig_pub_fp8, sig_val, slug),
+                    "UPDATE blog_posts SET title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?, author_id=? WHERE slug=?",
+                    (title_enc, content_enc, summary_enc, tags_enc, status, updated_at, author_id, slug),
                 )
                 updated += 1
             else:
                 cur.execute(
-                    "INSERT INTO blog_posts (slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,sig_alg,sig_pub_fp8,sig_val) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, updated_at, author_id, sig_alg, sig_pub_fp8, sig_val),
+                    "INSERT INTO blog_posts (slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, updated_at, author_id),
                 )
                 inserted += 1
         db.commit()
