@@ -2181,6 +2181,26 @@ def sanitize_html(html: str) -> str:
     )
     return html
 
+
+def render_blog_markup(text: str) -> str:
+    raw = (text or "").replace("\x00", "")
+    try:
+        html = markdown(
+            raw,
+            extras=[
+                "fenced-code-blocks",
+                "tables",
+                "strike",
+                "task_list",
+                "cuddled-lists",
+                "code-friendly",
+                "break-on-newline",
+            ],
+        )
+    except Exception:
+        html = raw
+    return sanitize_html(html)
+
 def sanitize_text(s: str, max_len: int) -> str:
     s = bleach.clean(s or "", tags=[], attributes={}, protocols=_ALLOWED_PROTOCOLS, strip=True, strip_comments=True)
     s = re.sub(r'\s+', ' ', s).strip()
@@ -2226,11 +2246,13 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
         row = cur.fetchone()
     if not row:
         return None
+    summary_raw = blog_decrypt(row[4])
+    content_raw = blog_decrypt(row[3])
     post = {
         "id": row[0], "slug": row[1],
         "title": blog_decrypt(row[2]),
-        "content": blog_decrypt(row[3]),
-        "summary": blog_decrypt(row[4]),
+        "content": render_blog_markup(content_raw),
+        "summary": render_blog_markup(summary_raw) if summary_raw else "",
         "tags": blog_decrypt(row[5]),
         "status": row[6],
         "created_at": row[7],
@@ -2238,7 +2260,7 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
         "author_id": row[9],
     }
     return post
-    
+
 def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
@@ -2252,10 +2274,11 @@ def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
         rows = cur.fetchall()
     out = []
     for r in rows:
+        summary_raw = blog_decrypt(r[3])
         out.append({
             "id": r[0], "slug": r[1],
             "title": blog_decrypt(r[2]),
-            "summary": blog_decrypt(r[3]),
+            "summary": render_blog_markup(summary_raw) if summary_raw else "",
             "tags": blog_decrypt(r[4]),
             "status": r[5],
             "created_at": r[6], "updated_at": r[7],
@@ -2280,12 +2303,13 @@ def blog_list_featured(limit: int = 6) -> list[dict]:
         rows = cur.fetchall()
     out: list[dict] = []
     for r in rows:
+        summary_raw = blog_decrypt(r[3])
         out.append(
             {
                 "id": r[0],
                 "slug": r[1],
                 "title": blog_decrypt(r[2]),
-                "summary": blog_decrypt(r[3]),
+                "summary": render_blog_markup(summary_raw) if summary_raw else "",
                 "tags": blog_decrypt(r[4]),
                 "status": r[5],
                 "created_at": r[6],
@@ -2373,8 +2397,8 @@ def blog_save(
         return False, "Invalid status", None, None
 
     title_html = sanitize_text(title_html, 160)
-    content_html = sanitize_html(((content_html or "")[:200_000]))
-    summary_html = sanitize_html(((summary_html or "")[:20_000]))
+    content_md = (content_html or "").replace("\x00", "")[:200_000]
+    summary_md = (summary_html or "").replace("\x00", "")[:20_000]
 
     raw_tags = (tags_csv or "").strip()
     raw_tags = re.sub(r"[\r\n\t]+", " ", raw_tags)
@@ -2384,7 +2408,7 @@ def blog_save(
 
     if not (title_html or "").strip():
         return False, "Title is required", None, None
-    if not (content_html or "").strip():
+    if not (content_md or "").strip():
         return False, "Content is required", None, None
 
     def _valid_slug_local(s: str) -> bool:
@@ -2393,27 +2417,24 @@ def blog_save(
     def _slugify_local(s: str) -> str:
         s = re.sub(r"<[^>]+>", " ", s or "")
         s = s.lower().strip()
-        s = re.sub(r"['\"`]+", "", s)
+        s = re.sub(r"""['"`]+""", "", s)
         s = re.sub(r"[^a-z0-9]+", "-", s)
         s = re.sub(r"^-+|-+$", "", s)
         s = re.sub(r"-{2,}", "-", s)
-        if len(s) > 80:
-            s = s[:80]
-            s = re.sub(r"-+[^-]*$", "", s) or s.strip("-")
-        return s
+        return s[:120]
 
-    slug = (slug_in or "").strip().lower()
-    if slug and not _valid_slug_local(slug):
-        return False, "Slug must be lowercase letters/numbers and hyphens", None, None
-    if not slug:
+    slug = sanitize_text(slug_in or "", 120).lower()
+    if slug:
+        slug = _slugify_local(slug)
+        if not _valid_slug_local(slug):
+            return False, "Invalid slug", None, None
+    else:
         slug = _slugify_local(title_html)
-    if not _valid_slug_local(slug):
-        return False, "Unable to derive a valid slug", None, None
+        if not _valid_slug_local(slug):
+            return False, "Could not create a valid slug", None, None
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     created_at = now
-    existing = False
-
     try:
         with sqlite3.connect(DB_FILE) as db:
             cur = db.cursor()
@@ -2425,6 +2446,8 @@ def blog_save(
                     existing = True
                 else:
                     existing = False
+            else:
+                existing = False
 
             def _slug_exists_local(s: str) -> bool:
                 if post_id:
@@ -2443,8 +2466,8 @@ def blog_save(
                     return False, "Slug conflict; please edit slug", None, None
 
             title_enc = blog_encrypt("title", title_html, post_id)
-            content_enc = blog_encrypt("content", content_html, post_id)
-            summary_enc = blog_encrypt("summary", summary_html, post_id)
+            content_enc = blog_encrypt("content", content_md, post_id)
+            summary_enc = blog_encrypt("summary", summary_md, post_id)
             tags_enc = blog_encrypt("tags", tags_csv, post_id)
 
             if existing:
@@ -2605,7 +2628,7 @@ def blog_view(slug: str):
       {{ post['created_at'] }}
       {% if post['tags'] %} - {% for t in post['tags'].split(',') if t %}
           <span class="tag">{{ t }}</span>
-        {% endfor %}
+        {% endfor %}{% endif %}
       {% if session.get('is_admin') and post['status']!='published' %}
         <span class="badge badge-warning">PREVIEW ({{ post['status'] }})</span>
       {% endif %}
@@ -2709,7 +2732,7 @@ def blog_admin():
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>
         <div class="h4 mb-1">Blog Admin</div>
-        <div class="muted">Create, edit, and publish posts for QRoadScan.com</div>
+        <div class="muted">Create, edit, and publish posts for QRoadScan.com. Markdown is supported for excerpts and content.</div>
       </div>
       <div class="d-flex gap-2">
         <a class="btn btn-outline-light btnx" href="{{ url_for('home') }}">Home</a>
@@ -2744,13 +2767,14 @@ def blog_admin():
         </div>
 
         <div class="mb-2">
-          <label class="muted">Excerpt (shows on lists)</label>
+          <label class="muted">Excerpt / Summary (Markdown supported)</label>
           <textarea id="excerpt" class="form-control" placeholder="Short excerpt for list pages..."></textarea>
         </div>
 
         <div class="mb-2">
-          <label class="muted">Content (HTML allowed, sanitized)</label>
-          <textarea id="content" class="form-control" placeholder="Write the post..."></textarea>
+          <label class="muted">Content (Markdown supported; HTML still allowed)</label>
+          <textarea id="content" class="form-control" placeholder="Write the post in Markdown..."></textarea>
+          <div class="muted mt-1" style="font-size:.9rem">Examples: <code># Heading</code>, <code>**bold**</code>, lists, links, fenced code blocks, and tables.</div>
         </div>
 
         <div class="mb-3">
