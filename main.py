@@ -131,7 +131,7 @@ for state_name, state_info in US_STATES_DICT.items():
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-STRICT_PQ2_ONLY = True
+STRICT_PQ2_ONLY = os.getenv("STRICT_PQ2_ONLY", "1").strip().lower() in ("1", "true", "yes", "on")
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.DEBUG)
 
