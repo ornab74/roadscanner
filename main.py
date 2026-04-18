@@ -2181,26 +2181,6 @@ def sanitize_html(html: str) -> str:
     )
     return html
 
-
-def render_blog_markup(text: str) -> str:
-    raw = (text or "").replace("\x00", "")
-    try:
-        html = markdown(
-            raw,
-            extras=[
-                "fenced-code-blocks",
-                "tables",
-                "strike",
-                "task_list",
-                "cuddled-lists",
-                "code-friendly",
-                "break-on-newline",
-            ],
-        )
-    except Exception:
-        html = raw
-    return sanitize_html(html)
-
 def sanitize_text(s: str, max_len: int) -> str:
     s = bleach.clean(s or "", tags=[], attributes={}, protocols=_ALLOWED_PROTOCOLS, strip=True, strip_comments=True)
     s = re.sub(r'\s+', ' ', s).strip()
@@ -2212,14 +2192,72 @@ def sanitize_tags_csv(raw: str, max_tags: int = 50) -> str:
     out = ",".join(parts[:max_tags])
     return out[:500]
     
+BLOG_ENC_PREFIX = "BLG1."
+BLOG_REKEY_MARKER = Path('/var/data') / '.blog_rekey_v2.done'
+
+
 def _blog_ctx(field: str, rid: Optional[int] = None) -> dict:
     return build_hd_ctx(domain="blog", field=field, rid=rid)
-    
+
+
+def _blog_secret_bytes() -> bytes:
+    base = getattr(app, "secret_key", None) or app.config.get("SECRET_KEY")
+    return _require_secret_bytes(base, name="SECRET_KEY", env_hint="INVITE_CODE_SECRET_KEY")
+
+
+def _blog_master_key() -> bytes:
+    return _hmac_derive(_blog_secret_bytes(), b"qrs-blog-data-v1", out_len=32)
+
+
+def _blog_field_key(field: str) -> bytes:
+    safe_field = re.sub(r"[^a-z0-9_:-]+", "_", (field or "value").strip().lower()) or "value"
+    return _hmac_derive(_blog_master_key(), f"blog-field:{safe_field}".encode("utf-8"), out_len=32)
+
+
+def _blog_encrypt_stable(field: str, plaintext: str) -> str:
+    pt = (plaintext or "").replace("\x00", "").encode("utf-8")
+    nonce = secrets.token_bytes(12)
+    aad = f"blog:{field}:v1".encode("utf-8")
+    ct = AESGCM(_blog_field_key(field)).encrypt(nonce, pt, aad)
+    payload = {
+        "v": "BLG1",
+        "f": str(field or "value"),
+        "n": b64e(nonce),
+        "ct": b64e(ct),
+    }
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return BLOG_ENC_PREFIX + base64.urlsafe_b64encode(raw).decode("utf-8")
+
+
+def _blog_decrypt_stable(ciphertext: Optional[str]) -> Optional[str]:
+    if not isinstance(ciphertext, str) or not ciphertext.startswith(BLOG_ENC_PREFIX):
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(ciphertext[len(BLOG_ENC_PREFIX):].encode("utf-8"))
+        payload = json.loads(raw.decode("utf-8"))
+        if payload.get("v") != "BLG1":
+            return None
+        field = str(payload.get("f") or "value")
+        nonce = b64d(str(payload["n"]))
+        ct = b64d(str(payload["ct"]))
+        aad = f"blog:{field}:v1".encode("utf-8")
+        pt = AESGCM(_blog_field_key(field)).decrypt(nonce, ct, aad)
+        return pt.decode("utf-8")
+    except Exception:
+        return None
+
+
 def blog_encrypt(field: str, plaintext: str, rid: Optional[int] = None) -> str:
-    return encrypt_data(plaintext or "", ctx=_blog_ctx(field, rid))
-    
+    del rid
+    return _blog_encrypt_stable(field, plaintext or "")
+
+
 def blog_decrypt(ciphertext: Optional[str]) -> str:
-    if not ciphertext: return ""
+    if not ciphertext:
+        return ""
+    stable = _blog_decrypt_stable(ciphertext)
+    if stable is not None:
+        return stable
     return decrypt_data(ciphertext) or ""
     
 def _require_admin() -> Optional[Response]:
@@ -2246,13 +2284,11 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
         row = cur.fetchone()
     if not row:
         return None
-    summary_raw = blog_decrypt(row[4])
-    content_raw = blog_decrypt(row[3])
     post = {
         "id": row[0], "slug": row[1],
         "title": blog_decrypt(row[2]),
-        "content": render_blog_markup(content_raw),
-        "summary": render_blog_markup(summary_raw) if summary_raw else "",
+        "content": blog_decrypt(row[3]),
+        "summary": blog_decrypt(row[4]),
         "tags": blog_decrypt(row[5]),
         "status": row[6],
         "created_at": row[7],
@@ -2260,7 +2296,7 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
         "author_id": row[9],
     }
     return post
-
+    
 def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
@@ -2274,11 +2310,10 @@ def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
         rows = cur.fetchall()
     out = []
     for r in rows:
-        summary_raw = blog_decrypt(r[3])
         out.append({
             "id": r[0], "slug": r[1],
             "title": blog_decrypt(r[2]),
-            "summary": render_blog_markup(summary_raw) if summary_raw else "",
+            "summary": blog_decrypt(r[3]),
             "tags": blog_decrypt(r[4]),
             "status": r[5],
             "created_at": r[6], "updated_at": r[7],
@@ -2303,13 +2338,12 @@ def blog_list_featured(limit: int = 6) -> list[dict]:
         rows = cur.fetchall()
     out: list[dict] = []
     for r in rows:
-        summary_raw = blog_decrypt(r[3])
         out.append(
             {
                 "id": r[0],
                 "slug": r[1],
                 "title": blog_decrypt(r[2]),
-                "summary": render_blog_markup(summary_raw) if summary_raw else "",
+                "summary": blog_decrypt(r[3]),
                 "tags": blog_decrypt(r[4]),
                 "status": r[5],
                 "created_at": r[6],
@@ -2397,8 +2431,8 @@ def blog_save(
         return False, "Invalid status", None, None
 
     title_html = sanitize_text(title_html, 160)
-    content_md = (content_html or "").replace("\x00", "")[:200_000]
-    summary_md = (summary_html or "").replace("\x00", "")[:20_000]
+    content_html = sanitize_html(((content_html or "")[:200_000]))
+    summary_html = sanitize_html(((summary_html or "")[:20_000]))
 
     raw_tags = (tags_csv or "").strip()
     raw_tags = re.sub(r"[\r\n\t]+", " ", raw_tags)
@@ -2408,7 +2442,7 @@ def blog_save(
 
     if not (title_html or "").strip():
         return False, "Title is required", None, None
-    if not (content_md or "").strip():
+    if not (content_html or "").strip():
         return False, "Content is required", None, None
 
     def _valid_slug_local(s: str) -> bool:
@@ -2417,24 +2451,27 @@ def blog_save(
     def _slugify_local(s: str) -> str:
         s = re.sub(r"<[^>]+>", " ", s or "")
         s = s.lower().strip()
-        s = re.sub(r"""['"`]+""", "", s)
+        s = re.sub(r"['\"`]+", "", s)
         s = re.sub(r"[^a-z0-9]+", "-", s)
         s = re.sub(r"^-+|-+$", "", s)
         s = re.sub(r"-{2,}", "-", s)
-        return s[:120]
+        if len(s) > 80:
+            s = s[:80]
+            s = re.sub(r"-+[^-]*$", "", s) or s.strip("-")
+        return s
 
-    slug = sanitize_text(slug_in or "", 120).lower()
-    if slug:
-        slug = _slugify_local(slug)
-        if not _valid_slug_local(slug):
-            return False, "Invalid slug", None, None
-    else:
+    slug = (slug_in or "").strip().lower()
+    if slug and not _valid_slug_local(slug):
+        return False, "Slug must be lowercase letters/numbers and hyphens", None, None
+    if not slug:
         slug = _slugify_local(title_html)
-        if not _valid_slug_local(slug):
-            return False, "Could not create a valid slug", None, None
+    if not _valid_slug_local(slug):
+        return False, "Unable to derive a valid slug", None, None
 
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     created_at = now
+    existing = False
+
     try:
         with sqlite3.connect(DB_FILE) as db:
             cur = db.cursor()
@@ -2446,8 +2483,6 @@ def blog_save(
                     existing = True
                 else:
                     existing = False
-            else:
-                existing = False
 
             def _slug_exists_local(s: str) -> bool:
                 if post_id:
@@ -2466,8 +2501,8 @@ def blog_save(
                     return False, "Slug conflict; please edit slug", None, None
 
             title_enc = blog_encrypt("title", title_html, post_id)
-            content_enc = blog_encrypt("content", content_md, post_id)
-            summary_enc = blog_encrypt("summary", summary_md, post_id)
+            content_enc = blog_encrypt("content", content_html, post_id)
+            summary_enc = blog_encrypt("summary", summary_html, post_id)
             tags_enc = blog_encrypt("tags", tags_csv, post_id)
 
             if existing:
@@ -2732,7 +2767,7 @@ def blog_admin():
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>
         <div class="h4 mb-1">Blog Admin</div>
-        <div class="muted">Create, edit, and publish posts for QRoadScan.com. Markdown is supported for excerpts and content.</div>
+        <div class="muted">Create, edit, and publish posts for QRoadScan.com</div>
       </div>
       <div class="d-flex gap-2">
         <a class="btn btn-outline-light btnx" href="{{ url_for('home') }}">Home</a>
@@ -2767,14 +2802,13 @@ def blog_admin():
         </div>
 
         <div class="mb-2">
-          <label class="muted">Excerpt / Summary (Markdown supported)</label>
+          <label class="muted">Excerpt (shows on lists)</label>
           <textarea id="excerpt" class="form-control" placeholder="Short excerpt for list pages..."></textarea>
         </div>
 
         <div class="mb-2">
-          <label class="muted">Content (Markdown supported; HTML still allowed)</label>
-          <textarea id="content" class="form-control" placeholder="Write the post in Markdown..."></textarea>
-          <div class="muted mt-1" style="font-size:.9rem">Examples: <code># Heading</code>, <code>**bold**</code>, lists, links, fenced code blocks, and tables.</div>
+          <label class="muted">Content (HTML allowed, sanitized)</label>
+          <textarea id="content" class="form-control" placeholder="Write the post..."></textarea>
         </div>
 
         <div class="mb-3">
@@ -3131,6 +3165,78 @@ def write_blog_backup_file() -> None:
         _blog_backup_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         logger.debug(f"Blog backup write failed: {e}")
+
+
+def run_blog_encryption_migration_once() -> None:
+    if BLOG_REKEY_MARKER.exists():
+        return
+
+    backup_map: dict[str, dict] = {}
+    try:
+        bp = _blog_backup_path()
+        if bp.exists():
+            payload = json.loads(bp.read_text(encoding="utf-8"))
+            posts = payload.get("posts") if isinstance(payload, dict) else None
+            if isinstance(posts, list):
+                for item in posts:
+                    if isinstance(item, dict):
+                        slug = str(item.get("slug") or "").strip()
+                        if slug:
+                            backup_map[slug] = item
+    except Exception as e:
+        logger.debug(f"Blog backup preload failed: {e}")
+
+    migrated = 0
+    recovered = 0
+    unresolved = 0
+
+    try:
+        with sqlite3.connect(DB_FILE) as db:
+            cur = db.cursor()
+            cur.execute("SELECT id, slug, title_enc, content_enc, summary_enc, tags_enc FROM blog_posts ORDER BY id ASC")
+            rows = cur.fetchall()
+
+            for pid, slug, title_enc, content_enc, summary_enc, tags_enc in rows:
+                raw_title = blog_decrypt(title_enc) if title_enc else ""
+                raw_content = blog_decrypt(content_enc) if content_enc else ""
+                raw_summary = blog_decrypt(summary_enc) if summary_enc else ""
+                raw_tags = blog_decrypt(tags_enc) if tags_enc else ""
+
+                legacy = any(isinstance(v, str) and v.startswith(MAGIC_PQ2_PREFIX) for v in (title_enc, content_enc, summary_enc, tags_enc))
+                if not legacy:
+                    continue
+
+                backup = backup_map.get(str(slug or ""), {}) if isinstance(backup_map.get(str(slug or ""), {}), dict) else {}
+                title_plain = raw_title if raw_title else str(backup.get("title") or "")
+                content_plain = raw_content if raw_content else str(backup.get("content") or "")
+                summary_plain = raw_summary if raw_summary else str(backup.get("summary") or "")
+                tags_plain = raw_tags if raw_tags else str(backup.get("tags") or "")
+
+                if not title_plain and not content_plain and not summary_plain and not tags_plain:
+                    unresolved += 1
+                    continue
+
+                cur.execute(
+                    "UPDATE blog_posts SET title_enc=?, content_enc=?, summary_enc=?, tags_enc=? WHERE id=?",
+                    (
+                        blog_encrypt("title", title_plain),
+                        blog_encrypt("content", content_plain),
+                        blog_encrypt("summary", summary_plain),
+                        blog_encrypt("tags", tags_plain),
+                        int(pid),
+                    ),
+                )
+                migrated += 1
+                if backup and ((not raw_title and title_plain) or (not raw_content and content_plain) or (not raw_summary and summary_plain) or (not raw_tags and tags_plain)):
+                    recovered += 1
+
+            db.commit()
+
+        BLOG_REKEY_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        BLOG_REKEY_MARKER.write_text(str(int(time.time())), encoding="utf-8")
+        logger.info("Blog encryption migration finished: migrated=%s recovered_from_backup=%s unresolved=%s", migrated, recovered, unresolved)
+    except Exception as e:
+        logger.error("Blog encryption migration failed: %s", e, exc_info=True)
 
 def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple[int, int]:
     # Returns (inserted, updated)
@@ -3694,6 +3800,7 @@ def init_app_once():
         ensure_admin_from_env()
         enforce_admin_presence()
         restore_blog_backup_if_db_empty()
+        run_blog_encryption_migration_once()
         _init_done = True
 
 
