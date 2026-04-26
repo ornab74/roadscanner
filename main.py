@@ -1,11 +1,21 @@
-from __future__ import annotations 
+from __future__ import annotations
 import logging
 import httpx
 import sqlite3
-import psutil
-from flask import (
-    Flask, render_template_string, request, redirect, url_for,
-    session, jsonify, flash, make_response, Response, stream_with_context)
+import importlib
+from typing import Any, Tuple, Callable, Dict, List, Union, Optional, Mapping, Iterator, cast
+from collections import deque
+
+_psutil_mod: Any = None
+try:
+    _psutil_mod = importlib.import_module("psutil")
+except Exception:
+    pass
+psutil: Any = _psutil_mod
+
+from flask import (Flask, render_template_string, request, redirect, url_for,
+                   session, jsonify, flash, make_response, Response,
+                   stream_with_context)
 from flask_wtf import FlaskForm, CSRFProtect
 from flask_wtf.csrf import generate_csrf
 from wtforms import StringField, PasswordField, SubmitField, TextAreaField, SelectField
@@ -13,14 +23,61 @@ from wtforms.validators import DataRequired, Length
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.backends import default_backend
-
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from argon2.low_level import Type
-from datetime import timedelta, datetime
-from markdown2 import markdown
-import bleach
-import geonamescache
+from datetime import timedelta, datetime, timezone
+import html as _html
+try:
+    from markdown2 import markdown
+except Exception:
+    def markdown(text, *args, **kwargs):
+        safe = _html.escape("" if text is None else str(text))
+        return f"<p>{safe}</p>"
+
+class _BleachFallback:
+    class sanitizer:
+        ALLOWED_TAGS = frozenset({
+            "a", "abbr", "acronym", "b", "blockquote", "code", "em",
+            "i", "li", "ol", "strong", "ul"
+        })
+        ALLOWED_ATTRIBUTES = {
+            "a": ["href", "title"],
+            "abbr": ["title"],
+            "acronym": ["title"],
+        }
+
+    @staticmethod
+    def clean(text, tags=None, attributes=None, strip=False, **kwargs):
+        return _html.escape("" if text is None else str(text))
+
+    @staticmethod
+    def linkify(text, callbacks=None, skip_tags=None, **kwargs):
+        return "" if text is None else str(text)
+
+_bleach_mod: Any = None
+try:
+    _bleach_mod = importlib.import_module("bleach")
+except Exception:
+    pass
+bleach: Any = _bleach_mod if _bleach_mod is not None else _BleachFallback()
+
+_geonamescache_mod: Any = None
+try:
+    _geonamescache_mod = importlib.import_module("geonamescache")
+except Exception:
+    pass
+geonamescache: Any = _geonamescache_mod
+import importlib
+from typing import Any
+
+Llama: Any = None
+
+try:
+    _llama_mod = importlib.import_module("llama_cpp")
+    Llama = getattr(_llama_mod, "Llama", None)
+except Exception:
+    pass
 import random
 import re
 import base64
@@ -30,16 +87,20 @@ import time
 import hmac
 import hashlib
 import secrets
-from typing import Tuple, Callable, Dict, List, Union, Any, Optional, Mapping, cast
 import uuid
 import asyncio
 import sys
+
+_qml_mod: Any = None
+_pnp_mod: Any = None
 try:
-    import pennylane as qml
-    from pennylane import numpy as pnp
+    _qml_mod = importlib.import_module("pennylane")
+    _pnp_mod = importlib.import_module("pennylane.numpy")
 except Exception:
-    qml = None
-    pnp = None
+    pass
+qml: Any = _qml_mod
+pnp: Any = _pnp_mod
+
 import numpy as np
 from pathlib import Path
 import os
@@ -51,76 +112,62 @@ from argon2.low_level import hash_secret_raw, Type as ArgonType
 from numpy.random import Generator, PCG64DXSM
 import itertools
 import colorsys
-import os
-import json
-import time
-import bleach
-import logging
-import asyncio
-import numpy as np
-from typing import Optional, Mapping, Any, Tuple
-
-import pennylane 
-import random
-import asyncio
-from typing import Optional
-from pennylane import numpy as pnp
-
-from flask import request, session, redirect, url_for, render_template_string, jsonify
-from flask_wtf.csrf import generate_csrf, validate_csrf
+from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
-import sqlite3
 from dataclasses import dataclass
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import x25519, ed25519
-from collections import deque
 from flask.sessions import SecureCookieSessionInterface
-from flask.json.tag  import TaggedJSONSerializer
+from flask.json.tag import TaggedJSONSerializer
 from itsdangerous import URLSafeTimedSerializer, BadSignature, BadTimeSignature
-import zlib as _zlib 
+import zlib as _zlib
+
+zstd: Any = None
+_HAS_ZSTD = False
 try:
-    import zstandard as zstd  
+    zstd = importlib.import_module("zstandard")
     _HAS_ZSTD = True
 except Exception:
-    zstd = None  
-    _HAS_ZSTD = False
+    pass
 
 try:
     from typing import TypedDict
 except ImportError:
     from typing_extensions import TypedDict
 
+oqs: Any = None
 try:
-    import oqs as _oqs  
-    oqs = cast(Any, _oqs)  
+    oqs = importlib.import_module("oqs")
 except Exception:
-    oqs = cast(Any, None)
+    pass
 
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.wrappers import Response as WerkzeugResponse
+_fcntl_mod: Any = None
 try:
-    import fcntl  
+    _fcntl_mod = importlib.import_module("fcntl")
 except Exception:
-    fcntl = None
+    pass
+fcntl: Any = _fcntl_mod
+
 class SealedCache(TypedDict, total=False):
     x25519_priv_raw: bytes
     pq_priv_raw: Optional[bytes]
     sig_priv_raw: bytes
+    sig_pub_raw: Optional[bytes]
     kem_alg: str
     sig_alg: str
-try:
-    import numpy as np
-except Exception:
-    np = None
 
-
-import geonamescache
-
-
-geonames = geonamescache.GeonamesCache()
-CITIES = geonames.get_cities()                    
-US_STATES_DICT = geonames.get_us_states()         
-COUNTRIES = geonames.get_countries()              
-
+if geonamescache is not None:
+    geonames = geonamescache.GeonamesCache()
+    CITIES = geonames.get_cities()
+    US_STATES_DICT = geonames.get_us_states()
+    COUNTRIES = geonames.get_countries()
+else:
+    geonames = None
+    CITIES = {}
+    US_STATES_DICT = {}
+    COUNTRIES = {}
 
 US_STATES_BY_ABBREV = {}
 for state_name, state_info in US_STATES_DICT.items():
@@ -163,8 +210,8 @@ class _StartupOnceMiddleware:
         return self.wsgi_app(environ, start_response)
 
 
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
-app.wsgi_app = _StartupOnceMiddleware(app.wsgi_app)
+cast(Any, app).wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+cast(Any, app).wsgi_app = _StartupOnceMiddleware(app.wsgi_app)
 
 
 SECRET_KEY = os.getenv("INVITE_CODE_SECRET_KEY")
@@ -189,6 +236,18 @@ _entropy_state = {
             [int.from_bytes(os.urandom(4), 'big') for _ in range(8)]))
 }
 
+
+def _entropy_next_wheel_bytes() -> bytes:
+    wheel = cast(Iterator[bytes], _entropy_state["wheel"])
+    return next(wheel)
+
+
+def _entropy_randint(low: int, high: int | None = None) -> int:
+    rng = cast(Any, _entropy_state["rng"])
+    if high is None:
+        return int(rng.integers(low))
+    return int(rng.integers(low, high))
+
 ADMIN_USERNAME = os.getenv("admin_username")
 ADMIN_PASS = os.getenv("admin_pass")
 
@@ -208,6 +267,61 @@ if 'parse_safe_float' not in globals():
         if not math.isfinite(f):
             raise ValueError("Non-finite float not allowed")
         return f
+
+
+def _safe_cpu_percent(interval: float | None = None) -> float:
+    """Return CPU percent without requiring psutil to be installed."""
+    if psutil is not None:
+        try:
+            value = psutil.cpu_percent(interval=interval)
+            return float(value if value is not None else 0.0)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+def _safe_virtual_memory_percent() -> float:
+    """Return memory percent without requiring psutil to be installed."""
+    if psutil is not None:
+        try:
+            memory = psutil.virtual_memory()
+            return float(getattr(memory, "percent", 0.0) or 0.0)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+def _safe_cpu_count() -> int:
+    if psutil is not None:
+        try:
+            count = _safe_cpu_count()
+            return int(count or 1)
+        except Exception:
+            pass
+    return int(os.cpu_count() or 1)
+
+
+def _safe_sensors_temperatures() -> dict[str, Any]:
+    if psutil is not None:
+        try:
+            temps = _safe_sensors_temperatures()
+            return temps if isinstance(temps, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _safe_process_count() -> int:
+    if psutil is not None:
+        try:
+            pids = psutil.pids()
+            return len(pids) if pids is not None else 0
+        except Exception:
+            return 0
+    try:
+        return len([p for p in Path("/proc").iterdir() if p.name.isdigit()])
+    except Exception:
+        return 0
 
 ENV_SALT_B64              = "QRS_SALT_B64"            
 ENV_X25519_PUB_B64        = "QRS_X25519_PUB_B64"
@@ -232,6 +346,13 @@ def _b64get(name: str, required: bool = False) -> Optional[bytes]:
         return None
     return base64.b64decode(s.encode("utf-8"))
 
+
+def _b64get_required(name: str) -> bytes:
+    raw = _b64get(name, required=True)
+    if raw is None:
+        raise ValueError(f"Missing required env var: {name}")
+    return raw
+
 def _derive_kek(passphrase: str, salt: bytes) -> bytes:
     return hash_secret_raw(
         passphrase.encode("utf-8"),
@@ -249,20 +370,24 @@ def _enc_with_label(kek: bytes, label: bytes, raw: bytes) -> bytes:
     return n + ct
 
 def _detect_oqs_kem() -> Optional[str]:
-    if oqs is None: return None
+    if oqs is None:
+        return None
+    oqs_mod: Any = oqs
     for n in ("ML-KEM-768","Kyber768","FIPS204-ML-KEM-768"):
         try:
-            oqs.KeyEncapsulation(n)
+            oqs_mod.KeyEncapsulation(n)
             return n
         except Exception:
             continue
     return None
 
 def _detect_oqs_sig() -> Optional[str]:
-    if oqs is None: return None
+    if oqs is None:
+        return None
+    oqs_mod: Any = oqs
     for n in ("ML-DSA-87","ML-DSA-65","Dilithium5","Dilithium3"):
         try:
-            oqs.Signature(n)
+            oqs_mod.Signature(n)
             return n
         except Exception:
             continue
@@ -317,7 +442,8 @@ def bootstrap_env_keys(strict_pq2: bool = True, echo_exports: bool = False) -> N
             if not alg and strict_pq2:
                 raise RuntimeError("Strict PQ2 mode: ML-KEM not available.")
             if alg and oqs is not None:
-                with oqs.KeyEncapsulation(alg) as kem:
+                oqs_mod: Any = oqs
+                with oqs_mod.KeyEncapsulation(alg) as kem:
                     pq_pub = kem.generate_keypair()
                     pq_sk  = kem.export_secret_key()
                 pq_enc = _enc_with_label(kek, b"pqkem", pq_sk)
@@ -332,8 +458,9 @@ def bootstrap_env_keys(strict_pq2: bool = True, echo_exports: bool = False) -> N
 
     if not (os.getenv(ENV_SIG_ALG) and os.getenv(ENV_SIG_PUB_B64) and os.getenv(ENV_SIG_PRIV_ENC_B64)):
         pq_sig = _detect_oqs_sig()
-        if pq_sig:
-            with oqs.Signature(pq_sig) as s:
+        if pq_sig and oqs is not None:
+            oqs_mod: Any = oqs
+            with oqs_mod.Signature(pq_sig) as s:
                 sig_pub = s.generate_keypair()
                 sig_sk  = s.export_secret_key()
             sig_enc = _enc_with_label(kek, b"pqsig", sig_sk)
@@ -419,16 +546,16 @@ def generate_very_strong_secret_key():
         os.urandom(64),
         secrets.token_bytes(48),
         uuid.uuid4().bytes,
-        f"{psutil.cpu_percent()}|{psutil.virtual_memory().percent}".encode(),
+        f"{_safe_cpu_percent()}|{_safe_virtual_memory_percent()}".encode(),
         str((time.time_ns(), time.perf_counter_ns())).encode(),
         f"{os.getpid()}:{os.getppid()}:{threading.get_ident()}".encode(),
-        next(_entropy_state["wheel"]),
+        _entropy_next_wheel_bytes(),
     ]
 
     base = hashlib.blake2b(b"||".join(E), digest_size=64).digest()
     chaotic = _chaotic_three_fry_mix(base)
 
-    rounds = int(_entropy_state["rng"].integers(1, 5))
+    rounds = _entropy_randint(1, 5)
     for _ in range(4 + rounds):
         chaotic = hashlib.shake_256(chaotic).digest(64)
         chaotic = _chaotic_three_fry_mix(chaotic)
@@ -449,7 +576,7 @@ def generate_very_strong_secret_key():
     final_key = hkdf.derive(raw)
 
     lhs = int.from_bytes(final_key[:16], 'big')
-    rhs = int(_entropy_state["rng"].integers(0, 1 << 63))
+    rhs = int(_entropy_randint(0, 1 << 63))
     seed64 = (lhs ^ rhs) & ((1 << 64) - 1)
 
     seed_list = [(seed64 >> 32) & 0xffffffff, seed64 & 0xffffffff]
@@ -460,10 +587,10 @@ def generate_very_strong_secret_key():
 
 def get_very_complex_random_interval():
 
-    c = psutil.cpu_percent()
-    r = psutil.virtual_memory().percent
-    cw = int.from_bytes(next(_entropy_state["wheel"]), 'big')
-    rng = _entropy_state["rng"].integers(7, 15)
+    c = _safe_cpu_percent()
+    r = _safe_virtual_memory_percent()
+    cw = int.from_bytes(_entropy_next_wheel_bytes(), 'big')
+    rng = _entropy_randint(7, 15)
     base = (9 * 60) + secrets.randbelow(51 * 60)
     jitter = int((c * r * 13 + cw * 7 + rng) % 311)
     return base + jitter
@@ -479,9 +606,9 @@ _LAST_SESSION_KEY_WINDOW: int | None = None
 _SESSION_KEY_ROTATION_LOG_LOCK = threading.Lock()
 
 def _log_session_key_rotation(window: int, current_key: bytes) -> None:
-    
+
     global _LAST_SESSION_KEY_WINDOW
-    
+
     if not SESSION_KEY_ROTATION_ENABLED:
         return
     with _SESSION_KEY_ROTATION_LOG_LOCK:
@@ -491,11 +618,11 @@ def _log_session_key_rotation(window: int, current_key: bytes) -> None:
 
     try:
         start_ts = window * SESSION_KEY_ROTATION_PERIOD_SECONDS
-        start_utc = datetime.utcfromtimestamp(start_ts).isoformat() + "Z"
+        start_utc = datetime.fromtimestamp(start_ts, timezone.utc).isoformat().replace("+00:00", "Z")
     except Exception:
         start_utc = "<unknown>"
 
-    
+
     fp = hashlib.sha256(current_key).hexdigest()[:12]
     logger.info(
         "Session key rotation: window=%s start_utc=%s period_s=%s lookback=%s fp=%s",
@@ -507,7 +634,7 @@ def _log_session_key_rotation(window: int, current_key: bytes) -> None:
     )
 
 def _require_secret_bytes(value, *, name: str = "SECRET_KEY", env_hint: str = "INVITE_CODE_SECRET_KEY") -> bytes:
-   
+
     if value is None:
         raise RuntimeError(f"{name} is not set. Provide a strong secret via the {env_hint} environment variable.")
     if isinstance(value, bytearray):
@@ -661,14 +788,23 @@ def apply_csp(response):
                   "base-uri 'self'; ")
     response.headers['Content-Security-Policy'] = csp_policy
     return response
-    
+
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I | re.M)
 
 def _sanitize(s: str) -> str:
     if not isinstance(s, str):
         return ""
     return _JSON_FENCE.sub("", s).strip()
-    
+
+
+def _request_json_dict(*, force: bool = False, silent: bool = True) -> Dict[str, Any]:
+    """Return a JSON object body or {}, never None/list/scalar."""
+    try:
+        obj = request.get_json(force=force, silent=silent)
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
 class KeyManager:
     encryption_key: Optional[bytes]
     passphrase_env_var: str
@@ -682,16 +818,24 @@ class KeyManager:
     sig_pub: Optional[bytes] = None
     _sig_priv_enc: Optional[bytes] = None
     sealed_store: Optional["SealedStore"] = None
-   
 
-    def _oqs_kem_name(self) -> Optional[str]: ...
-    def _load_or_create_hybrid_keys(self) -> None: ...
-    def _decrypt_x25519_priv(self) -> x25519.X25519PrivateKey: ...
-    def _decrypt_pq_priv(self) -> Optional[bytes]: ...
-    def _load_or_create_signing(self) -> None: ...
-    def _decrypt_sig_priv(self) -> bytes: ...
-    def sign_blob(self, data: bytes) -> bytes: ...
-    def verify_blob(self, pub: bytes, sig_bytes: bytes, data: bytes) -> bool: ...
+
+    def _oqs_kem_name(self) -> Optional[str]:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def _load_or_create_hybrid_keys(self) -> None:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def _decrypt_x25519_priv(self) -> x25519.X25519PrivateKey:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def _decrypt_pq_priv(self) -> Optional[bytes]:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def _load_or_create_signing(self) -> None:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def _decrypt_sig_priv(self) -> bytes:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def sign_blob(self, data: bytes) -> bytes:
+        raise NotImplementedError("patched onto KeyManager after class definition")
+    def verify_blob(self, pub: bytes, sig_bytes: bytes, data: bytes) -> bool:
+        raise NotImplementedError("patched onto KeyManager after class definition")
 
     def __init__(self, passphrase_env_var: str = 'ENCRYPTION_PASSPHRASE'):
         self.encryption_key = None
@@ -718,7 +862,7 @@ class KeyManager:
             logger.critical(f"The environment variable {self.passphrase_env_var} is not set.")
             raise ValueError(f"No {self.passphrase_env_var} environment variable set")
 
-        salt = _b64get(ENV_SALT_B64, required=True)
+        salt = _b64get_required(ENV_SALT_B64)
         try:
             kdf = Scrypt(salt=salt, length=32, n=65536, r=8, p=1, backend=self.backend)
             self.encryption_key = kdf.derive(passphrase.encode())
@@ -836,9 +980,9 @@ class ColorSync:
         self._epoch = secrets.token_bytes(16)
 
     def sample(self, uid: str | None = None) -> dict:
-        
+
         if uid is not None:
-            
+
             seed = _stable_seed(uid + base64.b16encode(self._epoch[:4]).decode())
             rng = random.Random(seed)
 
@@ -866,7 +1010,7 @@ class ColorSync:
                 "source": "accent",
             }
 
-        
+
         try:
             cpu, ram = get_cpu_ram_usage()
         except Exception:
@@ -923,7 +1067,7 @@ class ColorSync:
 
     @staticmethod
     def _rgb_to_hsl(rgb_int: int) -> tuple[int, int, int]:
-        
+
         r = (rgb_int >> 16 & 0xFF) / 255.0
         g = (rgb_int >> 8 & 0xFF) / 255.0
         b = (rgb_int & 0xFF) / 255.0
@@ -1069,7 +1213,7 @@ class SealedStore:
             , "sig_pub": b64e(getattr(self.km, "sig_pub", b"") or b"")}
 
             passphrase = os.getenv(self.km.passphrase_env_var) or ""
-            salt = _b64get(ENV_SALT_B64, required=True)
+            salt = _b64get_required(ENV_SALT_B64)
             base_kek = hash_secret_raw(
                 passphrase.encode(), salt,
                 3, 512*1024, max(2, (os.cpu_count() or 2)//2), 32, ArgonType.ID
@@ -1088,7 +1232,7 @@ class SealedStore:
                 return False
 
             passphrase = os.getenv(self.km.passphrase_env_var) or ""
-            salt = _b64get(ENV_SALT_B64, required=True)
+            salt = _b64get_required(ENV_SALT_B64)
             base_kek = hash_secret_raw(
                 passphrase.encode(), salt,
                 3, 512*1024, max(2, (os.cpu_count() or 2)//2), 32, ArgonType.ID
@@ -1128,7 +1272,7 @@ class SealedStore:
         except Exception as e:
             logger.error(f"Sealed load failed: {e}")
             return False
-            
+
 def _km_oqs_kem_name(self) -> Optional[str]:
     if oqs is None:
         return None
@@ -1152,18 +1296,18 @@ def _try(f: Callable[[], Any]) -> bool:
 STRICT_PQ2_ONLY = bool(int(os.getenv("STRICT_PQ2_ONLY", "1")))
 
 def _km_load_or_create_hybrid_keys(self: "KeyManager") -> None:
-    
+
     cache = getattr(self, "_sealed_cache", None)
 
-    
+
     x_pub_b   = _b64get(ENV_X25519_PUB_B64, required=False)
     x_privenc = _b64get(ENV_X25519_PRIV_ENC_B64, required=False)
 
     if x_pub_b:
-        
+
         self.x25519_pub = x_pub_b
     elif cache and cache.get("x25519_priv_raw"):
-        
+
         self.x25519_pub = (
             x25519.X25519PrivateKey
             .from_private_bytes(cache["x25519_priv_raw"])
@@ -1174,10 +1318,10 @@ def _km_load_or_create_hybrid_keys(self: "KeyManager") -> None:
     else:
         raise RuntimeError("x25519 key material not found (neither ENV nor sealed cache).")
 
-    
+
     self._x25519_priv_enc = x_privenc or b""
 
-    
+
     self._pq_alg_name = os.getenv(ENV_PQ_KEM_ALG) or None
     if not self._pq_alg_name and cache and cache.get("kem_alg"):
         self._pq_alg_name = str(cache["kem_alg"]) or None
@@ -1185,17 +1329,17 @@ def _km_load_or_create_hybrid_keys(self: "KeyManager") -> None:
     pq_pub_b   = _b64get(ENV_PQ_PUB_B64, required=False)
     pq_privenc = _b64get(ENV_PQ_PRIV_ENC_B64, required=False)
 
-    
+
     self.pq_pub       = pq_pub_b or None
     self._pq_priv_enc = pq_privenc or None
 
-    
+
     if STRICT_PQ2_ONLY:
         have_priv = bool(pq_privenc) or bool(cache and cache.get("pq_priv_raw"))
         if not (self._pq_alg_name and self.pq_pub and have_priv):
             raise RuntimeError("Strict PQ2 mode: ML-KEM keys not fully available (need alg+pub+priv).")
 
-    
+
     logger.debug(
         "Hybrid keys loaded: x25519_pub=%s, pq_alg=%s, pq_pub=%s, pq_priv=%s (sealed=%s)",
         "yes" if self.x25519_pub else "no",
@@ -1213,7 +1357,7 @@ def _km_decrypt_x25519_priv(self: "KeyManager") -> x25519.X25519PrivateKey:
 
     x_enc = cast(bytes, getattr(self, "_x25519_priv_enc"))
     passphrase = os.getenv(self.passphrase_env_var) or ""
-    salt = _b64get(ENV_SALT_B64, required=True)
+    salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(passphrase.encode(), salt, 3, 512*1024, max(2, (os.cpu_count() or 2)//2), 32, ArgonType.ID)
     aes = AESGCM(kek)
     n, ct = x_enc[:12], x_enc[12:]
@@ -1221,19 +1365,19 @@ def _km_decrypt_x25519_priv(self: "KeyManager") -> x25519.X25519PrivateKey:
     return x25519.X25519PrivateKey.from_private_bytes(raw)
 
 def _km_decrypt_pq_priv(self: "KeyManager") -> Optional[bytes]:
-    
+
     cache = getattr(self, "_sealed_cache", None)
     if cache is not None and cache.get("pq_priv_raw") is not None:
         return cache.get("pq_priv_raw")
 
-    
+
     pq_alg = getattr(self, "_pq_alg_name", None)
     pq_enc = getattr(self, "_pq_priv_enc", None)
     if not (pq_alg and pq_enc):
         return None
 
     passphrase = os.getenv(self.passphrase_env_var) or ""
-    salt = _b64get(ENV_SALT_B64, required=True)
+    salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(
         passphrase.encode(), salt,
         3, 512 * 1024, max(2, (os.cpu_count() or 2) // 2),
@@ -1245,7 +1389,7 @@ def _km_decrypt_pq_priv(self: "KeyManager") -> Optional[bytes]:
 
 
 def _km_decrypt_sig_priv(self: "KeyManager") -> bytes:
-   
+
     cache = getattr(self, "_sealed_cache", None)
     if cache is not None and "sig_priv_raw" in cache:
         return cache["sig_priv_raw"]
@@ -1258,7 +1402,7 @@ def _km_decrypt_sig_priv(self: "KeyManager") -> bytes:
     if not passphrase:
         raise RuntimeError(f"{self.passphrase_env_var} not set")
 
-    salt = _b64get(ENV_SALT_B64, required=True)
+    salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(
         passphrase.encode(), salt,
         3, 512 * 1024, max(2, (os.cpu_count() or 2)//2),
@@ -1284,7 +1428,7 @@ def _oqs_sig_name() -> Optional[str]:
 
 
 def _km_load_or_create_signing(self: "KeyManager") -> None:
-    
+
     cache = getattr(self, "_sealed_cache", None)
 
     alg = os.getenv(ENV_SIG_ALG) or None
@@ -1293,7 +1437,7 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
 
     have_priv = bool(enc) or bool(cache is not None and cache.get("sig_priv_raw") is not None)
 
-    
+
     if not (alg and pub and have_priv):
         if cache is not None and cache.get("sig_priv_raw") is not None:
             alg_cache = (cache.get("sig_alg") or alg or "Ed25519")
@@ -1316,13 +1460,13 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
                 enc = enc or b""
                 have_priv = True
 
-    
+
     if not (alg and pub and have_priv):
         passphrase = os.getenv(self.passphrase_env_var) or ""
         if not passphrase:
             raise RuntimeError(f"{self.passphrase_env_var} not set")
 
-        salt = _b64get(ENV_SALT_B64, required=True)
+        salt = _b64get_required(ENV_SALT_B64)
         kek = hash_secret_raw(
             passphrase.encode(), salt,
             3, 512 * 1024, max(2, (os.cpu_count() or 2)//2),
@@ -1331,8 +1475,9 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
         aes = AESGCM(kek)
 
         try_pq = _oqs_sig_name() if oqs is not None else None
-        if try_pq:
-            with oqs.Signature(try_pq) as s:  # type: ignore[attr-defined]
+        if try_pq and oqs is not None:
+            oqs_mod: Any = oqs
+            with oqs_mod.Signature(try_pq) as s:
                 pub_raw = s.generate_keypair()
                 sk_raw  = s.export_secret_key()
             n = secrets.token_bytes(12)
@@ -1484,7 +1629,7 @@ class AuditTrail:
 
     def _key(self) -> bytes:
         passphrase = os.getenv(self.km.passphrase_env_var) or ""
-        salt = _b64get(ENV_SALT_B64, required=True)
+        salt = _b64get_required(ENV_SALT_B64)
         base_kek = hash_secret_raw(
             passphrase.encode(),
             salt,
@@ -1751,7 +1896,7 @@ def encrypt_data(data: Any, ctx: Optional[Mapping[str, Any]] = None) -> Optional
         sig_raw = key_manager.sign_blob(sig_payload)
 
         alg_id_short = SIG_ALG_IDS.get(sig_alg_name, ("Ed25519", "ED25"))[1]
-        sig_pub_b = cast(Optional[bytes], key_manager.sig_pub)
+        sig_pub_b = key_manager.sig_pub
         if sig_pub_b is None:
             raise RuntimeError("Signature public key not available")
 
@@ -1947,34 +2092,48 @@ def _values_for_types(col_types_ordered: list[tuple[str, str]], pattern_func):
     return vals
 
 
-dev = qml.device("default.qubit", wires=5)
+
+if qml is not None:
+    _qml5: Any = qml
+    dev = _qml5.device("default.qubit", wires=5)
+else:
+    _qml5 = None
+    dev = None
 
 
-def get_cpu_ram_usage():
-    return psutil.cpu_percent(), psutil.virtual_memory().percent
+def get_cpu_ram_usage() -> tuple[float, float]:
+    return _safe_cpu_percent(), _safe_virtual_memory_percent()
 
 
-@qml.qnode(dev)
-def quantum_hazard_scan(cpu_usage, ram_usage):
-    cpu_param = cpu_usage / 100
-    ram_param = ram_usage / 100
-    qml.RY(np.pi * cpu_param, wires=0)
-    qml.RY(np.pi * ram_param, wires=1)
-    qml.RY(np.pi * (0.5 + cpu_param), wires=2)
-    qml.RY(np.pi * (0.5 + ram_param), wires=3)
-    qml.RY(np.pi * (0.5 + cpu_param), wires=4)
-    qml.CNOT(wires=[0, 1])
-    qml.CNOT(wires=[1, 2])
-    qml.CNOT(wires=[2, 3])
-    qml.CNOT(wires=[3, 4])
-    return qml.probs(wires=[0, 1, 2, 3, 4])
+def _fallback_quantum_hazard_scan(cpu_usage: float, ram_usage: float) -> list[float]:
+    cpu_param = max(0.0, min(1.0, float(cpu_usage or 0.0) / 100.0))
+    ram_param = max(0.0, min(1.0, float(ram_usage or 0.0) / 100.0))
+    probs = [1.0 / 32.0] * 32
+    hot_idx = min(31, int(round((cpu_param * 0.55 + ram_param * 0.45) * 31)))
+    probs[hot_idx] += 0.25
+    total = sum(probs) or 1.0
+    return [p / total for p in probs]
 
-registration_enabled = True
 
-try:
-    quantum_hazard_scan
-except NameError:
-    quantum_hazard_scan = None  
+if _qml5 is not None and dev is not None:
+    _qml_runtime = cast(Any, _qml5)
+
+    @_qml_runtime.qnode(dev)
+    def quantum_hazard_scan(cpu_usage: float, ram_usage: float) -> Any:
+        cpu_param = cpu_usage / 100
+        ram_param = ram_usage / 100
+        _qml_runtime.RY(np.pi * cpu_param, wires=0)
+        _qml_runtime.RY(np.pi * ram_param, wires=1)
+        _qml_runtime.RY(np.pi * (0.5 + cpu_param), wires=2)
+        _qml_runtime.RY(np.pi * (0.5 + ram_param), wires=3)
+        _qml_runtime.RY(np.pi * (0.5 + cpu_param), wires=4)
+        _qml_runtime.CNOT(wires=[0, 1])
+        _qml_runtime.CNOT(wires=[1, 2])
+        _qml_runtime.CNOT(wires=[2, 3])
+        _qml_runtime.CNOT(wires=[3, 4])
+        return _qml_runtime.probs(wires=[0, 1, 2, 3, 4])
+else:
+    quantum_hazard_scan = _fallback_quantum_hazard_scan
 
 def create_tables():
     if not DB_FILE.exists():
@@ -2075,7 +2234,7 @@ def create_tables():
             )
         """)
 
-      
+
         cursor.execute("PRAGMA table_info(blog_posts)")
         blog_cols = {row[1] for row in cursor.fetchall()}
         blog_alters = {
@@ -2135,10 +2294,10 @@ def _slugify(title: str) -> str:
     if not base:
         base = secrets.token_hex(4)
     return base[:80]
-    
+
 def _valid_slug(slug: str) -> bool:
     return bool(_SLUG_RE.fullmatch(slug or ''))
-    
+
 _ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
     'p','h1','h2','h3','h4','h5','h6','ul','ol','li','strong','em','blockquote','code','pre',
     'a','img','hr','br','table','thead','tbody','tr','th','td','span'
@@ -2185,13 +2344,13 @@ def sanitize_text(s: str, max_len: int) -> str:
     s = bleach.clean(s or "", tags=[], attributes={}, protocols=_ALLOWED_PROTOCOLS, strip=True, strip_comments=True)
     s = re.sub(r'\s+', ' ', s).strip()
     return s[:max_len]
-    
+
 def sanitize_tags_csv(raw: str, max_tags: int = 50) -> str:
     parts = [sanitize_text(p, 40) for p in (raw or "").split(",")]
     parts = [p for p in parts if p]
     out = ",".join(parts[:max_tags])
     return out[:500]
-    
+
 BLOG_ENC_PREFIX = "BLG1."
 BLOG_REKEY_MARKER = Path('/var/data') / '.blog_rekey_v2.done'
 
@@ -2259,13 +2418,13 @@ def blog_decrypt(ciphertext: Optional[str]) -> str:
     if stable is not None:
         return stable
     return decrypt_data(ciphertext) or ""
-    
-def _require_admin() -> Optional[Response]:
+
+def _require_admin() -> Optional[WerkzeugResponse]:
     if not session.get('is_admin'):
         flash("Admin only.", "danger")
         return redirect(url_for('dashboard'))
     return None
-    
+
 def _get_userid_or_abort() -> int:
     if 'username' not in session:
         return -1
@@ -2296,7 +2455,7 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
         "author_id": row[9],
     }
     return post
-    
+
 def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
@@ -2322,7 +2481,7 @@ def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
     return out
 
 def blog_list_featured(limit: int = 6) -> list[dict]:
-   
+
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
         cur.execute(
@@ -2383,7 +2542,7 @@ def blog_set_featured(post_id: int, featured: bool, featured_rank: int = 0) -> b
     except Exception as e:
         logger.error(f"blog_set_featured failed: {e}", exc_info=True)
         return False
-        
+
 def blog_list_all_admin(limit: int = 200, offset: int = 0) -> list[dict]:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
@@ -2406,7 +2565,7 @@ def blog_list_all_admin(limit: int = 200, offset: int = 0) -> list[dict]:
             "featured_rank": int(r[7] or 0),
         })
     return out
-    
+
 def blog_slug_exists(slug: str, exclude_id: Optional[int]=None) -> bool:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
@@ -2415,7 +2574,7 @@ def blog_slug_exists(slug: str, exclude_id: Optional[int]=None) -> bool:
         else:
             cur.execute("SELECT 1 FROM blog_posts WHERE slug=? LIMIT 1", (slug,))
         return cur.fetchone() is not None
-        
+
 def blog_save(
     post_id: Optional[int],
     author_id: int,
@@ -2468,15 +2627,16 @@ def blog_save(
     if not _valid_slug_local(slug):
         return False, "Unable to derive a valid slug", None, None
 
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     created_at = now
     existing = False
+    post_id_int = int(post_id) if post_id is not None else None
 
     try:
         with sqlite3.connect(DB_FILE) as db:
             cur = db.cursor()
-            if post_id:
-                cur.execute("SELECT created_at FROM blog_posts WHERE id=? LIMIT 1", (int(post_id),))
+            if post_id_int is not None:
+                cur.execute("SELECT created_at FROM blog_posts WHERE id=? LIMIT 1", (post_id_int,))
                 row = cur.fetchone()
                 if row:
                     created_at = row[0]
@@ -2485,8 +2645,8 @@ def blog_save(
                     existing = False
 
             def _slug_exists_local(s: str) -> bool:
-                if post_id:
-                    cur.execute("SELECT 1 FROM blog_posts WHERE slug=? AND id<>? LIMIT 1", (s, int(post_id)))
+                if post_id_int is not None:
+                    cur.execute("SELECT 1 FROM blog_posts WHERE slug=? AND id<>? LIMIT 1", (s, post_id_int))
                 else:
                     cur.execute("SELECT 1 FROM blog_posts WHERE slug=? LIMIT 1", (s,))
                 return cur.fetchone() is not None
@@ -2500,23 +2660,25 @@ def blog_save(
                 if _slug_exists_local(slug):
                     return False, "Slug conflict; please edit slug", None, None
 
-            title_enc = blog_encrypt("title", title_html, post_id)
-            content_enc = blog_encrypt("content", content_html, post_id)
-            summary_enc = blog_encrypt("summary", summary_html, post_id)
-            tags_enc = blog_encrypt("tags", tags_csv, post_id)
+            title_enc = blog_encrypt("title", title_html, post_id_int)
+            content_enc = blog_encrypt("content", content_html, post_id_int)
+            summary_enc = blog_encrypt("summary", summary_html, post_id_int)
+            tags_enc = blog_encrypt("tags", tags_csv, post_id_int)
 
             if existing:
+                if post_id_int is None:
+                    return False, "Missing post id", None, None
                 cur.execute(
                     """
                     UPDATE blog_posts
                     SET slug=?, title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?
                     WHERE id=?
                     """,
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, now, int(post_id)),
+                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, now, post_id_int),
                 )
                 db.commit()
-                audit.append("blog_update", {"id": int(post_id), "slug": slug, "status": status}, actor=session.get("username") or "admin")
-                return True, "Updated", int(post_id), slug
+                audit.append("blog_update", {"id": post_id_int, "slug": slug, "status": status}, actor=session.get("username") or "admin")
+                return True, "Updated", post_id_int, slug
             else:
                 cur.execute(
                     """
@@ -2527,9 +2689,13 @@ def blog_save(
                     (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, now, int(author_id)),
                 )
                 new_id = cur.lastrowid
+                if new_id is None:
+                    db.rollback()
+                    return False, "Insert failed", None, None
+                new_id_int = int(new_id)
                 db.commit()
-                audit.append("blog_create", {"id": int(new_id), "slug": slug, "status": status}, actor=session.get("username") or "admin")
-                return True, "Created", int(new_id), slug
+                audit.append("blog_create", {"id": new_id_int, "slug": slug, "status": status}, actor=session.get("username") or "admin")
+                return True, "Created", new_id_int, slug
     except Exception as e:
         logger.error(f"blog_save failed: {e}", exc_info=True)
         return False, "DB error", None, None
@@ -2676,7 +2842,7 @@ def blog_view(slug: str):
 </html>
     """, post=post, accent=accent)
 
-                
+
 def _csrf_from_request():
     token = request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token")
     if not token:
@@ -3083,7 +3249,7 @@ def admin_blog_api_save():
     if not ok:
         return jsonify(ok=False, error=msg or "save_failed"), 400
 
-   
+
     if pid is not None:
         try:
             blog_set_featured(int(pid), bool(featured), int(featured_rank))
@@ -3659,7 +3825,7 @@ def overwrite_entropy_logs_by_passnum(cursor, pass_num: int, passes: int = 7):
         vals = _values_for_types(col_types, pattern)
         cursor.execute(sql, (*vals, pass_num))
         logger.debug("Pass %d complete for entropy_logs (pass_num).", i)
-        
+
 def _dynamic_argon2_hasher():
 
     try:
@@ -3796,7 +3962,7 @@ def init_app_once():
     with _init_lock:
         if _init_done:
             return
-        
+
         ensure_admin_from_env()
         enforce_admin_presence()
         restore_blog_backup_if_db_empty()
@@ -3887,7 +4053,7 @@ def start_background_jobs_once() -> None:
             logger.debug("Session key rotation disabled (set QRS_ROTATE_SESSION_KEY=0).")
 
         threading.Thread(target=delete_expired_data, daemon=True).start()
-        app._bg_started = True
+        setattr(app, "_bg_started", True)
         logger.debug("Background jobs started in PID %s", os.getpid())
     else:
         logger.debug("Background jobs skipped in PID %s (another proc owns the lock)", os.getpid())
@@ -3903,7 +4069,7 @@ def delete_expired_data():
             return 0
         return 1 if re.search(pattern, item) else 0
     while True:
-        expiration_str = (datetime.utcnow() - timedelta(hours=EXPIRATION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
+        expiration_str = (datetime.now(timezone.utc) - timedelta(hours=EXPIRATION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
         try:
             with sqlite3.connect(DB_FILE) as db:
                 db.row_factory = sqlite3.Row
@@ -3975,11 +4141,9 @@ def delete_user_data(user_id):
             exc_info=True)
 
 def sanitize_input(user_input):
-    """HTML-sanitize user-provided *displayable* text to reduce XSS risk.
-
-    IMPORTANT: Do NOT use this for passwords or other opaque secrets, since
-    HTML escaping (e.g. '&' -> '&amp;') will change the value.
-    """
+    """HTML-sanitize user-provided display text; preserve missing values as empty strings."""
+    if user_input is None:
+        return ""
     if not isinstance(user_input, str):
         user_input = str(user_input)
     return bleach.clean(user_input)
@@ -4001,8 +4165,12 @@ def sanitize_password(password):
         password = password.replace("\x00", "")
     return password
 
-gc = geonamescache.GeonamesCache()
-cities = gc.get_cities()
+if geonamescache is not None:
+    gc = geonamescache.GeonamesCache()
+    cities = gc.get_cities()
+else:
+    gc = None
+    cities = {}
 
 def _stable_seed(s: str) -> int:
     h = hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -4020,10 +4188,10 @@ def ensure_fp():
         uid = (session.get('username') or os.urandom(6).hex())
         fp = format(_stable_seed(uid), 'x')
         resp = make_response()
-        request._qrs_fp_to_set = fp
-        request._qrs_uid = uid
+        setattr(request, "_qrs_fp_to_set", fp)
+        setattr(request, "_qrs_uid", uid)
     else:
-        request._qrs_uid = fp
+        setattr(request, "_qrs_uid", fp)
 
 def _attach_cookie(resp):
     fp = getattr(request, "_qrs_fp_to_set", None)
@@ -4043,21 +4211,31 @@ def _safe_json_parse(txt: str):
             return None
     return None
 
+
 _QML_OK = False
+
+
+def _get_quantum_hazard_scan_callable() -> Callable[[float, float], Any]:
+    fn = globals().get("quantum_hazard_scan")
+    if callable(fn):
+        return cast(Callable[[float, float], Any], fn)
+    return _fallback_quantum_hazard_scan
+
 
 def _qml_ready() -> bool:
     try:
-        return (np is not None) and ('quantum_hazard_scan' in globals()) and callable(quantum_hazard_scan)
+        return np is not None
     except Exception:
         return False
 
+
 def _quantum_features(cpu: float, ram: float):
-    
-    if not _qml_ready():
+    scan_fn = _get_quantum_hazard_scan_callable()
+    if np is None:
         return None, "unavailable"
     try:
-        probs = np.asarray(quantum_hazard_scan(cpu, ram), dtype=float)  # le
-        
+        probs = np.asarray(scan_fn(cpu, ram), dtype=float)  # le
+
         H = float(-(probs * np.log2(np.clip(probs, 1e-12, 1))).sum())
         idx = int(np.argmax(probs))
         peak_p = float(probs[idx])
@@ -4078,8 +4256,8 @@ def _quantum_features(cpu: float, ram: float):
 
 
 def _system_signals(uid: str):
-    cpu = psutil.cpu_percent(interval=0.05)
-    ram = psutil.virtual_memory().percent
+    cpu = _safe_cpu_percent(interval=0.05)
+    ram = _safe_virtual_memory_percent()
     seed = _stable_seed(uid)
     rng = random.Random(seed ^ int(time.time() // 6))
     q_entropy = round(1.1 + rng.random() * 2.2, 2)
@@ -4212,16 +4390,12 @@ EXAMPLE
 # -----------------------------
 
 _OPENAI_BASE_URL = "https://api.openai.com/v1"
-_OPENAI_ASYNC_CLIENT: Optional[httpx.AsyncClient] = None
-
 def _maybe_openai_async_client() -> Optional[httpx.AsyncClient]:
-    global _OPENAI_ASYNC_CLIENT
+    """Create a fresh AsyncClient for the current request/event loop."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
-    if _OPENAI_ASYNC_CLIENT is not None:
-        return _OPENAI_ASYNC_CLIENT
-    _OPENAI_ASYNC_CLIENT = httpx.AsyncClient(
+    return httpx.AsyncClient(
         base_url=_OPENAI_BASE_URL,
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -4229,7 +4403,6 @@ def _maybe_openai_async_client() -> Optional[httpx.AsyncClient]:
         },
         timeout=httpx.Timeout(25.0, connect=10.0),
     )
-    return _OPENAI_ASYNC_CLIENT
 
 def _openai_extract_output_text(data: dict) -> str:
     if not isinstance(data, dict):
@@ -4275,7 +4448,8 @@ async def run_openai_response_text(
         payload["temperature"] = float(temperature)
 
     try:
-        r = await client.post("/responses", json=payload)
+        async with client:
+            r = await client.post("/responses", json=payload)
         if r.status_code != 200:
             logger.debug(f"OpenAI error {r.status_code}: {r.text[:200]}")
             return None
@@ -4286,15 +4460,7 @@ async def run_openai_response_text(
         return None
 
 
-try:
-    from pathlib import Path
-except Exception:
-    Path = None  # type: ignore
 
-try:
-    from llama_cpp import Llama  # type: ignore
-except Exception:
-    Llama = None  # type: ignore
 
 _LLAMA_MODEL = None
 _LLAMA_MODEL_LOCK = threading.Lock()
@@ -4409,9 +4575,13 @@ def llama_unload() -> None:
     with _LLAMA_MODEL_LOCK:
         _LLAMA_MODEL = None
 
-def llama_load() -> Optional["Llama"]:
+def llama_load() -> Optional[Any]:
     global _LLAMA_MODEL
-    if Llama is None:
+    llama_cls = Llama
+    if llama_cls is None:
+        return None
+    llama_factory = _as_callable(llama_cls)
+    if llama_factory is None:
         return None
     with _LLAMA_MODEL_LOCK:
         if _LLAMA_MODEL is not None:
@@ -4422,7 +4592,7 @@ def llama_load() -> Optional["Llama"]:
             if not ok:
                 return None
         try:
-            _LLAMA_MODEL = Llama(model_path=str(_llama_model_path()), n_ctx=2048, n_threads=max(1, (os.cpu_count() or 4)//2))
+            _LLAMA_MODEL = llama_factory(model_path=str(_llama_model_path()), n_ctx=2048, n_threads=max(1, (os.cpu_count() or 4)//2))
         except Exception as e:
             logger.debug(f"Local llama load failed: {e}")
             _LLAMA_MODEL = None
@@ -4604,16 +4774,16 @@ def collect_system_metrics() -> Dict[str, float]:
 
     if psutil is not None:
         try:
-            cpu = psutil.cpu_percent(interval=0.1) / 100.0
-            mem = psutil.virtual_memory().percent / 100.0
+            cpu = _safe_cpu_percent(interval=0.1) / 100.0
+            mem = _safe_virtual_memory_percent() / 100.0
             try:
                 load_raw = os.getloadavg()[0]
-                cpu_cnt = psutil.cpu_count(logical=True) or 1
+                cpu_cnt = _safe_cpu_count() or 1
                 load1 = max(0.0, min(1.0, load_raw / max(1.0, float(cpu_cnt))))
             except Exception:
                 load1 = None
             try:
-                temps_map = psutil.sensors_temperatures()
+                temps_map = _safe_sensors_temperatures()
                 if temps_map:
                     first = next(iter(temps_map.values()))[0].current
                     temp = max(0.0, min(1.0, (first - 20.0) / 70.0))
@@ -4622,7 +4792,7 @@ def collect_system_metrics() -> Dict[str, float]:
             except Exception:
                 temp = None
             try:
-                proc = min(len(psutil.pids()) / 1000.0, 1.0)
+                proc = min(_safe_process_count() / 1000.0, 1.0)
             except Exception:
                 proc = None
         except Exception:
@@ -4692,18 +4862,19 @@ def pennylane_entropic_score(rgb: Tuple[float, float, float], shots: int = 256) 
         noise = (random.random() - 0.5) * 0.08
         return max(0.0, min(1.0, base + noise))
 
-    dev = qml.device("default.qubit", wires=2, shots=shots)
+    qml_mod: Any = qml
+    dev = qml_mod.device("default.qubit", wires=2, shots=shots)
 
-    @qml.qnode(dev)
+    @qml_mod.qnode(dev)
     def circuit(a, b, c):
         # 2-qubit "2nd gate" setup
-        qml.RX(a * math.pi, wires=0)
-        qml.RY(b * math.pi, wires=1)
-        qml.CNOT(wires=[0, 1])
-        qml.RZ(c * math.pi, wires=1)
-        qml.RX((a + b) * math.pi / 2, wires=0)
-        qml.RY((b + c) * math.pi / 2, wires=1)
-        return qml.expval(qml.PauliZ(0)), qml.expval(qml.PauliZ(1))
+        qml_mod.RX(a * math.pi, wires=0)
+        qml_mod.RY(b * math.pi, wires=1)
+        qml_mod.CNOT(wires=[0, 1])
+        qml_mod.RZ(c * math.pi, wires=1)
+        qml_mod.RX((a + b) * math.pi / 2, wires=0)
+        qml_mod.RY((b + c) * math.pi / 2, wires=1)
+        return qml_mod.expval(qml_mod.PauliZ(0)), qml_mod.expval(qml_mod.PauliZ(1))
 
     a, b, c = float(rgb[0]), float(rgb[1]), float(rgb[2])
 
@@ -4783,14 +4954,25 @@ def punkd_apply(prompt_text: str, token_weights: Dict[str, float], profile: str 
     return patched, multiplier
 
 
+
+def _as_callable(obj: Any) -> Optional[Callable[..., Any]]:
+    if callable(obj):
+        return cast(Callable[..., Any], obj)
+    return None
+
 def chunked_generate(
-    llm: "Llama",
+    llm: Optional[Any],
     prompt: str,
     max_total_tokens: int = 256,
     chunk_tokens: int = 64,
     base_temperature: float = 0.2,
     punkd_profile: str = "balanced",
 ) -> str:
+    if llm is None:
+        return ""
+
+    llm_call = cast(Callable[..., Any], llm)
+
     assembled = ""
     cur_prompt = prompt
     token_weights = punkd_analyze(prompt, top_n=16)
@@ -4801,13 +4983,23 @@ def chunked_generate(
         patched_prompt, mult = punkd_apply(cur_prompt, token_weights, profile=punkd_profile)
         temp = max(0.01, min(2.0, base_temperature * mult))
 
-        out = llm(patched_prompt, max_tokens=chunk_tokens, temperature=temp)
+        out = llm_call(patched_prompt, max_tokens=chunk_tokens, temperature=temp)
         text_out = ""
+
         if isinstance(out, dict):
-            try:
-                text_out = out.get("choices", [{"text": ""}])[0].get("text", "")
-            except Exception:
-                text_out = out.get("text", "") if isinstance(out, dict) else ""
+            out_map = cast(Mapping[str, Any], out)
+            choices_obj = out_map.get("choices")
+
+            value_obj: Any = ""
+            if isinstance(choices_obj, list) and choices_obj:
+                first_choice = choices_obj[0]
+                if isinstance(first_choice, dict):
+                    value_obj = cast(Mapping[str, Any], first_choice).get("text", "")
+
+            if not value_obj:
+                value_obj = out_map.get("text", "")
+
+            text_out = "" if value_obj is None else str(value_obj)
         else:
             try:
                 text_out = str(out)
@@ -4837,7 +5029,6 @@ def chunked_generate(
         cur_prompt = prompt + "\n\nAssistant so far:\n" + assembled + "\n\nContinue:"
 
     return assembled.strip()
-
 
 def build_road_scanner_prompt(data: dict, include_system_entropy: bool = True) -> str:
     entropy_text = "entropic_score=unknown"
@@ -4957,7 +5148,7 @@ _GROK_BASE_URL = "https://api.x.ai/v1"
 _GROK_CHAT_PATH = "/chat/completions"
 
 def _maybe_grok_client():
-    
+
     global _GROK_CLIENT
     if _GROK_CLIENT is not None:
         return _GROK_CLIENT
@@ -4978,10 +5169,10 @@ def _maybe_grok_client():
         limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
     )
     return _GROK_CLIENT
-    
+
 
 def _call_llm(prompt: str, temperature: float = 0.7, model: str | None = None):
-  
+
     client = _maybe_grok_client()
     if not client:
         return None  
@@ -5021,10 +5212,50 @@ def api_theme_personalize():
     seed = colorsync.sample(uid)
     return jsonify({"hex": seed.get("hex", "#49c2ff"), "code": seed.get("qid25",{}).get("code","B2")})
 
+
+def _fallback_score(sig: dict, route: dict) -> dict[str, Any]:
+    """Deterministic QRS fallback when the LLM route scorer is unavailable."""
+    try:
+        cpu = float(sig.get("cpu", 0.0) or 0.0)
+    except Exception:
+        cpu = 0.0
+    try:
+        ram = float(sig.get("ram", 0.0) or 0.0)
+    except Exception:
+        ram = 0.0
+    try:
+        lat = float(route.get("lat", 0.0) or 0.0)
+        lon = float(route.get("lon", 0.0) or 0.0)
+        dest_lat = float(route.get("dest_lat", lat) or lat)
+        dest_lon = float(route.get("dest_lon", lon) or lon)
+        distance_hint = min(1.0, math.hypot(dest_lat - lat, dest_lon - lon) * 8.0)
+    except Exception:
+        distance_hint = 0.3
+    load_hint = max(0.0, min(1.0, (cpu * 0.45 + ram * 0.55) / 100.0))
+    risk = max(0.0, min(1.0, (load_hint * 0.55) + (distance_hint * 0.45)))
+    if risk <= 0.20:
+        label, color = "Clear", "#22d3a6"
+    elif risk <= 0.40:
+        label, color = "Light Caution", "#b3f442"
+    elif risk <= 0.60:
+        label, color = "Caution", "#ffb300"
+    elif risk <= 0.80:
+        label, color = "Elevated", "#ff8f1f"
+    else:
+        label, color = "Critical", "#ff3b1f"
+    return {
+        "harm_ratio": round(risk, 2),
+        "label": label,
+        "color": color,
+        "confidence": 0.54,
+        "reasons": ["Fallback route scoring used", "Review conditions before proceeding"],
+        "blurb": "Use cautious route planning until live scoring returns.",
+    }
+
 @app.route("/api/risk/llm_route", methods=["POST"])
 def api_llm_route():
     uid = _user_id()
-    body = request.get_json(force=True, silent=True) or {}
+    body = _request_json_dict(force=True, silent=True)
     try:
         route = {
             "lat": float(body["lat"]), "lon": float(body["lon"]),
@@ -5036,22 +5267,21 @@ def api_llm_route():
     sig = _system_signals(uid)
     prompt = _build_route_prompt(uid, sig, route)
     data = _call_llm(prompt) or _fallback_score(sig, route)
-    data["server_enriched"] = {"ts": datetime.utcnow().isoformat()+"Z","mode":"route","sig": sig,"route": route}
+    data["server_enriched"] = {"ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),"mode":"route","sig": sig,"route": route}
     return _attach_cookie(jsonify(data))
-    
+
 @app.route("/api/risk/stream")
 def api_stream():
-    
+
     uid = _user_id()
 
-    @stream_with_context
-    def gen():
+    def gen() -> Iterator[str]:
         for _ in range(24):
             sig = _system_signals(uid)
             prompt = _build_guess_prompt(uid, sig)
             data = _call_llm(prompt)  # no local fallback
 
-            meta = {"ts": datetime.utcnow().isoformat() + "Z", "mode": "guess", "sig": sig}
+            meta = {"ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "mode": "guess", "sig": sig}
             if not data:
                 payload = {"error": "llm_unavailable", "server_enriched": meta}
             else:
@@ -5061,11 +5291,11 @@ def api_stream():
             yield f"data: {json.dumps(payload, separators=(',',':'))}\n\n"
             time.sleep(3.2)
 
-    resp = Response(gen(), mimetype="text/event-stream")
+    resp = Response(stream_with_context(gen()), mimetype="text/event-stream")
     resp.headers["Cache-Control"] = "no-cache"
     resp.headers["X-Accel-Buffering"] = "no"   # avoids buffering on some proxies
     return _attach_cookie(resp)
-    
+
 def _safe_get(d: Dict[str, Any], keys: List[str], default: str = "") -> str:
     for k in keys:
         v = d.get(k)
@@ -5074,7 +5304,7 @@ def _safe_get(d: Dict[str, Any], keys: List[str], default: str = "") -> str:
     return default
 
 def _initial_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    
+
     phi1, phi2 = map(math.radians, [lat1, lat2])
     d_lambda = math.radians(lon2 - lon1)
     y = math.sin(d_lambda) * math.cos(phi2)
@@ -5187,7 +5417,7 @@ def _first_line_stripped(text: str) -> str:
     return (text or "").splitlines()[0].strip()
 
 def reverse_geocode(lat: float, lon: float) -> str:
- 
+
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return "Invalid Coordinates"
 
@@ -5226,7 +5456,7 @@ def reverse_geocode(lat: float, lon: float) -> str:
         country_name = COUNTRIES.get(country_code, {}).get("name", "Unknown Country")
         return f"{city_name}, {country_name}"
 
-    
+
     state_name = US_STATES_BY_ABBREV.get(state_code, state_code or "Unknown State")
     return f"{city_name}, {state_name}, United States"
 
@@ -5887,7 +6117,7 @@ def check_rate_limit(user_id):
 def generate_secure_invite_code(length=16, hmac_length=16):
     alphabet = string.ascii_uppercase + string.digits
     invite_code = ''.join(secrets.choice(alphabet) for _ in range(length))
-    hmac_digest = hmac.new(SECRET_KEY, invite_code.encode(),
+    hmac_digest = hmac.new(_require_secret_bytes(SECRET_KEY), invite_code.encode(),
                            hashlib.sha256).hexdigest()[:hmac_length]
     return f"{invite_code}-{hmac_digest}"
 
@@ -5904,7 +6134,7 @@ def validate_invite_code_format(invite_code_with_hmac,
         if not all(char in allowed_chars for char in invite_code):
             return False
 
-        expected_hmac = hmac.new(SECRET_KEY, invite_code.encode(),
+        expected_hmac = hmac.new(_require_secret_bytes(SECRET_KEY), invite_code.encode(),
                                  hashlib.sha256).hexdigest()[:hmac_length]
 
         return hmac.compare_digest(expected_hmac, provided_hmac)
@@ -6145,7 +6375,7 @@ async def scan_debris_for_route(
         cpu_usage, ram_usage = 0.0, 0.0
 
     try:
-        quantum_results = quantum_hazard_scan(cpu_usage, ram_usage)
+        quantum_results = _get_quantum_hazard_scan_callable()(cpu_usage, ram_usage)
     except Exception:
         quantum_results = "Scan Failed"
 
@@ -6408,18 +6638,18 @@ def home():
   <meta name="description" content="QRoadScan.com turns complex driving signals into a simple live risk colorwheel. Get traffic risk insights, road hazard awareness, and smarter safety decisions with a calming, perceptual visual that updates in real time." />
   <meta name="keywords" content="QRoadScan, live traffic risk, road hazard alerts, driving safety, AI traffic insights, risk meter, traffic risk map, smart driving, predictive road safety, real-time hazard detection, safe route planning, road conditions, commute safety, accident risk, driver awareness" />
   <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
-  <meta name="theme-color" content="{{ seed_hex }}" />
+  <meta name="theme-color" content="#0b0f17" />
   <link rel="canonical" href="{{ request.url }}" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="QRoadScan.com" />
   <meta property="og:title" content="QRoadScan.com | Live Traffic Risk & Road Hazard Intelligence" />
   <meta property="og:description" content="A live risk colorwheel that helps you read the road at a glance. Real-time safety signals, calm visuals, smarter driving decisions." />
   <meta property="og:url" content="{{ request.url }}" />
-  
+
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="QRoadScan.com | Live Traffic Risk & Road Hazard Intelligence" />
   <meta name="twitter:description" content="See risk instantly with the QRoadScan Colorwheel. Safer decisions, calmer driving." />
-  
+
 
   <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
@@ -6447,6 +6677,7 @@ def home():
 
   <style>
     :root{
+      color-scheme: dark;
       --bg1:#0b0f17; --bg2:#0d1423; --bg3:#0b1222;
       --ink:#eaf5ff; --sub:#b8cfe4; --muted:#95b2cf;
       --glass:#ffffff14; --stroke:#ffffff22;
@@ -6455,10 +6686,7 @@ def home():
       --halo-alpha:.28; --halo-blur:1.05; --glow-mult:1.0; --sweep-speed:.12;
       --shadow-lg: 0 24px 70px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
     }
-    @media (prefers-color-scheme: light){
-      :root{ --bg1:#eef2f7; --bg2:#e5edf9; --bg3:#dde7f6; --ink:#0b1726; --sub:#37536e; --muted:#5a7b97; --glass:#00000010; --stroke:#00000018; }
-    }
-    html,body{height:100%}
+    html,body{height:100%; background:#0b0f17 !important; color:var(--ink) !important;}
     body{
       background:
         radial-gradient(1200px 700px at 10% -20%, color-mix(in oklab, var(--accent) 9%, var(--bg2)), var(--bg1) 58%),
@@ -6480,12 +6708,22 @@ def home():
     }
     @keyframes drift{ from{transform:translateY(-0.5%) scale(1.02)} to{transform:translateY(1.2%) scale(1)} }
     .navbar{
-      background: color-mix(in srgb, #000 62%, transparent);
+      background: color-mix(in srgb, #000 76%, transparent);
       backdrop-filter: saturate(140%) blur(10px);
       -webkit-backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--stroke);
     }
     .navbar-brand{ font-family:'Orbitron',sans-serif; letter-spacing:.5px; }
+    .navbar .nav-link, .navbar .navbar-brand{ color:var(--ink) !important; }
+    .navbar .nav-link:hover, .navbar .navbar-brand:hover{ color:color-mix(in oklab, var(--accent) 82%, #ffffff) !important; }
+    .btn-outline-light{ color:var(--ink) !important; border-color:rgba(234,245,255,.42) !important; background:rgba(255,255,255,.04); }
+    .btn-outline-light:hover, .btn-outline-light:focus{ color:#07121f !important; background:color-mix(in oklab, var(--accent) 76%, #ffffff) !important; border-color:transparent !important; }
+    .btn-light{ color:var(--ink) !important; background:rgba(255,255,255,.12) !important; border:1px solid var(--stroke) !important; }
+    .btn-light:hover, .btn-light:focus{ color:#07121f !important; background:color-mix(in oklab, var(--accent) 76%, #ffffff) !important; }
+    .text-dark, .text-body, .text-muted{ color:var(--sub) !important; }
+    .bg-light, .card, .list-group-item, .dropdown-menu{ background:#0f1728 !important; color:var(--ink) !important; border-color:var(--stroke) !important; }
+    a{ color:color-mix(in oklab, var(--accent) 74%, #cfeaff); }
+    a:hover{ color:#ffffff; }
     .hero{
       position:relative; border-radius:calc(var(--radius) + 10px);
       background: color-mix(in oklab, var(--glass) 96%, transparent);
@@ -7014,7 +7252,7 @@ def login():
     <title>Login - QRS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-    
+
     <link rel="stylesheet" href="{{ url_for('static', filename='css/orbitron.css') }}" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}"
           integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
@@ -7105,7 +7343,7 @@ def login():
         </div>
     </div>
 
-    
+
     <script>
     document.addEventListener('DOMContentLoaded', function () {
         var toggler = document.querySelector('.navbar-toggler');
@@ -7126,7 +7364,7 @@ def login():
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    
+
     registration_enabled = os.getenv('REGISTRATION_ENABLED', 'false').lower() == 'true'
 
     error_message = ""
@@ -7200,7 +7438,7 @@ def register():
             .container { margin-top: 50px; }
             .brand { font-size: 2rem; }
         }
-    
+
         /* Password rules checklist */
         .pw-rules{ margin-top:10px; display:grid; gap:8px; }
         .pw-rules-title{
@@ -7237,7 +7475,7 @@ def register():
 </style>
 </head>
 <body>
-    
+
     <nav class="navbar navbar-expand-lg navbar-dark">
         <a class="navbar-brand" href="{{ url_for('home') }}">QRS</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav"
@@ -7298,7 +7536,7 @@ def register():
             toggler.addEventListener('click', function () {
                 var isShown = nav.classList.toggle('show');
                 toggler.setAttribute('aria-expanded', isShown ? 'true' : 'false');
-        
+
         // Password live checklist (matches validate_password_strength on server)
         const pw = document.getElementById('password');
         const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
@@ -7394,7 +7632,7 @@ def register():
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
-    
+
 
     import os  
 
@@ -7405,7 +7643,7 @@ def settings():
     new_invite_code = None
     form = SettingsForm()
 
-    
+
     def _read_registration_from_env():
         val = os.getenv('REGISTRATION_ENABLED', 'false')
         return (val, str(val).strip().lower() in ('1', 'true', 'yes', 'on'))
@@ -7423,10 +7661,10 @@ def settings():
                 db.commit()
             message = f"New invite code generated: {new_invite_code}"
 
-        
+
         env_val, registration_enabled = _read_registration_from_env()
 
-   
+
     invite_codes = []
     with sqlite3.connect(DB_FILE) as db:
         cursor = db.cursor()
@@ -7773,7 +8011,7 @@ def view_report(report_id):
     </div>
 </div>
 <script>
-    let synth = window.speechSynthesis;
+    const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
     let utterances = [];
     let currentUtteranceIndex = 0;
     let isSpeaking = false;
@@ -7781,6 +8019,8 @@ def view_report(report_id):
     let selectedVoice = null;
     let voicesLoaded = false;
     let originalReportHTML = null;
+    let speechRunId = 0;
+    let stopRequested = false;
 
     const fillers = {
         start: ['umm, ', 'well, ', 'so, ', 'let me see, ', 'okay, ', 'hmm, ', 'right, ', 'alright, ', 'you know, ', 'basically, '],
@@ -7789,42 +8029,80 @@ def view_report(report_id):
     };
 
     window.addEventListener('load', () => {
-        originalReportHTML = document.getElementById('reportMarkdown').innerHTML;
+        const reportEl = document.getElementById('reportMarkdown');
+        originalReportHTML = reportEl ? reportEl.innerHTML : '';
         preloadVoices().catch((error) => {
-            console.error("Failed to preload voices:", error);
+            console.warn('Voice preload warning:', error);
         });
     });
 
+    function normalizeSpeechText(text) {
+        return String(text || '')
+            .replace(/```[\s\S]*?```/g, ' ')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/[#>*_~|]+/g, ' ')
+            .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+            .replace(/\bCPU\b/g, 'C P U')
+            .replace(/\bRAM\b/g, 'R A M')
+            .replace(/\bUV\b/g, 'U V')
+            .replace(/°\s*C\b/g, ' degrees Celsius')
+            .replace(/°\s*F\b/g, ' degrees Fahrenheit')
+            .replace(/\bkm\/h\b/g, ' kilometers per hour')
+            .replace(/\bmm\b/g, ' millimeters')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function chunkSpeechText(text, maxLen) {
+        const s = String(text || '').trim();
+        if (!s) return [];
+        if (s.length <= maxLen) return [s];
+        const chunks = [];
+        let rest = s;
+        while (rest.length > maxLen) {
+            let cut = rest.lastIndexOf(';', maxLen);
+            if (cut < 80) cut = rest.lastIndexOf(',', maxLen);
+            if (cut < 80) cut = rest.lastIndexOf(' ', maxLen);
+            if (cut < 80) cut = maxLen;
+            chunks.push(rest.slice(0, cut).trim());
+            rest = rest.slice(cut).trim();
+        }
+        if (rest) chunks.push(rest);
+        return chunks;
+    }
+
     async function preloadVoices() {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
+            if (!synth) {
+                resolve([]);
+                return;
+            }
             function loadVoices() {
-                availableVoices = synth.getVoices();
+                availableVoices = synth.getVoices() || [];
                 if (availableVoices.length !== 0) {
                     voicesLoaded = true;
-                    resolve();
+                    resolve(availableVoices);
+                    return true;
                 }
+                return false;
             }
-            loadVoices();
+            if (loadVoices()) return;
             synth.onvoiceschanged = () => {
-                loadVoices();
+                if (loadVoices()) synth.onvoiceschanged = null;
             };
             setTimeout(() => {
-                if (availableVoices.length === 0) {
-                    reject(new Error("Voices did not load in time."));
-                }
-            }, 5000);
+                voicesLoaded = true;
+                resolve(synth.getVoices() || []);
+            }, 1500);
         });
     }
 
     function selectBestVoice() {
-        let voice = availableVoices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('female'));
-        if (!voice) {
-            voice = availableVoices.find(v => v.lang.startsWith('en'));
-        }
-        if (!voice && availableVoices.length > 0) {
-            voice = availableVoices[0];
-        }
-        return voice;
+        const voices = availableVoices.length ? availableVoices : (synth ? synth.getVoices() : []);
+        let voice = voices.find(v => v.lang && v.lang.startsWith('en') && v.name.toLowerCase().includes('female'));
+        if (!voice) voice = voices.find(v => v.lang && v.lang.startsWith('en'));
+        if (!voice && voices.length > 0) voice = voices[0];
+        return voice || null;
     }
 
     function preprocessText(text) {
@@ -7833,13 +8111,9 @@ def view_report(report_id):
         const preprocessedSentences = mergedSentences.map(sentence => {
             let fillerType = null;
             const rand = Math.random();
-            if (rand < 0.02) {
-                fillerType = 'start';
-            } else if (rand >= 0.02 && rand < 0.04) {
-                fillerType = 'middle';
-            } else if (rand >= 0.04 && rand < 0.06) {
-                fillerType = 'end';
-            }
+            if (rand < 0.02) fillerType = 'start';
+            else if (rand < 0.04) fillerType = 'middle';
+            else if (rand < 0.06) fillerType = 'end';
             if (fillerType) {
                 let filler = fillers[fillerType][Math.floor(Math.random() * fillers[fillerType].length)];
                 if (fillerType === 'middle') {
@@ -7859,10 +8133,14 @@ def view_report(report_id):
     }
 
     function splitIntoSentences(text) {
-        text = text.replace(/\\d+/g, '');
-        const sentenceEndings = /(?<!\\b(?:[A-Za-z]\\.|\d+\\.\\d+))(?<=\\.|\\!|\\?)(?=\\s+)/;
-
-        return text.split(sentenceEndings).filter(sentence => sentence.trim().length > 0);
+        text = normalizeSpeechText(text);
+        if (!text) return [];
+        const rough = text
+            .replace(/([.!?])\s+/g, '$1|')
+            .split('|')
+            .map(s => s.trim())
+            .filter(Boolean);
+        return rough.flatMap(s => chunkSpeechText(s, 220));
     }
 
     function mergeShortSentences(sentences) {
@@ -7881,30 +8159,28 @@ def view_report(report_id):
                 mergedSentences.push(sentence.trim());
             }
         });
-        if (tempSentence) {
-            mergedSentences.push(tempSentence);
-        }
-        return mergedSentences;
+        if (tempSentence) mergedSentences.push(tempSentence);
+        return mergedSentences.flatMap(s => chunkSpeechText(s, 220));
     }
 
     function detectEmphasis(sentence) {
         const emphasisKeywords = ['cpu usage', 'ram usage', 'model used', 'destination', 'location'];
-        return emphasisKeywords.filter(keyword => sentence.toLowerCase().includes(keyword));
+        return emphasisKeywords.some(keyword => String(sentence || '').toLowerCase().includes(keyword));
     }
 
     function adjustSpeechParameters(utterance, sentence) {
-        const emphasizedWords = detectEmphasis(sentence);
-        if (emphasizedWords.length > 0) {
-            utterance.pitch = 1.4;
-            utterance.rate = 1.0;
+        if (detectEmphasis(sentence)) {
+            utterance.pitch = 1.15;
+            utterance.rate = 0.98;
         } else {
-            utterance.pitch = 1.2;
-            utterance.rate = 0.9;
+            utterance.pitch = 1.05;
+            utterance.rate = 0.95;
         }
     }
 
     function initializeProgressBar(totalSentences) {
         const progressBar = document.getElementById('speechProgressBar');
+        if (!progressBar) return;
         progressBar.style.width = '0%';
         progressBar.setAttribute('aria-valuenow', 0);
         progressBar.textContent = `0%`;
@@ -7914,9 +8190,10 @@ def view_report(report_id):
 
     function updateProgressBar() {
         const progressBar = document.getElementById('speechProgressBar');
-        let current = parseInt(progressBar.dataset.current) + 1;
-        const total = parseInt(progressBar.dataset.total);
-        const percentage = Math.floor((current / total) * 100);
+        if (!progressBar) return;
+        let current = parseInt(progressBar.dataset.current || '0', 10) + 1;
+        const total = parseInt(progressBar.dataset.total || '0', 10);
+        const percentage = total > 0 ? Math.min(100, Math.floor((current / total) * 100)) : 0;
         progressBar.style.width = `${percentage}%`;
         progressBar.setAttribute('aria-valuenow', percentage);
         progressBar.textContent = `${percentage}%`;
@@ -7925,36 +8202,30 @@ def view_report(report_id):
 
     function updateSpeechStatus(status) {
         const speechStatus = document.getElementById('speechStatus');
-        speechStatus.textContent = `Speech synthesis is ${status}.`;
+        if (speechStatus) speechStatus.textContent = `Speech synthesis is ${status}.`;
     }
 
     async function readAloud() {
-        if (!('speechSynthesis' in window)) {
+        if (!synth) {
             alert("Sorry, your browser does not support Speech Synthesis.");
             return;
         }
-        if (isSpeaking) {
-            alert("Speech is already in progress.");
-            return;
-        }
-        if (!voicesLoaded) {
-            try {
-                await preloadVoices();
-            } catch (error) {
-                console.error("Error loading voices:", error);
-                alert("Could not load voices for speech.");
-                return;
-            }
-        }
+        if (isSpeaking) return;
 
-        selectedVoice = selectBestVoice();
-        if (!selectedVoice) {
-            alert("No available voices for speech synthesis.");
-            return;
+        const runId = ++speechRunId;
+        stopRequested = false;
+        try { synth.cancel(); } catch(e) {}
+        await new Promise(resolve => setTimeout(resolve, 80));
+        if (runId !== speechRunId) return;
+
+        if (!voicesLoaded) {
+            await preloadVoices();
         }
+        selectedVoice = selectBestVoice();
 
         const reportContentElement = document.getElementById('reportMarkdown');
-        const reportContent = reportContentElement.innerText;
+        if (!reportContentElement) return;
+        const reportContent = reportContentElement.innerText || '';
         const routeDetails = `
             Date: {{ report['timestamp'] }}.
             Location: {{ report['latitude'] }}, {{ report['longitude'] }}.
@@ -7964,48 +8235,67 @@ def view_report(report_id):
             Model Used: {{ report['model_used'] }}.
         `;
         const combinedText = preprocessText(reportContent + ' ' + routeDetails);
-        const sentences = splitIntoSentences(combinedText);
+        const sentences = splitIntoSentences(combinedText).filter(s => s.length > 1);
+        if (!sentences.length) {
+            updateSpeechStatus('not active');
+            return;
+        }
 
-        initializeProgressBar(sentences.length);
-        updateSpeechStatus('in progress');
-        synth.cancel();
-        utterances = [];
-        currentUtteranceIndex = 0;
-        isSpeaking = true;
-
-        sentences.forEach((sentence) => {
+        utterances = sentences.map((sentence) => {
             const utterance = new SpeechSynthesisUtterance(sentence.trim());
             adjustSpeechParameters(utterance, sentence);
             utterance.volume = 1;
-            utterance.voice = selectedVoice;
-
-            utterance.onend = () => {
-                updateProgressBar();
-                currentUtteranceIndex++;
-                if (currentUtteranceIndex < utterances.length) {
-                    synth.speak(utterances[currentUtteranceIndex]);
-                } else {
-                    isSpeaking = false;
-                    updateSpeechStatus('not active');
-                }
-            };
-            utterance.onerror = (event) => {
-                console.error('SpeechSynthesisUtterance.onerror', event);
-                alert("Speech has stopped");
-                isSpeaking = false;
-                updateSpeechStatus('not active');
-            };
-            utterances.push(utterance);
+            utterance.voice = selectedVoice || null;
+            utterance.lang = (selectedVoice && selectedVoice.lang) || 'en-US';
+            return utterance;
         });
 
-        if (utterances.length > 0) {
-            synth.speak(utterances[0]);
-        }
+        initializeProgressBar(utterances.length);
+        updateSpeechStatus('in progress');
+        currentUtteranceIndex = 0;
+        isSpeaking = true;
+
+        const speakNext = () => {
+            if (runId !== speechRunId || !isSpeaking || stopRequested) return;
+            if (currentUtteranceIndex >= utterances.length) {
+                stopSpeech(true);
+                return;
+            }
+            const utterance = utterances[currentUtteranceIndex];
+            utterance.onend = () => {
+                if (runId !== speechRunId) return;
+                updateProgressBar();
+                currentUtteranceIndex++;
+                window.setTimeout(speakNext, 40);
+            };
+            utterance.onerror = (event) => {
+                if (runId !== speechRunId) return;
+                const err = event && event.error ? String(event.error) : 'unknown';
+                if (err === 'interrupted' || err === 'canceled') {
+                    if (stopRequested || !isSpeaking) return;
+                    updateProgressBar();
+                    currentUtteranceIndex++;
+                    window.setTimeout(speakNext, 80);
+                    return;
+                }
+                console.warn('Speech synthesis warning:', err, event);
+                stopSpeech(false);
+            };
+            try {
+                synth.speak(utterance);
+            } catch (e) {
+                console.warn('Speech synthesis failed to start:', e);
+                stopSpeech(false);
+            }
+        };
+        window.setTimeout(speakNext, 40);
     }
 
-    function stopSpeech() {
-        if (synth.speaking) {
-            synth.cancel();
+    function stopSpeech(naturalEnd) {
+        speechRunId++;
+        stopRequested = true;
+        if (!naturalEnd && synth) {
+            try { synth.cancel(); } catch(e) {}
         }
         utterances = [];
         currentUtteranceIndex = 0;
@@ -8018,13 +8308,13 @@ def view_report(report_id):
             readAloud();
         }
         if (event.ctrlKey && event.altKey && event.key.toLowerCase() === 's') {
-            stopSpeech();
+            stopSpeech(false);
         }
     });
 
     window.addEventListener('touchstart', () => {
         if (!voicesLoaded) {
-            preloadVoices().catch(e => console.error(e));
+            preloadVoices().catch(e => console.warn(e));
         }
     }, { once: true });
 </script>
@@ -8624,6 +8914,6 @@ async def reverse_geocode_route():
     location = await fetch_street_name_llm(lat, lon, preferred_model=preferred)
     return jsonify({"street_name": location}), 200
 
-    
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000, debug=False)
