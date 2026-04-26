@@ -221,7 +221,7 @@ if not SECRET_KEY:
 
 if isinstance(SECRET_KEY, str):
     SECRET_KEY = SECRET_KEY.encode("utf-8")
-app.secret_key = SECRET_KEY  # ensure CSRF/session derivations have access before app.config.update
+app.secret_key = SECRET_KEY 
 app.config["SECRET_KEY"] = SECRET_KEY
 
 _entropy_state = {
@@ -357,9 +357,9 @@ def _derive_kek(passphrase: str, salt: bytes) -> bytes:
     return hash_secret_raw(
         passphrase.encode("utf-8"),
         salt,
-        3,                      # time_cost
-        512 * 1024,             # memory_cost (KiB)
-        max(2, (os.cpu_count() or 2)//2),  # parallelism
+        3,                     
+        512 * 1024,            
+        max(2, (os.cpu_count() or 2)//2), 
         32,
         ArgonType.ID
     )
@@ -597,8 +597,8 @@ def get_very_complex_random_interval():
 
 
 SESSION_KEY_ROTATION_ENABLED = str(os.getenv("QRS_ROTATE_SESSION_KEY", "1")).lower() not in ("0", "false", "no", "off")
-SESSION_KEY_ROTATION_PERIOD_SECONDS = int(os.getenv("QRS_SESSION_KEY_ROTATION_PERIOD_SECONDS", "1800"))  # 30 minutes
-SESSION_KEY_ROTATION_LOOKBACK = int(os.getenv("QRS_SESSION_KEY_ROTATION_LOOKBACK", "8"))  # current + previous keys
+SESSION_KEY_ROTATION_PERIOD_SECONDS = int(os.getenv("QRS_SESSION_KEY_ROTATION_PERIOD_SECONDS", "1800"))  
+SESSION_KEY_ROTATION_LOOKBACK = int(os.getenv("QRS_SESSION_KEY_ROTATION_LOOKBACK", "8")) 
 
 
 
@@ -652,7 +652,7 @@ def _hmac_derive(base, label: bytes, window: int | None = None, out_len: int = 3
     base_b = _require_secret_bytes(base, name="HMAC base secret")
     msg = label if window is None else (label + b":" + str(window).encode("ascii"))
     digest = hmac.new(base_b, msg, hashlib.sha256).digest()
-    # Expand deterministically if caller wants >32 bytes
+  
     if out_len <= len(digest):
         return digest[:out_len]
     out = bytearray()
@@ -673,7 +673,7 @@ def get_session_signing_keys(app) -> list[bytes]:
     w = int(time.time() // SESSION_KEY_ROTATION_PERIOD_SECONDS)
     n = max(1, SESSION_KEY_ROTATION_LOOKBACK)
 
-    # Derive the current window key once so we can both log and return it.
+
     current_key = _hmac_derive(base_b, b"flask-session-signing-v1", window=w, out_len=32)
     _log_session_key_rotation(w, current_key)
 
@@ -992,7 +992,7 @@ class ColorSync:
             hexc = f"#{j:06x}"
             code = rng.choice(["A1","A2","B2","C1","C2","D1","E3"])
 
-            # Convert to perceptual coordinates
+           
             h, s, l = self._rgb_to_hsl(j)
             L, C, H = _approx_oklch_from_rgb(
                 (j >> 16 & 0xFF) / 255.0,
@@ -1165,7 +1165,7 @@ class SealedRecord:
 
 class SealedStore:
     def __init__(self, km: "KeyManager"):
-        self.km = km  # no dirs/files created
+        self.km = km  
 
     def _derive_split_kek(self, base_kek: bytes) -> bytes:
         shards_b64 = os.getenv(SHARDS_ENV, "")
@@ -1254,7 +1254,7 @@ class SealedStore:
             if cache.get("sig_alg"):
                 self.km.sig_alg_name = cache["sig_alg"] or self.km.sig_alg_name
 
-            # If we have signature public material, set it (or derive for Ed25519)
+            
             if cache.get("sig_pub_raw"):
                 self.km.sig_pub = cache["sig_pub_raw"]
             else:
@@ -1450,7 +1450,7 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
                         serialization.Encoding.Raw, serialization.PublicFormat.Raw
                     )
                     alg = "Ed25519"
-                    enc = enc or b""  # private key comes from sealed cache
+                    enc = enc or b""  
                     have_priv = True
                 except Exception:
                     pass
@@ -1490,7 +1490,7 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
         else:
             if STRICT_PQ2_ONLY:
                 raise RuntimeError("Strict PQ2 mode: ML-DSA signature required, but oqs unavailable.")
-            # Ed25519 fallback
+            
             kp  = ed25519.Ed25519PrivateKey.generate()
             pub_raw = kp.public_key().public_bytes(
                 serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -3284,10 +3284,6 @@ def admin_blog_api_delete():
     return jsonify(ok=True)
 
 
-# -----------------------------
-# Blog backup / restore (JSON) to survive container rebuilds
-# -----------------------------
-
 def _blog_backup_path() -> Path:
     p = Path(os.getenv("BLOG_BACKUP_PATH", "/var/data/blog_posts_backup.json"))
     try:
@@ -3405,7 +3401,7 @@ def run_blog_encryption_migration_once() -> None:
         logger.error("Blog encryption migration failed: %s", e, exc_info=True)
 
 def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple[int, int]:
-    # Returns (inserted, updated)
+    
     if not isinstance(payload, dict):
         raise ValueError("invalid_payload")
     posts = payload.get("posts")
@@ -3456,12 +3452,12 @@ def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple
                 inserted += 1
         db.commit()
 
-    # Refresh on-disk backup after restore.
+   
     write_blog_backup_file()
     return inserted, updated
 
 def restore_blog_backup_if_db_empty() -> None:
-    # If DB has no blog posts but a backup file exists, restore automatically.
+  
     try:
         with sqlite3.connect(DB_FILE) as db:
             cur = db.cursor()
@@ -3473,7 +3469,7 @@ def restore_blog_backup_if_db_empty() -> None:
         if not bp.exists():
             return
         payload = json.loads(bp.read_text(encoding="utf-8"))
-        # Choose admin as default author.
+        
         with sqlite3.connect(DB_FILE) as db:
             cur = db.cursor()
             cur.execute("SELECT id FROM users WHERE is_admin=1 ORDER BY id ASC LIMIT 1")
@@ -3589,10 +3585,6 @@ def admin_blog_backup_restore():
     flash(f"Restore complete. Inserted={inserted}, Updated={updated}", "success")
     return redirect(url_for("admin_blog_backup_page"))
 
-
-# -----------------------------
-# Admin: Local Llama model manager (download/encrypt/decrypt)
-# -----------------------------
 
 @app.route("/admin/local_llm", methods=["GET"])
 def admin_local_llm_page():
@@ -4149,18 +4141,13 @@ def sanitize_input(user_input):
     return bleach.clean(user_input)
 
 def sanitize_password(password):
-    """Treat passwords as opaque secrets.
 
-    We intentionally do NOT HTML-sanitize passwords, because doing so mutates
-    characters (e.g. '&' becomes '&amp;') and breaks login/validation.
-    Instead, just ensure it's a string and strip null bytes.
-    """
     if password is None:
         return ""
     if not isinstance(password, str):
         password = str(password)
 
-    # Remove NULs (can cause odd behavior in some systems). Keep everything else.
+   
     if "\x00" in password:
         password = password.replace("\x00", "")
     return password
@@ -4269,18 +4256,15 @@ def _system_signals(uid: str):
     }
     qs, qs_str = _quantum_features(out["cpu"], out["ram"])
     if qs is not None:
-        out["quantum_state"] = qs                # structured details (for logs/UI)
-        out["quantum_state_sig"] = qs_str        # <- this is your {quantum_state}
+        out["quantum_state"] = qs               
+        out["quantum_state_sig"] = qs_str      
     else:
-        out["quantum_state_sig"] = qs_str        # "unavailable"/"error"
+        out["quantum_state_sig"] = qs_str     
     return out
 
 
 def _build_guess_prompt(user_id: str, sig: dict) -> str:
-    """
-    Returns a high-precision prompt that forces the model to output
-    ONLY valid JSON — no extra text, no markdown, no explanations.
-    """
+
     quantum_state = sig.get("quantum_state_sig", "unavailable")
 
     return f"""
@@ -4385,9 +4369,7 @@ EXAMPLE
 {{"harm_ratio":0.12,"label":"Clear","color":"#22d3a6","confidence":0.93,"reasons":["Visibility good","Low congestion"],"blurb":"Stay alert and maintain safe following distance."}}
 """.strip()
 
-# -----------------------------
-# LLM Providers: OpenAI / Grok / Local Llama
-# -----------------------------
+
 
 _OPENAI_BASE_URL = "https://api.openai.com/v1"
 def _maybe_openai_async_client() -> Optional[httpx.AsyncClient]:
@@ -4609,7 +4591,7 @@ def _llama_one_word_from_text(text: str) -> str:
         return "Medium"
     if w.lower() == "high":
         return "High"
-    # Heuristic fallback
+  
     low = (text or "").lower()
     if "high" in low:
         return "High"
@@ -4618,7 +4600,7 @@ def _llama_one_word_from_text(text: str) -> str:
     return "Medium"
 
 def build_local_risk_prompt(scene: dict) -> str:
-    # ASCII-only prompt. One-word output required.
+
     return (
         "You are a Road Risk Classification AI.\\n"
         "Return exactly ONE word: Low, Medium, or High.\\n"
@@ -4638,10 +4620,7 @@ def build_local_risk_prompt(scene: dict) -> str:
         "- Output one word only.\\n"
     )
 
-# -----------------------------
-# Local Llama "PQE" risk helpers
-# (System metrics + PennyLane entropic score + PUNKD chunked gen)
-# -----------------------------
+
 
 def _read_proc_stat() -> Optional[Tuple[int, int]]:
     try:
@@ -4813,7 +4792,7 @@ def collect_system_metrics() -> Dict[str, float]:
     if not core_ok:
         missing = [name for name, val in (("cpu", cpu), ("mem", mem), ("load1", load1), ("proc", proc)) if val is None]
         logger.warning("Unable to obtain core system metrics: missing=%s", missing)
-        # Fall back to safe defaults instead of exiting inside a web server.
+        
         cpu = cpu if cpu is not None else 0.2
         mem = mem if mem is not None else 0.2
         load1 = load1 if load1 is not None else 0.2
@@ -4867,7 +4846,7 @@ def pennylane_entropic_score(rgb: Tuple[float, float, float], shots: int = 256) 
 
     @qml_mod.qnode(dev)
     def circuit(a, b, c):
-        # 2-qubit "2nd gate" setup
+     
         qml_mod.RX(a * math.pi, wires=0)
         qml_mod.RY(b * math.pi, wires=1)
         qml_mod.CNOT(wires=[0, 1])
@@ -5087,12 +5066,12 @@ def llama_local_predict_risk(scene: dict) -> Optional[str]:
     if llm is None:
         return None
 
-    # Use PQE: system metrics -> RGB -> entropic score (PennyLane when available) and PUNKD chunked generation.
+
     prompt = build_road_scanner_prompt(scene, include_system_entropy=True)
 
     try:
         text_out = ""
-        # Prefer chunked generation to reduce partial/poisoned outputs.
+       
         try:
             text_out = chunked_generate(
                 llm=llm,
@@ -5121,7 +5100,7 @@ def llama_local_predict_risk(scene: dict) -> Optional[str]:
         return None
 
 def llama_download_model_httpx() -> tuple[bool, str]:
-    # Synchronous download to keep this simple inside Flask admin action.
+
     if Path is None:
         return False, "path_unavailable"
     url = LLAMA_MODEL_REPO + LLAMA_MODEL_FILE
@@ -5186,7 +5165,7 @@ def _call_llm(prompt: str, temperature: float = 0.7, model: str | None = None):
             {"role": "user", "content": prompt}
         ],
         "max_tokens": 300,
-        "response_format": {"type": "json_object"},   # - fixed (was duplicated "type")
+        "response_format": {"type": "json_object"}, 
         "temperature": temperature,
     }
 
@@ -5214,7 +5193,7 @@ def api_theme_personalize():
 
 
 def _fallback_score(sig: dict, route: dict) -> dict[str, Any]:
-    """Deterministic QRS fallback when the LLM route scorer is unavailable."""
+
     try:
         cpu = float(sig.get("cpu", 0.0) or 0.0)
     except Exception:
@@ -5293,7 +5272,7 @@ def api_stream():
 
     resp = Response(stream_with_context(gen()), mimetype="text/event-stream")
     resp.headers["Cache-Control"] = "no-cache"
-    resp.headers["X-Accel-Buffering"] = "no"   # avoids buffering on some proxies
+    resp.headers["X-Accel-Buffering"] = "no"  
     return _attach_cookie(resp)
 
 def _safe_get(d: Dict[str, Any], keys: List[str], default: str = "") -> str:
@@ -5449,7 +5428,7 @@ def reverse_geocode(lat: float, lon: float) -> str:
         return "Remote Location, Earth"
 
     city_name = nearest.get("name", "Unknown City")
-    state_code = nearest.get("admin1code", "")  # e.g. "TX"
+    state_code = nearest.get("admin1code", "") 
     country_code = nearest.get("countrycode", "")
 
     if country_code != "US":
@@ -5460,11 +5439,7 @@ def reverse_geocode(lat: float, lon: float) -> str:
     state_name = US_STATES_BY_ABBREV.get(state_code, state_code or "Unknown State")
     return f"{city_name}, {state_name}, United States"
 
-# -----------------------------
-# Reverse geocode (online first)
-# -----------------------------
-# ASCII-only: keep source UTF-8 clean to avoid mojibake in deployments.
-# Uses OpenStreetMap Nominatim if enabled, with a small in-memory cache.
+
 REVGEOCODE_ONLINE_V1 = True
 
 _REVGEOCODE_CACHE: dict[tuple[int, int], tuple[float, dict]] = {}
@@ -5473,15 +5448,15 @@ _NOMINATIM_URL: str = os.getenv("NOMINATIM_URL", "https://nominatim.openstreetma
 _NOMINATIM_UA: str = os.getenv("NOMINATIM_USER_AGENT", "roadscanner/1.0")
 
 def _revgeo_cache_key(lat: float, lon: float) -> tuple[int, int]:
-    # rounding keeps cache stable while preserving neighborhood-level accuracy
+
     return (int(round(lat * 1e5)), int(round(lon * 1e5)))
 
 async def reverse_geocode_nominatim(lat: float, lon: float, timeout_s: float = 8.0) -> Optional[dict]:
-    # Respect opt-out.
+
     if str(os.getenv("DISABLE_NOMINATIM", "0")).lower() in ("1", "true", "yes", "on"):
         return None
 
-    # Validate.
+
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
         return None
 
@@ -5600,14 +5575,14 @@ def _lightbeam_sync(lat: float, lon: float) -> dict:
 
 
 class ULTIMATE_FORGE:
-    # NOTE: Keep source ASCII-only to avoid mojibake. Use \uXXXX escapes for quantum glyphs.
+  
     _forge_epoch = int(time.time() // 3600)
 
     _forge_salt = hashlib.sha3_512(
         f"{os.getpid()}{os.getppid()}{threading.active_count()}{uuid.uuid4()}".encode()
-    ).digest()[:16]  # Critical fix: 16 bytes max
+    ).digest()[:16] 
 
-    # Quantum symbols (runtime): Delta Psi Phi Omega nabla sqrt infinity proportional-to tensor-product
+   
     _QSYMS = "\u0394\u03A8\u03A6\u03A9\u2207\u221A\u221E\u221D\u2297"
 
     @classmethod
@@ -5617,7 +5592,7 @@ class ULTIMATE_FORGE:
             raw,
             digest_size=64,
             salt=cls._forge_salt,
-            person=b"FORGE_QUANTUM_v9"  # 16 bytes exactly
+            person=b"FORGE_QUANTUM_v9" 
         )
         return h.digest()
 
@@ -5646,7 +5621,6 @@ class ULTIMATE_FORGE:
         ]
         active_threat = threats[threat_level % len(threats)]
 
-        # Keep prompt stable + injection-resistant (no self-referential poison text).
         return f"""
 [QUANTUM NOISE: {quantum_noise}]
 [ENTROPY: {entropy[:64]}...]
@@ -5664,16 +5638,13 @@ Rules:
 - No extra words.
 """.strip()
 async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optional[str] = None) -> str:
-    # Reverse geocode with online-first accuracy + cross-model formatting consensus.
-    # Primary: Nominatim structured address (deterministic formatting)
-    # Secondary: LightBeamSync consensus between OpenAI and Grok (format-only, no invention)
-    # Final: offline city dataset (best-effort)
 
-    # Online reverse geocode first (fast, accurate when available).
+
+
     nom_data = await reverse_geocode_nominatim(lat, lon)
     online_line = format_reverse_geocode_line(nom_data)
 
-    # Compute offline only if needed (it scans the full city list).
+
     offline_line = ""
     if not online_line:
         try:
@@ -5683,7 +5654,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
 
     base_guess = online_line or offline_line or "Unknown Location"
 
-    # Build minimal components for validation/allowlist.
+ 
     addr = (nom_data.get("address") if isinstance(nom_data, dict) else None) or {}
     if not isinstance(addr, dict):
         addr = {}
@@ -5702,7 +5673,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
 
     allow_words = _build_allowlist_from_components(components)
 
-    # Required signals (if online data exists, require country and at least one locality token).
+  
     required_words: set[str] = set()
     if online_line:
         country = addr.get("country")
@@ -5715,7 +5686,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
     def _clean(line: str) -> str:
         line = (line or "").replace("\r", " ").replace("\n", " ").strip()
         line = re.sub(r"\s+", " ", line)
-        # strip surrounding quotes
+    
         if len(line) >= 2 and ((line[0] == '"' and line[-1] == '"') or (line[0] == "'" and line[-1] == "'")):
             line = line[1:-1].strip()
         return line
@@ -5729,7 +5700,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
         bad = ["role:", "system", "assistant", "{", "}", "[", "]", "http://", "https://", "BEGIN", "END"]
         if any(b.lower() in lowered for b in bad):
             return False
-        # Must look like a location: at least one comma.
+       
         if "," not in line:
             return False
         return True
@@ -5742,7 +5713,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
             if w not in allow_words:
                 return False
         if required_words:
-            # require at least one required word to appear
+    
             if not any(w in set(words) for w in required_words):
                 return False
         return True
@@ -5751,13 +5722,12 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
     if provider not in ("openai", "grok", "llama_local", None):
         provider = None
 
-    # LightBeamSync token (stable per coordinate).
+ 
     lb = _lightbeam_sync(lat, lon)
     qid = (lb.get("qid25") or {})
     oklch = (lb.get("oklch") or {})
 
-    # Provide authoritative JSON (trimmed) plus parsed components. Models must not invent.
-    # Keep JSON small to reduce token use.
+
     auth_obj = {}
     if isinstance(nom_data, dict):
         auth_obj = {
@@ -5787,7 +5757,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
         "- Prefer including street (house number + road) when present.\n"
     )
 
-    # Deterministic best-effort (used if models fail or disagree).
+
     deterministic = base_guess
 
     async def _try_openai(p: str) -> Optional[str]:
@@ -5814,7 +5784,7 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
             return None
         return None
 
-    # Lightbeam cross-check: two independent formatters, same constraints.
+ 
     openai_line = None
     grok_line = None
 
@@ -5822,24 +5792,24 @@ async def fetch_street_name_llm(lat: float, lon: float, preferred_model: Optiona
         openai_line = await _try_openai(prompt)
 
     if (provider in (None, "grok")) and os.getenv("GROK_API_KEY"):
-        # Include OpenAI suggestion as an optional hint, but still enforce "no invention" via allowlist.
+  
         p2 = prompt
         if openai_line:
             p2 = prompt + "\nOpenAI_candidate: " + openai_line + "\n"
         grok_line = await _try_grok(p2)
 
-    # If both agree, accept.
+
     if openai_line and grok_line:
         if _clean(openai_line).lower() == _clean(grok_line).lower():
             return openai_line
 
-    # If one exists, prefer the one that adds street detail beyond deterministic.
+
     if openai_line and openai_line != deterministic:
         return openai_line
     if grok_line and grok_line != deterministic:
         return grok_line
 
-    # If we have an online deterministic answer, trust it over offline.
+   
     return deterministic
 
 
@@ -6241,7 +6211,7 @@ def get_user_preferred_model(user_id):
 
 
 def set_user_preferred_model(user_id: int, model_key: str) -> None:
-    # Stored encrypted in DB. Keep values simple and ASCII-only.
+  
     if not user_id:
         return
     model_key = (model_key or "").strip().lower()
@@ -6413,14 +6383,14 @@ Please assess the following:
 """
 
 
-    # Select provider based on user choice. Keep source ASCII-only.
+
     selected = (selected_model or get_user_preferred_model(user_id) or "openai").strip().lower()
     if selected not in ("openai", "grok", "llama_local"):
         selected = "openai"
 
     report: str = ""
     if selected == "llama_local" and llama_local_ready():
-        # Local llama returns one word: Low/Medium/High
+ 
         scene = {
             "location": street_name,
             "vehicle_type": vehicle_type,
@@ -6439,7 +6409,7 @@ Please assess the following:
         report = raw_report if raw_report is not None else ""
         model_used = "grok"
     else:
-        # OpenAI (GPT-5.2) preferred when configured; otherwise fall back to Grok; otherwise offline neutral.
+     
         raw_report = await run_openai_response_text(
             grok_prompt,
             max_output_tokens=760,
@@ -7845,7 +7815,7 @@ def view_report(report_id):
     else:
         ratio = min(total_weight / max_factor, 1.0)
 
-    # If local llama is used and it produced a one-word risk label, map directly to the wheel.
+    
     try:
         if (report.get("model_used") == "llama_local"):
             lbl = (text or "").strip()
