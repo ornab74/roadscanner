@@ -1739,38 +1739,32 @@ bootstrap_env_keys(
 
 key_manager = KeyManager()
 encryption_key = key_manager.get_key()
-key_manager._sealed_cache = None
-key_manager.sealed_store = SealedStore(key_manager)
 
 
-if not key_manager.sealed_store.exists() and os.getenv("QRS_ENABLE_SEALED","1")=="1":
-    key_manager._load_or_create_hybrid_keys()
-    key_manager._load_or_create_signing()
-    key_manager.sealed_store.save_from_current_keys()
-if key_manager.sealed_store.exists():
-    key_manager.sealed_store.load_into_km()
+def initialize_sealed_store(km: KeyManager) -> bool:
+    """Initialize the sealed store once and return whether sealed keys were loaded."""
+    km._sealed_cache = None
+    km.sealed_store = SealedStore(km)
+
+    sealed_enabled = os.getenv("QRS_ENABLE_SEALED", "1") == "1"
+    if not km.sealed_store.exists() and sealed_enabled:
+        km._load_or_create_hybrid_keys()
+        km._load_or_create_signing()
+        km.sealed_store.save_from_current_keys()
+
+    if km.sealed_store.exists():
+        km.sealed_store.load_into_km()
+
+    km._load_or_create_hybrid_keys()
+    km._load_or_create_signing()
+
+    return bool(getattr(km, "_sealed_cache", None))
 
 
-key_manager._load_or_create_hybrid_keys()
-key_manager._load_or_create_signing()
-
-audit = AuditTrail(key_manager)
-audit.append("boot", {"sealed_loaded": bool(getattr(key_manager, "_sealed_cache", None))})
-
-key_manager._sealed_cache = None
-key_manager.sealed_store = SealedStore(key_manager)
-if not key_manager.sealed_store.exists() and os.getenv("QRS_ENABLE_SEALED","1")=="1":
-    key_manager._load_or_create_hybrid_keys()
-    key_manager._load_or_create_signing()
-    key_manager.sealed_store.save_from_current_keys()
-if key_manager.sealed_store.exists():
-    key_manager.sealed_store.load_into_km()
-
-key_manager._load_or_create_hybrid_keys()
-key_manager._load_or_create_signing()
+sealed_loaded = initialize_sealed_store(key_manager)
 
 audit = AuditTrail(key_manager)
-audit.append("boot", {"sealed_loaded": bool(getattr(key_manager, "_sealed_cache", None))})
+audit.append("boot", {"sealed_loaded": sealed_loaded})
 
 
 def encrypt_data(data: Any, ctx: Optional[Mapping[str, Any]] = None) -> Optional[str]:
