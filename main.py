@@ -5161,6 +5161,47 @@ def restore_blog_backup_if_db_empty() -> None:
     except Exception as e:
         logger.debug(f"Blog auto-restore skipped/failed: {e}")
 
+
+ADMIN_SHELL_CSS = """
+<style id="qrs-admin-shell-css">
+:root{ --ink:#f4f8ff; --muted:#a8bad0; --line:rgba(255,255,255,.14); --accent:#49c2ff; --accent2:#73f0cf; --panel:#111827; }
+body.qrs-admin-shell{ margin:0; background:radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%), linear-gradient(135deg, #090d14, #111827 54%, #090d14) !important; color:var(--ink) !important; font-family:'Roboto',sans-serif; }
+.qrs-sidebar{ position:fixed; inset:0 auto 0 0; width:232px; padding:24px 14px; background:rgba(7,12,20,.82); border-right:1px solid var(--line); backdrop-filter:blur(16px) saturate(145%); -webkit-backdrop-filter:blur(16px) saturate(145%); z-index:20; }
+.qrs-sidebar .navbar-brand{ display:flex; align-items:center; justify-content:center; height:48px; margin:0 8px 22px; color:var(--ink); border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)); font-family:'Orbitron',sans-serif; font-size:1.15rem; text-decoration:none; }
+.qrs-sidebar a.qrs-nav-link{ display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; margin:6px 0; color:var(--muted); text-decoration:none; border:1px solid transparent; border-radius:12px; transition:background-color .16s ease, color .16s ease, transform .16s ease, border-color .16s ease; }
+.qrs-sidebar a.qrs-nav-link:hover,.qrs-sidebar a.qrs-nav-link.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line); transform:translateX(1px); text-decoration:none; }
+.qrs-sidebar i{ width:18px; text-align:center; color:var(--accent); }
+.qrs-admin-content{ margin-left:232px; min-height:100vh; padding:28px; }
+.qrs-admin-card{ background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.055)) !important; color:var(--ink) !important; border:1px solid var(--line) !important; border-radius:18px !important; box-shadow:0 24px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.05); }
+.qrs-admin-title{ font-family:'Orbitron',sans-serif; letter-spacing:.01em; }
+.qrs-admin-muted,.text-muted{ color:var(--muted) !important; }
+.qrs-admin-shell .form-control{ color:var(--ink) !important; background:#0b1220 !important; border:1px solid rgba(255,255,255,.22) !important; border-radius:12px !important; }
+.qrs-admin-shell .alert-secondary{ color:var(--ink) !important; background:rgba(255,255,255,.08) !important; border:1px solid var(--line) !important; border-radius:14px !important; }
+.qrs-admin-shell code{ color:#9fe8ff; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:8px; padding:.08rem .32rem; }
+@media (max-width:768px){ .qrs-sidebar{ width:70px; padding:18px 10px;} .qrs-sidebar .navbar-brand{font-size:.9rem; margin:0 0 18px;} .qrs-sidebar a.qrs-nav-link{ justify-content:center; padding:0;} .qrs-sidebar a.qrs-nav-link span{ display:none;} .qrs-admin-content{ margin-left:70px; padding:16px;} }
+</style>
+"""
+
+
+def _sidebar_link(endpoint: str, label: str, icon: str, active: str, key: str) -> str:
+    cls = "qrs-nav-link active" if active == key else "qrs-nav-link"
+    return f'<a href="{url_for(endpoint)}" class="{cls}"><i class="{icon}" aria-hidden="true"></i> <span>{label}</span></a>'
+
+
+def qrs_user_sidebar_html(active: str = "dashboard") -> str:
+    links = [
+        _sidebar_link("dashboard", "Dashboard", "fas fa-home", active, "dashboard"),
+        _sidebar_link("user_settings", "User Settings", "fas fa-user-cog", active, "user_settings"),
+    ]
+    if session.get("is_admin"):
+        links.extend([
+            _sidebar_link("settings", "Admin Settings", "fas fa-cogs", active, "admin_settings"),
+            _sidebar_link("admin_blog_backup_page", "Blog Backup", "fas fa-database", active, "blog_backup"),
+            _sidebar_link("admin_local_llm_page", "Local Llama", "fas fa-microchip", active, "local_llm"),
+        ])
+    links.append(_sidebar_link("logout", "Logout", "fas fa-sign-out-alt", active, "logout"))
+    return '<aside class="qrs-sidebar" aria-label="User navigation"><a class="navbar-brand" href="{}">QRS</a>{}</aside>'.format(url_for("dashboard"), "".join(links))
+
 @app.route('/admin/blog/backup', methods=['GET'])
 def admin_blog_backup_page():
     guard = _require_admin()
@@ -5180,46 +5221,31 @@ def admin_blog_backup_page():
   <meta charset="UTF-8">
   <title>Admin - Blog Backup</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}"
-        integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+  <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
+  <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00" crossorigin="anonymous">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}" integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
+  {{ admin_shell_css|safe }}
 </head>
-<body class="bg-dark text-light">
-<div class="container py-4">
-  <h2>Blog Backup / Restore</h2>
-  <p class="text-muted">Backup path: <code>{{ status.backup_path }}</code></p>
-  <p class="text-muted">Backup exists: {{ 'yes' if status.backup_exists else 'no' }} ({{ status.backup_bytes }} bytes)</p>
-
-  <div class="card bg-secondary text-light mb-4">
-    <div class="card-body">
-      <h5 class="card-title">Export</h5>
-      <form method="post" action="{{ url_for('admin_blog_backup_export') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="btn btn-warning" type="submit">Download JSON Export</button>
-        <button class="btn btn-outline-light" type="submit" name="write_disk" value="1">Write backup file to disk</button>
-      </form>
-    </div>
+<body class="qrs-admin-shell bg-dark text-light">
+{{ sidebar_html|safe }}
+<main class="qrs-admin-content">
+  <div class="container-fluid py-2">
+    <h2 class="qrs-admin-title">Blog Backup / Restore</h2>
+    <p class="qrs-admin-muted">Backup path: <code>{{ status.backup_path }}</code></p>
+    <p class="qrs-admin-muted">Backup exists: {{ 'yes' if status.backup_exists else 'no' }} ({{ status.backup_bytes }} bytes)</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, msg in messages %}<div class="alert alert-{{ category if category else 'info' }}">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
+    <div class="card qrs-admin-card mb-4"><div class="card-body"><h5 class="card-title">Export</h5><form method="post" action="{{ url_for('admin_blog_backup_export') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-warning" type="submit">Download JSON Export</button> <button class="btn btn-outline-light" type="submit" name="write_disk" value="1">Write backup file to disk</button></form></div></div>
+    <div class="card qrs-admin-card mb-4"><div class="card-body"><h5 class="card-title">Restore</h5><form method="post" action="{{ url_for('admin_blog_backup_restore') }}" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="form-group"><label>Upload JSON</label><input class="form-control" type="file" name="backup_file" accept="application/json"></div><button class="btn btn-danger" type="submit">Restore / Merge</button></form><p class="qrs-admin-muted mt-2">If DB is empty, the app will also auto-restore from the on-disk backup at startup.</p></div></div>
+    <a class="btn btn-outline-light" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
   </div>
-
-  <div class="card bg-secondary text-light mb-4">
-    <div class="card-body">
-      <h5 class="card-title">Restore</h5>
-      <form method="post" action="{{ url_for('admin_blog_backup_restore') }}" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <div class="form-group">
-          <label>Upload JSON</label>
-          <input class="form-control" type="file" name="backup_file" accept="application/json">
-        </div>
-        <button class="btn btn-danger" type="submit">Restore / Merge</button>
-      </form>
-      <p class="text-muted mt-2">If DB is empty, the app will also auto-restore from the on-disk backup at startup.</p>
-    </div>
-  </div>
-
-  <a class="btn btn-outline-light" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
-</div>
+</main>
+<script src="{{ url_for('static', filename='js/jquery.min.js') }}" integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/popper.min.js') }}" integrity="sha256-/ijcOLwFf26xEYAjW75FizKVo5tnTYiQddPZoLUHHZ8=" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
 </body>
 </html>
-""", csrf_token=csrf_token, status=status)
+""", csrf_token=csrf_token, status=status, admin_shell_css=ADMIN_SHELL_CSS, sidebar_html=qrs_user_sidebar_html("blog_backup"))
 
 @app.route('/admin/blog/backup/export', methods=['POST'])
 def admin_blog_backup_export():
@@ -5291,59 +5317,35 @@ def admin_local_llm_page():
   <meta charset="UTF-8">
   <title>Admin - Local Llama</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}"
-        integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+  <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
+  <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00" crossorigin="anonymous">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}" integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
+  {{ admin_shell_css|safe }}
 </head>
-<body class="bg-dark text-light">
-<div class="container py-4">
-  <h2>Local Llama Model Manager</h2>
-
-  <div class="alert alert-secondary">
-    <div>Models dir: <code>{{ status.models_dir }}</code></div>
-    <div>Model file: <code>{{ status.model_file }}</code></div>
-    <div>Expected SHA256: <code>{{ status.expected_sha256 }}</code></div>
-    <div>llama_cpp available: <strong>{{ 'yes' if status.llama_cpp_available else 'no' }}</strong></div>
-    <div>Encrypted present: <strong>{{ 'yes' if status.encrypted_exists else 'no' }}</strong></div>
-    <div>Plaintext present: <strong>{{ 'yes' if status.plaintext_exists else 'no' }}</strong></div>
-    <div>Ready for inference: <strong>{{ 'yes' if status.ready_for_inference else 'no' }}</strong></div>
+<body class="qrs-admin-shell bg-dark text-light">
+{{ sidebar_html|safe }}
+<main class="qrs-admin-content">
+  <div class="container-fluid py-2">
+    <h2 class="qrs-admin-title">Local Llama Model Manager</h2>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, msg in messages %}<div class="alert alert-{{ category if category else 'info' }}">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
+    <div class="alert alert-secondary"><div>Models dir: <code>{{ status.models_dir }}</code></div><div>Model file: <code>{{ status.model_file }}</code></div><div>Expected SHA256: <code>{{ status.expected_sha256 }}</code></div><div>llama_cpp available: <strong>{{ 'yes' if status.llama_cpp_available else 'no' }}</strong></div><div>Encrypted present: <strong>{{ 'yes' if status.encrypted_exists else 'no' }}</strong></div><div>Plaintext present: <strong>{{ 'yes' if status.plaintext_exists else 'no' }}</strong></div><div>Ready for inference: <strong>{{ 'yes' if status.ready_for_inference else 'no' }}</strong></div></div>
+    <div class="card qrs-admin-card mb-3"><div class="card-body"><h5 class="card-title">Actions</h5>
+      <form method="post" action="{{ url_for('admin_local_llm_download') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-warning" type="submit">Download model</button></form>
+      <form method="post" action="{{ url_for('admin_local_llm_encrypt') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-outline-light" type="submit">Encrypt plaintext -> .aes</button></form>
+      <form method="post" action="{{ url_for('admin_local_llm_decrypt') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-outline-light" type="submit">Decrypt .aes -> plaintext</button></form>
+      <form method="post" action="{{ url_for('admin_local_llm_delete_plaintext') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-danger" type="submit">Delete plaintext model</button></form>
+      <form method="post" action="{{ url_for('admin_local_llm_unload') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-outline-warning" type="submit">Unload model from memory</button></form>
+    </div></div>
+    <a class="btn btn-outline-light" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
   </div>
-
-  <div class="card bg-secondary text-light mb-3">
-    <div class="card-body">
-      <h5 class="card-title">Actions</h5>
-
-      <form method="post" action="{{ url_for('admin_local_llm_download') }}" class="mb-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="btn btn-warning" type="submit">Download model</button>
-      </form>
-
-      <form method="post" action="{{ url_for('admin_local_llm_encrypt') }}" class="mb-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="btn btn-outline-light" type="submit">Encrypt plaintext -> .aes</button>
-      </form>
-
-      <form method="post" action="{{ url_for('admin_local_llm_decrypt') }}" class="mb-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="btn btn-outline-light" type="submit">Decrypt .aes -> plaintext</button>
-      </form>
-
-      <form method="post" action="{{ url_for('admin_local_llm_delete_plaintext') }}" class="mb-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="btn btn-danger" type="submit">Delete plaintext model</button>
-      </form>
-
-      <form method="post" action="{{ url_for('admin_local_llm_unload') }}" class="mb-2">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="btn btn-outline-warning" type="submit">Unload model from memory</button>
-      </form>
-    </div>
-  </div>
-
-  <a class="btn btn-outline-light" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
-</div>
+</main>
+<script src="{{ url_for('static', filename='js/jquery.min.js') }}" integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/popper.min.js') }}" integrity="sha256-/ijcOLwFf26xEYAjW75FizKVo5tnTYiQddPZoLUHHZ8=" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
 </body>
 </html>
-""", csrf_token=csrf_token, status=status)
+""", csrf_token=csrf_token, status=status, admin_shell_css=ADMIN_SHELL_CSS, sidebar_html=qrs_user_sidebar_html("local_llm"))
 
 def _validate_form_csrf_or_400():
     token = request.form.get("csrf_token") or _csrf_from_request()
@@ -8038,6 +8040,51 @@ def set_user_preferred_language(user_id: int, language_key: str) -> None:
 
 
 
+
+HOME_UI_TEXT: Dict[str, Dict[str, Any]] = {
+    "en": {
+        "nav_home": "Home", "nav_blog": "Blog", "nav_dashboard": "Dashboard", "nav_logout": "Logout", "nav_login": "Login", "nav_register": "Register", "kicker": "Live road intelligence and safety awareness.", "hero_title": "Using intelligence to drive safer", "hero_body": "Our advance algorithms designed for real world road safety are designed to help drivers in many conditons. Sign up, scan routes, and join the intelligent driver revolution.", "open_dashboard": "Open Dashboard", "read_blog": "Read the Blog", "accent_tone": "Accent tone", "live_risk_preview": "Live risk preview", "perceptual_color_ramp": "Perceptual color ramp", "tip": "Tip: if your OS has Reduce Motion enabled, animations automatically soften.", "read_title": "How QRoadScan turns road signals into driving intelligence", "read_body": "The preview converts changing route signals into a clear risk pulse: one reading, one confidence score, and practical reasons you can act on. Inside the dashboard, QRoadScan expands that same intelligence into route scans, saved reports, and model-guided safety context for real-world driving.", "refresh": "Refresh", "auto_on": "Auto: On", "auto_off": "Auto: Off", "debug_on": "Debug: On", "debug_off": "Debug: Off", "create_account": "Create Account", "phrases_kicker": "Intelligence drivers can act on", "phrases": ["Road risk signals translated into fast, readable guidance.", "Route scans built for real-world road safety decisions.", "AI-assisted alerts that explain what changed and why it matters.", "Colorwheel feedback that keeps urgency visible without adding noise.", "Dashboard intelligence for drivers who want safer, clearer trips."], "why_reading": "Why this reading", "confidence_short": "Conf", "waiting": "Waiting for risk signal", "card1_title": "Readable risk intelligence", "card1_body": "The colorwheel compresses route complexity into a calm visual signal drivers can understand quickly.", "card2_title": "Road-aware guidance", "card2_body": "Each scan is built to surface practical conditions, possible hazards, and driver-ready next steps.", "card3_title": "Built for the dashboard", "card3_body": "Sign in to save scans, compare reports, and keep your preferred AI language across the experience.", "blog_kicker": "Latest from the QRoadScan Blog", "blog_title": "Traffic safety, hazard research, and product updates", "blog_body": "Short reads about road intelligence, safer routes, and what is new on QRoadScan.com.", "view_all_posts": "View all posts", "visit_blog": "Visit the blog", "fresh_posts": "Fresh posts are publishing soon. Tap in for road safety tips and QRoadScan updates.", "create_account_title": "Create your account", "unlock_dashboard": "Unlock the dashboard experience for deeper driving intelligence and personalized tools.", "explore_colorwheel": "Explore the live colorwheel", "watch_wheel": "Watch the wheel breathe with the latest reading and learn how the risk meter works.", "js_clear": "CLEAR", "js_changing": "CHANGING", "js_elevated": "ELEVATED", "js_clear_note": "Clear conditions detected", "js_stay_adaptive": "Stay adaptive and scan", "js_context": "Model is composing context..."
+    },
+    "es": {"nav_home":"Inicio","nav_blog":"Blog","nav_dashboard":"Panel","nav_logout":"Salir","nav_login":"Entrar","nav_register":"Registrarse","kicker":"Inteligencia vial en vivo y conciencia de seguridad.","hero_title":"Usar inteligencia para conducir con más seguridad","hero_body":"Nuestros algoritmos avanzados para la seguridad vial real ayudan a los conductores en muchas condiciones. Regístrate, escanea rutas y únete a la revolución del conductor inteligente.","open_dashboard":"Abrir panel","read_blog":"Leer el blog","accent_tone":"Tono de acento","live_risk_preview":"Vista previa de riesgo en vivo","perceptual_color_ramp":"Rampa de color perceptual","tip":"Consejo: si tu sistema reduce el movimiento, las animaciones se suavizan automáticamente.","read_title":"Cómo QRoadScan convierte señales viales en inteligencia de conducción","read_body":"La vista previa convierte señales cambiantes de la ruta en un pulso de riesgo claro: una lectura, una puntuación de confianza y razones prácticas para actuar. En el panel, QRoadScan amplía esa inteligencia con escaneos de ruta, informes guardados y contexto de seguridad guiado por modelos.","refresh":"Actualizar","auto_on":"Auto: Activo","auto_off":"Auto: Inactivo","debug_on":"Depuración: Activa","debug_off":"Depuración: Inactiva","create_account":"Crear cuenta","phrases_kicker":"Inteligencia que el conductor puede usar","phrases":["Señales de riesgo vial convertidas en guía rápida y legible.","Escaneos de ruta creados para decisiones reales de seguridad vial.","Alertas asistidas por IA que explican qué cambió y por qué importa.","Retroalimentación del colorwheel que muestra urgencia sin añadir ruido.","Inteligencia de panel para viajes más seguros y claros."],"why_reading":"Por qué esta lectura","confidence_short":"Conf","waiting":"Esperando señal de riesgo"},
+    "fr": {"nav_home":"Accueil","nav_blog":"Blog","nav_dashboard":"Tableau de bord","nav_logout":"Déconnexion","nav_login":"Connexion","nav_register":"Créer un compte","hero_title":"Utiliser l’intelligence pour conduire plus sûrement","hero_body":"Nos algorithmes avancés conçus pour la sécurité routière réelle aident les conducteurs dans de nombreuses conditions. Inscrivez-vous, analysez vos itinéraires et rejoignez la révolution du conducteur intelligent.","read_title":"Comment QRoadScan transforme les signaux routiers en intelligence de conduite","read_body":"L’aperçu convertit les signaux changeants de l’itinéraire en une impulsion de risque claire : une lecture, un score de confiance et des raisons pratiques.","open_dashboard":"Ouvrir le tableau de bord","read_blog":"Lire le blog","refresh":"Actualiser","create_account":"Créer un compte","why_reading":"Pourquoi cette lecture","waiting":"En attente du signal de risque"},
+    "de": {"nav_home":"Start","nav_blog":"Blog","nav_dashboard":"Dashboard","nav_logout":"Abmelden","nav_login":"Anmelden","nav_register":"Registrieren","hero_title":"Mit Intelligenz sicherer fahren","hero_body":"Unsere fortschrittlichen Algorithmen für reale Verkehrssicherheit unterstützen Fahrer in vielen Situationen. Registriere dich, scanne Routen und werde Teil der intelligenten Fahrerrevolution.","read_title":"Wie QRoadScan Straßensignale in Fahrintelligenz verwandelt","read_body":"Die Vorschau wandelt wechselnde Routensignale in einen klaren Risikoimpuls um: eine Messung, eine Vertrauensbewertung und praktische Gründe zum Handeln.","open_dashboard":"Dashboard öffnen","read_blog":"Blog lesen","refresh":"Aktualisieren","create_account":"Konto erstellen","why_reading":"Warum diese Messung","waiting":"Warte auf Risikosignal"},
+    "pt": {"nav_home":"Início","nav_blog":"Blog","nav_dashboard":"Painel","nav_logout":"Sair","nav_login":"Entrar","nav_register":"Cadastrar","hero_title":"Usando inteligência para dirigir com mais segurança","hero_body":"Nossos algoritmos avançados para segurança viária real ajudam motoristas em muitas condições. Cadastre-se, escaneie rotas e junte-se à revolução do motorista inteligente.","read_title":"Como o QRoadScan transforma sinais da estrada em inteligência de direção","read_body":"A prévia converte sinais variáveis da rota em um pulso de risco claro: uma leitura, uma pontuação de confiança e motivos práticos para agir.","open_dashboard":"Abrir painel","read_blog":"Ler o blog","refresh":"Atualizar","create_account":"Criar conta","why_reading":"Por que esta leitura","waiting":"Aguardando sinal de risco"},
+    "zh": {"nav_home":"首页","nav_blog":"博客","nav_dashboard":"仪表板","nav_logout":"退出","nav_login":"登录","nav_register":"注册","hero_title":"用智能让驾驶更安全","hero_body":"我们的先进算法面向真实道路安全，旨在帮助驾驶者应对多种路况。注册、扫描路线，加入智能驾驶者革命。","read_title":"QRoadScan 如何把道路信号转化为驾驶智能","read_body":"预览会把不断变化的路线信号转换成清晰的风险脉冲：一个读数、一个置信度，以及可执行的原因。","open_dashboard":"打开仪表板","read_blog":"阅读博客","refresh":"刷新","create_account":"创建账户","why_reading":"为什么是这个读数","waiting":"等待风险信号"},
+    "hi": {"nav_home":"होम","nav_blog":"ब्लॉग","nav_dashboard":"डैशबोर्ड","nav_logout":"लॉगआउट","nav_login":"लॉगिन","nav_register":"रजिस्टर","hero_title":"सुरक्षित ड्राइविंग के लिए बुद्धिमत्ता","hero_body":"वास्तविक सड़क सुरक्षा के लिए बनाए गए हमारे उन्नत एल्गोरिदम कई परिस्थितियों में ड्राइवरों की मदद करते हैं। साइन अप करें, रूट स्कैन करें और बुद्धिमान ड्राइवर क्रांति से जुड़ें।","read_title":"QRoadScan सड़क संकेतों को ड्राइविंग इंटेलिजेंस में कैसे बदलता है","read_body":"यह पूर्वावलोकन बदलते रूट संकेतों को स्पष्ट जोखिम पल्स में बदलता है: एक रीडिंग, एक विश्वास स्कोर और काम आने वाले कारण।","open_dashboard":"डैशबोर्ड खोलें","read_blog":"ब्लॉग पढ़ें","refresh":"रीफ्रेश","create_account":"खाता बनाएँ","why_reading":"यह रीडिंग क्यों","waiting":"जोखिम संकेत की प्रतीक्षा"},
+    "ar": {"nav_home":"الرئيسية","nav_blog":"المدونة","nav_dashboard":"لوحة التحكم","nav_logout":"تسجيل الخروج","nav_login":"تسجيل الدخول","nav_register":"إنشاء حساب","hero_title":"استخدام الذكاء لقيادة أكثر أمانًا","hero_body":"خوارزمياتنا المتقدمة المصممة لسلامة الطرق الواقعية تساعد السائقين في ظروف كثيرة. سجّل، افحص المسارات، وانضم إلى ثورة السائق الذكي.","read_title":"كيف يحول QRoadScan إشارات الطريق إلى ذكاء للقيادة","read_body":"تحول المعاينة إشارات المسار المتغيرة إلى نبضة خطر واضحة: قراءة واحدة، ودرجة ثقة، وأسباب عملية.","open_dashboard":"فتح لوحة التحكم","read_blog":"قراءة المدونة","refresh":"تحديث","create_account":"إنشاء حساب","why_reading":"سبب هذه القراءة","waiting":"بانتظار إشارة الخطر"},
+    "bn": {"nav_home":"হোম","nav_blog":"ব্লগ","nav_dashboard":"ড্যাশবোর্ড","nav_logout":"লগআউট","nav_login":"লগইন","nav_register":"নিবন্ধন","hero_title":"নিরাপদ চালনার জন্য বুদ্ধিমত্তা","hero_body":"বাস্তব সড়ক নিরাপত্তার জন্য তৈরি আমাদের উন্নত অ্যালগরিদম অনেক পরিস্থিতিতে চালকদের সহায়তা করে। সাইন আপ করুন, রুট স্ক্যান করুন এবং বুদ্ধিমান চালক বিপ্লবে যোগ দিন।","read_title":"QRoadScan কীভাবে রাস্তার সংকেতকে ড্রাইভিং ইন্টেলিজেন্সে রূপান্তর করে","read_body":"প্রিভিউ পরিবর্তনশীল রুট সংকেতকে পরিষ্কার ঝুঁকি পালসে রূপান্তর করে: একটি রিডিং, একটি আত্মবিশ্বাস স্কোর এবং কার্যকর কারণ।","open_dashboard":"ড্যাশবোর্ড খুলুন","read_blog":"ব্লগ পড়ুন","refresh":"রিফ্রেশ","create_account":"অ্যাকাউন্ট তৈরি করুন","why_reading":"এই রিডিং কেন","waiting":"ঝুঁকি সংকেতের অপেক্ষা"},
+    "ru": {"nav_home":"Главная","nav_blog":"Блог","nav_dashboard":"Панель","nav_logout":"Выйти","nav_login":"Войти","nav_register":"Регистрация","hero_title":"Интеллект для более безопасного вождения","hero_body":"Наши продвинутые алгоритмы для реальной дорожной безопасности помогают водителям в разных условиях. Зарегистрируйтесь, сканируйте маршруты и присоединяйтесь к революции интеллектуального водителя.","read_title":"Как QRoadScan превращает дорожные сигналы в водительский интеллект","read_body":"Предпросмотр преобразует меняющиеся сигналы маршрута в понятный импульс риска: одно значение, оценку уверенности и практические причины для действия.","open_dashboard":"Открыть панель","read_blog":"Читать блог","refresh":"Обновить","create_account":"Создать аккаунт","why_reading":"Почему это значение","waiting":"Ожидание сигнала риска"},
+    "ur": {"nav_home":"ہوم","nav_blog":"بلاگ","nav_dashboard":"ڈیش بورڈ","nav_logout":"لاگ آؤٹ","nav_login":"لاگ اِن","nav_register":"رجسٹر","hero_title":"زیادہ محفوظ ڈرائیونگ کے لیے ذہانت","hero_body":"حقیقی سڑک کی حفاظت کے لیے بنائے گئے ہمارے جدید الگورتھم کئی حالات میں ڈرائیورز کی مدد کرتے ہیں۔ سائن اپ کریں، راستے اسکین کریں، اور ذہین ڈرائیور انقلاب میں شامل ہوں۔","read_title":"QRoadScan سڑک کے اشاروں کو ڈرائیونگ انٹیلیجنس میں کیسے بدلتا ہے","read_body":"یہ پیش منظر بدلتے ہوئے راستے کے اشاروں کو واضح خطرے کے پلس میں بدلتا ہے: ایک ریڈنگ، اعتماد کا اسکور، اور عملی وجوہات۔","open_dashboard":"ڈیش بورڈ کھولیں","read_blog":"بلاگ پڑھیں","refresh":"تازہ کریں","create_account":"اکاؤنٹ بنائیں","why_reading":"یہ ریڈنگ کیوں","waiting":"خطرے کے اشارے کا انتظار"},
+    "id": {"nav_home":"Beranda","nav_blog":"Blog","nav_dashboard":"Dasbor","nav_logout":"Keluar","nav_login":"Masuk","nav_register":"Daftar","hero_title":"Menggunakan kecerdasan untuk berkendara lebih aman","hero_body":"Algoritme canggih kami untuk keselamatan jalan nyata membantu pengemudi dalam banyak kondisi. Daftar, pindai rute, dan bergabunglah dengan revolusi pengemudi cerdas.","read_title":"Cara QRoadScan mengubah sinyal jalan menjadi kecerdasan berkendara","read_body":"Pratinjau mengubah sinyal rute yang berubah menjadi pulsa risiko yang jelas: satu pembacaan, satu skor kepercayaan, dan alasan praktis.","open_dashboard":"Buka dasbor","read_blog":"Baca blog","refresh":"Segarkan","create_account":"Buat akun","why_reading":"Mengapa pembacaan ini","waiting":"Menunggu sinyal risiko"},
+    "ja": {"nav_home":"ホーム","nav_blog":"ブログ","nav_dashboard":"ダッシュボード","nav_logout":"ログアウト","nav_login":"ログイン","nav_register":"登録","hero_title":"インテリジェンスでより安全な運転へ","hero_body":"実際の道路安全を想定した高度なアルゴリズムが、さまざまな状況のドライバーを支援します。登録してルートをスキャンし、インテリジェントなドライバー革命に参加しましょう。","read_title":"QRoadScanが道路信号を運転インテリジェンスに変える仕組み","read_body":"プレビューは変化するルート信号を明確なリスクパルスへ変換します。1つの読み取り、1つの信頼度、そして行動できる理由です。","open_dashboard":"ダッシュボードを開く","read_blog":"ブログを読む","refresh":"更新","create_account":"アカウント作成","why_reading":"この読み取りの理由","waiting":"リスク信号を待機中"},
+    "sw": {"nav_home":"Nyumbani","nav_blog":"Blogu","nav_dashboard":"Dashibodi","nav_logout":"Toka","nav_login":"Ingia","nav_register":"Jisajili","hero_title":"Kutumia akili kuendesha kwa usalama zaidi","hero_body":"Algoriti zetu za hali ya juu kwa usalama halisi barabarani zimeundwa kusaidia madereva katika hali nyingi. Jisajili, changanua njia, na jiunge na mapinduzi ya dereva mwenye akili.","read_title":"Jinsi QRoadScan hubadilisha ishara za barabara kuwa akili ya kuendesha","read_body":"Hakiki hubadilisha ishara za njia zinazobadilika kuwa mapigo wazi ya hatari: usomaji mmoja, alama ya uaminifu na sababu za vitendo.","open_dashboard":"Fungua dashibodi","read_blog":"Soma blogu","refresh":"Onyesha upya","create_account":"Fungua akaunti","why_reading":"Kwa nini usomaji huu","waiting":"Inasubiri ishara ya hatari"},
+}
+
+
+def get_request_language(default: str = "en") -> str:
+    requested = request.args.get("language") or request.args.get("lang")
+    if requested:
+        chosen = normalize_language_key(requested)
+        session["preferred_language"] = chosen
+        session.modified = True
+        return chosen
+    if "username" in session:
+        user_id = get_user_id(session.get("username", ""))
+        if user_id:
+            chosen = get_user_preferred_language(user_id)
+            session["preferred_language"] = chosen
+            session.modified = True
+            return chosen
+    return normalize_language_key(session.get("preferred_language") or default)
+
+
+def get_home_ui_text(language_key: Any) -> Dict[str, Any]:
+    key = normalize_language_key(language_key)
+    merged: Dict[str, Any] = dict(HOME_UI_TEXT["en"])
+    merged.update(HOME_UI_TEXT.get(key, {}))
+    return merged
+
+
 def get_hazard_reports(user_id):
     with sqlite3.connect(DB_FILE) as db:
         cursor = db.cursor()
@@ -8461,6 +8508,8 @@ def home_slash():
 
 @app.route('/home')
 def home():
+    current_language = get_request_language()
+    home_text = get_home_ui_text(current_language)
     seed = colorsync.sample()
     seed_hex = seed.get("hex", "#49c2ff")
     seed_code = seed.get("qid25", {}).get("code", "B2")
@@ -8492,7 +8541,7 @@ def home():
                 "name": SEO_SITE_NAME,
                 "url": home_url,
                 "publisher": {"@id": f"{home_url}#organization"},
-                "inLanguage": "en-US",
+                "inLanguage": language_locale(current_language),
                 "image": og_image_url,
             },
             {
@@ -8522,7 +8571,7 @@ def home():
     home_blog_schema = _blog_item_list_schema(posts, page_url=home_url)
     return render_template_string("""
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language_html_lang(current_language) }}" dir="{{ language_text_direction(current_language) }}">
 <head>
   <meta charset="UTF-8" />
   <title>QRoadScan.com | Live Traffic Risk Map, Road Hazard Alerts & Safer Driving</title>
@@ -8534,7 +8583,7 @@ def home():
   <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
   <meta name="theme-color" content="#0b0f17" />
   <link rel="canonical" href="{{ home_url }}" />
-  <link rel="alternate" hreflang="en" href="{{ home_url }}" />
+  <link rel="alternate" hreflang="{{ language_html_lang(current_language) }}" href="{{ home_url }}" />
   <link rel="alternate" hreflang="x-default" href="{{ home_url }}" />
   <link rel="alternate" type="application/rss+xml" title="QRoadScan Blog RSS" href="{{ feed_url }}" />
   <link rel="sitemap" type="application/xml" href="{{ sitemap_url }}" />
@@ -8546,7 +8595,7 @@ def home():
   <meta property="og:title" content="QRoadScan.com | Live Traffic Risk & Road Hazard Intelligence" />
   <meta property="og:description" content="{{ seo_description }}" />
   <meta property="og:url" content="{{ home_url }}" />
-  <meta property="og:locale" content="en_US" />
+  <meta property="og:locale" content="{{ og_locale }}" />
   <meta property="og:image" content="{{ og_image_url }}" />
   <meta property="og:image:secure_url" content="{{ og_image_url }}" />
   <meta property="og:image:type" content="image/png" />
@@ -8719,14 +8768,14 @@ def home():
     <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#nav"><span class="navbar-toggler-icon"></span></button>
     <div id="nav" class="collapse navbar-collapse justify-content-end">
       <ul class="navbar-nav">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('home') }}">Home</a></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('blog_index') }}">Blog</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('home') }}">{{ home_text.nav_home }}</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('blog_index') }}">{{ home_text.nav_blog }}</a></li>
         {% if 'username' in session %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Logout</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">{{ home_text.nav_dashboard }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">{{ home_text.nav_logout }}</a></li>
         {% else %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">{{ home_text.nav_login }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">{{ home_text.nav_register }}</a></li>
         {% endif %}
       </ul>
     </div>
@@ -8736,27 +8785,17 @@ def home():
     <section class="hero p-4 p-md-5 mb-4">
       <div class="row align-items-center">
         <div class="col-lg-7">
-          <div class="kicker">Live traffic risk and road hazard awareness.</div>
-          <h1 class="hero-title display-5 mt-2">The Live Safety Colorwheel for Smarter Driving</h1>
-          <p class="lead-soft mt-3">
-            QRoadScan.com turns noisy signals into a single, readable answer: a smooth risk dial that shifts from calm green to caution amber to alert red.
-            Our scans are designed for fast comprehension, low stress, and real-world clarity. Watch the wheel move when your road conditions change, then jump into your dashboard
-            for deeper insights once signed up.
-          </p>
+          <div class="kicker">{{ home_text.kicker }}</div>
+          <h1 class="hero-title display-5 mt-2">{{ home_text.hero_title }}</h1>
+          <p class="lead-soft mt-3">{{ home_text.hero_body }}</p>
           <div class="d-flex flex-wrap align-items-center mt-3" style="gap:.6rem">
-            <a class="btn cta" href="{{ url_for('dashboard') }}">Open Dashboard</a>
-            <a class="btn btn-outline-light" href="{{ url_for('blog_index') }}">Read the Blog</a>
-            <span class="pill">Accent tone: {{ seed_code }}</span>
-            <span class="pill">Live risk preview</span>
-            <span class="pill">Perceptual color ramp</span>
+            <a class="btn cta" href="{{ url_for('dashboard') }}">{{ home_text.open_dashboard }}</a>
+            <a class="btn btn-outline-light" href="{{ url_for('blog_index') }}">{{ home_text.read_blog }}</a>
+            <span class="pill">{{ home_text.accent_tone }}: {{ seed_code }}</span>
+            <span class="pill">{{ home_text.live_risk_preview }}</span>
+            <span class="pill">{{ home_text.perceptual_color_ramp }}</span>
           </div>
-          <div class="mt-4">
-            <ul class="list-clean">
-              <li><strong>Traffic risk at a glance</strong> with a perceptual monitoring.</li>
-              <li><strong>Road hazard awareness</strong> surfaced as simple reasons you can understand instantly.</li>
-              <li><strong>Calm-by-design visuals</strong> Use of.color to display hazards and road conditions.</li>
-            </ul>
-          </div>
+
         </div>
 
         <div class="col-lg-5 mt-4 mt-lg-0">
@@ -8774,7 +8813,7 @@ def home():
               </div>
             </div>
           </div>
-          <p class="meta mt-2">Tip: if your OS has Reduce Motion enabled, animations automatically soften.</p>
+          <p class="meta mt-2">{{ home_text.tip }}</p>
         </div>
       </div>
     </section>
@@ -8782,29 +8821,21 @@ def home():
     <section class="card-g p-4 p-md-5 mb-4">
       <div class="wheel-wrap">
         <div>
-          <h2 class="mb-2">How QRoadScan reads risk</h2>
-          <p class="meta">
-            This preview shows the QRoadScan risk colorwheel using simulated reading.
-            The wheel is intentionally simple: it translates complex inputs into one number, one label, and a few reasons.
-            Advanced routing and deeper trip intelligence live inside the dashboard after login.
-          </p>
+          <h2 class="mb-2">{{ home_text.read_title }}</h2>
+          <p class="meta">{{ home_text.read_body }}</p>
           <div class="d-flex flex-wrap align-items-center mt-3" style="gap:.7rem">
-            <button id="btnRefresh" class="btn btn-sm btn-outline-light">Refresh</button>
-            <button id="btnAuto" class="btn btn-sm btn-outline-light" aria-pressed="true">Auto: On</button>
-            <button id="btnDebug" class="btn btn-sm btn-outline-light" aria-pressed="false">Debug: Off</button>
+            <button id="btnRefresh" class="btn btn-sm btn-outline-light">{{ home_text.refresh }}</button>
+            <button id="btnAuto" class="btn btn-sm btn-outline-light" aria-pressed="true">{{ home_text.auto_on }}</button>
+            <button id="btnDebug" class="btn btn-sm btn-outline-light" aria-pressed="false">{{ home_text.debug_off }}</button>
             {% if 'username' not in session %}
-              <a class="btn btn-sm btn-light" href="{{ url_for('register') }}">Create Account</a>
+              <a class="btn btn-sm btn-light" href="{{ url_for('register') }}">{{ home_text.create_account }}</a>
             {% endif %}
           </div>
 
           <div class="mt-4">
-            <div class="kicker">Best-performing homepage phrases</div>
+            <div class="kicker">{{ home_text.phrases_kicker }}</div>
             <ul class="list-clean mt-2">
-              <li><strong>Live Traffic Risk Colorwheel</strong> that updates without noise.</li>
-              <li><strong>Road Hazard Alerts</strong> explained in plain language.</li>
-              <li><strong>AI Driving Safety Insights</strong> designed for calm decisions.</li>
-              <li><strong>Real-Time Commute Safety</strong> with a perceptual risk meter.</li>
-              <li><strong>Predictive Road Safety</strong> you can understand at a glance.</li>
+              {% for phrase in home_text.phrases %}<li>{{ phrase }}</li>{% endfor %}
             </ul>
           </div>
         </div>
@@ -8812,11 +8843,11 @@ def home():
         <div>
           <div class="card-g p-3">
             <div class="d-flex justify-content-between align-items-center">
-              <strong>Why this reading</strong>
-              <span class="pill" id="confidencePill" title="Model confidence">Conf: --%</span>
+              <strong>{{ home_text.why_reading }}</strong>
+              <span class="pill" id="confidencePill" title="Model confidence">{{ home_text.confidence_short }}: --%</span>
             </div>
             <ul class="list-clean mt-2" id="reasonsList">
-              <li>Waiting for risk signal</li>
+              <li>{{ home_text.waiting }}</li>
             </ul>
             <div id="debugBox" class="debug mt-3" style="display:none">debug</div>
           </div>
@@ -8827,16 +8858,16 @@ def home():
     <section class="card-g p-4 p-md-5 mb-4">
       <div class="row g-4">
         <div class="col-md-4">
-          <h3 class="h5">Perceptual color ramp</h3>
-          <p class="meta">The dial blends colors so equal changes feel equal, helping you read risk quickly without visual surprises.</p>
+          <h3 class="h5">{{ home_text.card1_title }}</h3>
+          <p class="meta">{{ home_text.card1_body }}</p>
         </div>
         <div class="col-md-4">
-          <h3 class="h5">Breathing halo</h3>
-          <p class="meta">Breath rate and glow follow risk and confidence, so calm conditions look calm and elevated conditions feel urgent without panic.</p>
+          <h3 class="h5">{{ home_text.card2_title }}</h3>
+          <p class="meta">{{ home_text.card2_body }}</p>
         </div>
         <div class="col-md-4">
-          <h3 class="h5">Privacy-forward design</h3>
-          <p class="meta">The public preview stays minimal. Your deeper trip intelligence and personalized routing live inside the dashboard after login.</p>
+          <h3 class="h5">{{ home_text.card3_title }}</h3>
+          <p class="meta">{{ home_text.card3_body }}</p>
         </div>
       </div>
     </section>
@@ -8844,11 +8875,11 @@ def home():
     <section class="card-g p-4 p-md-5">
       <div class="d-flex justify-content-between align-items-end flex-wrap" style="gap:10px">
         <div>
-          <div class="kicker">Latest from the QRoadScan Blog</div>
-          <h2 class="mb-1">Traffic safety, hazard research, and product updates</h2>
-          <p class="meta mb-0">Short reads that explain how risk signals work, how to drive calmer, and what is new on QRoadScan.com.</p>
+          <div class="kicker">{{ home_text.blog_kicker }}</div>
+          <h2 class="mb-1">{{ home_text.blog_title }}</h2>
+          <p class="meta mb-0">{{ home_text.blog_body }}</p>
         </div>
-        <a class="btn btn-outline-light" href="{{ url_for('blog_index') }}">View all posts</a>
+        <a class="btn btn-outline-light" href="{{ url_for('blog_index') }}">{{ home_text.view_all_posts }}</a>
       </div>
 
       <div class="blog-grid mt-4">
@@ -8868,16 +8899,16 @@ def home():
           {% endfor %}
         {% else %}
           <div class="blog-card">
-            <a href="{{ url_for('blog_index') }}">Visit the blog</a>
-            <p class="meta mt-2 mb-0">Fresh posts are publishing soon. Tap in for road safety tips and QRoadScan updates.</p>
+            <a href="{{ url_for('blog_index') }}">{{ home_text.visit_blog }}</a>
+            <p class="meta mt-2 mb-0">{{ home_text.fresh_posts }}</p>
           </div>
           <div class="blog-card">
-            <a href="{{ url_for('register') }}">Create your account</a>
-            <p class="meta mt-2 mb-0">Unlock the dashboard experience for deeper driving intelligence and personalized tools.</p>
+            <a href="{{ url_for('register') }}">{{ home_text.create_account_title }}</a>
+            <p class="meta mt-2 mb-0">{{ home_text.unlock_dashboard }}</p>
           </div>
           <div class="blog-card">
-            <a href="{{ url_for('home') }}">Explore the live colorwheel</a>
-            <p class="meta mt-2 mb-0">Watch the wheel breathe with the latest reading and learn how the risk meter works.</p>
+            <a href="{{ url_for('home') }}">{{ home_text.explore_colorwheel }}</a>
+            <p class="meta mt-2 mb-0">{{ home_text.watch_wheel }}</p>
           </div>
         {% endif %}
       </div>
@@ -8889,6 +8920,7 @@ def home():
   <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
 
   <script>
+  const homeUi = {{ home_text|tojson }};
   const $ = (s, el=document)=>el.querySelector(s);
   const clamp01 = x => Math.max(0, Math.min(1, x));
   const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -9055,12 +9087,12 @@ def home():
   function setHUD(j){
     const pct = Math.round(clamp01(j.harm_ratio||0)*100);
     if(hudNumber) hudNumber.textContent = pct + "%";
-    if(hudLabel) hudLabel.textContent = (j.label||"").toUpperCase() || (pct<40?"CLEAR":pct<75?"CHANGING":"ELEVATED");
-    if(hudNote) hudNote.textContent  = j.blurb || (pct<40?"Clear conditions detected":"Stay adaptive and scan");
+    if(hudLabel) hudLabel.textContent = (j.label||"").toUpperCase() || (pct<40?homeUi.js_clear:pct<75?homeUi.js_changing:homeUi.js_elevated);
+    if(hudNote) hudNote.textContent  = j.blurb || (pct<40?homeUi.js_clear_note:homeUi.js_stay_adaptive);
     if (j.color){ document.documentElement.style.setProperty('--accent', j.color); }
-    if(confidencePill) confidencePill.textContent = "Conf: " + (j.confidence!=null ? Math.round(clamp01(j.confidence)*100) : "--") + "%";
+    if(confidencePill) confidencePill.textContent = homeUi.confidence_short + ": " + (j.confidence!=null ? Math.round(clamp01(j.confidence)*100) : "--") + "%";
     if(reasonsList) reasonsList.innerHTML="";
-    (Array.isArray(j.reasons)? j.reasons.slice(0,8):["Model is composing context..."]).forEach(x=>{
+    (Array.isArray(j.reasons)? j.reasons.slice(0,8):[homeUi.js_context]).forEach(x=>{
       const li=document.createElement('li'); li.textContent=x; if(reasonsList) reasonsList.appendChild(li);
     });
     if (btnDebug.getAttribute('aria-pressed')==='true'){
@@ -9093,7 +9125,7 @@ def home():
   btnDebug.onclick = ()=>{
     const cur=btnDebug.getAttribute('aria-pressed')==='true';
     btnDebug.setAttribute('aria-pressed', !cur);
-    btnDebug.textContent = "Debug: " + (!cur ? "On" : "Off");
+    btnDebug.textContent = !cur ? homeUi.debug_on : homeUi.debug_off;
     debugBox.style.display = !cur ? '' : 'none';
     if(!cur && current.last) debugBox.textContent = JSON.stringify(current.last,null,2);
   };
@@ -9102,7 +9134,7 @@ def home():
   function startAuto(){
     stopAuto();
     btnAuto.setAttribute('aria-pressed','true');
-    btnAuto.textContent="Auto: On";
+    btnAuto.textContent=homeUi.auto_on;
     fetchGuessOnce();
     autoTimer=setInterval(fetchGuessOnce, 60*1000);
   }
@@ -9110,7 +9142,7 @@ def home():
     if(autoTimer) clearInterval(autoTimer);
     autoTimer=null;
     btnAuto.setAttribute('aria-pressed','false');
-    btnAuto.textContent="Auto: Off";
+    btnAuto.textContent=homeUi.auto_off;
   }
   btnAuto.onclick = ()=>{ if(autoTimer){ stopAuto(); } else { startAuto(); } };
 
@@ -9130,6 +9162,11 @@ def home():
     """,
         seed_hex=seed_hex,
         seed_code=seed_code,
+        current_language=current_language,
+        home_text=home_text,
+        language_html_lang=language_html_lang,
+        language_text_direction=language_text_direction,
+        og_locale=language_locale(current_language).replace('-', '_'),
         posts=posts,
         home_url=home_url,
         blog_url=blog_url,
@@ -9528,6 +9565,8 @@ def user_settings():
     elif form.validate_on_submit():
         selected_language = normalize_language_key(form.preferred_language.data)
         set_user_preferred_language(user_id, selected_language)
+        session['preferred_language'] = selected_language
+        session.modified = True
         current_language = selected_language
         prompt_preview = language_prompt_block(current_language, "openai")
         form.preferred_language.data = current_language
@@ -9584,6 +9623,8 @@ def user_settings():
         <a href="{{ url_for('user_settings') }}" class="active"><i class="fas fa-user-cog" aria-hidden="true"></i> <span>User Settings</span></a>
         {% if session.get('is_admin') %}
         <a href="{{ url_for('settings') }}"><i class="fas fa-cogs" aria-hidden="true"></i> <span>Admin Settings</span></a>
+        <a href="{{ url_for('admin_blog_backup_page') }}"><i class="fas fa-database" aria-hidden="true"></i> <span>Blog Backup</span></a>
+        <a href="{{ url_for('admin_local_llm_page') }}"><i class="fas fa-microchip" aria-hidden="true"></i> <span>Local Llama</span></a>
         {% endif %}
         <a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span></a>
     </div>
@@ -11009,7 +11050,7 @@ def dashboard():
             <section class="dashboard-hero" aria-labelledby="dashboardTitle">
                 <div>
                     <div class="eyebrow"><i class="fas fa-compass" aria-hidden="true"></i> Road Scan Studio</div>
-                    <h1 id="dashboardTitle">A cleaner scan flow for safer decisions.</h1>
+                    <h1 id="dashboardTitle">Intelligence for roads and beyond</h1>
                     <p class="hero-copy">
                         Set the location, confirm the street context, then run one focused hazard scan.
                         Each step stays visually anchored so the route from input to report feels deliberate.
@@ -11523,6 +11564,8 @@ def set_language_route():
         data.get('language_selection') or data.get('language') or get_user_preferred_language(user_id)
     )
     set_user_preferred_language(user_id, language_selection)
+    session['preferred_language'] = language_selection
+    session.modified = True
     ui_messages = get_ui_messages(language_selection)
     return jsonify({
         "message": ui_messages.get("saved", "Saved"),
