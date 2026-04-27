@@ -3762,7 +3762,7 @@ def _clean_html_fragment(
     tags: set[str],
     attributes: Dict[str, set[str]],
 ) -> str:
-    clean_kwargs = {
+    clean_kwargs: dict[str, Any] = {
         'tags': tags,
         'attributes': attributes,
         'attribute_filter': _sanitize_html_attr,
@@ -6856,7 +6856,7 @@ def _call_llm(prompt: str, temperature: float = 0.7, model: str | None = None):
 
     model = model or os.environ.get("GROK_MODEL", "grok-4-1-fast-non-reasoning")
 
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": "You are Grok, a maximally truth-seeking AI built by xAI. Always respond in strict JSON when requested."},
@@ -8315,7 +8315,7 @@ async def run_grok_completion(
 
     model = model or os.environ.get("GROK_MODEL", "grok-4-1-fast-non-reasoning")
 
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
