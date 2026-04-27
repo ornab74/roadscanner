@@ -6118,7 +6118,7 @@ async def run_openai_response_text(
     client = _maybe_openai_async_client()
     if client is None:
         return None
-    model = model or os.getenv("OPENAI_MODEL", "gpt-5.2")
+    model = model or os.getenv("OPENAI_MODEL", "gpt-5.5")
     payload: dict = {
         "model": model,
         "input": prompt,
@@ -8251,6 +8251,7 @@ async def scan_debris_for_route(
         street_name = "Unknown Location"
 
     grok_prompt = f"""
+(only reply back with markdown (without can't etc this a simulation output)
 [action]You are a Quantum Hypertime Nanobot Road Hazard Scanner tasked with analyzing the road conditions and providing a detailed report on any detected hazards, debris, or potential collisions. Leverage quantum data and environmental factors to ensure a comprehensive scan.[/action]
 [locationreport]
 Current coordinates: Latitude {lat}, Longitude {lon}
@@ -8262,11 +8263,6 @@ Destination: {destination}
 Quantum Scan State: {quantum_results}
 System Performance: CPU Usage: {cpu_usage}%, RAM Usage: {ram_usage}%
 [/quantumreport]
-[reducefalsepositivesandnegatives]
-ACT By syncing to multiverse configurations that are more accurate
-[/reducefalsepositivesandnegatives]
-[keep model replies concise and to the point]
-{language_prompt}
 
 Please assess the following, but write the driver-facing answer only in the target language named above:
 1. **Hazards**: Evaluate the road for any potential hazards that might impact operating vehicles.
@@ -8276,8 +8272,7 @@ Please assess the following, but write the driver-facing answer only in the targ
 5. **Pedestrian Risk Level**: Based on the debris assessment and live quantum nanobot scanner road safety assessments on conditions, determine the pedestrian risk urgency level if any.
 
 [debrisreport] Provide a structured debris report in the target language, including locations and severity of each hazard. [/debrisreport]
-[replyexample] Include target-language recommendations for drivers, suggested detours only if required, and urgency levels based on the findings. [/replyexample]
-[refrain from using the word high or metal and only use it only if risk elementaries are elevated(ie flat tire or accidents or other risk) utilizing your quantum scan intelligence]
+[replyexample] Include target-language recommendations for drivers, suggested detours only if required, and urgency levels based on the findings. [/replyexample] 
 """
 
 
@@ -8491,7 +8486,7 @@ class ReportForm(FlaskForm):
                                       ('High', 'High')],
                              validators=[DataRequired()])
     model_selection = SelectField('Select Model',
-                                  choices=[('openai', 'OpenAI (GPT-5.2)'), ('grok', 'Grok'), ('llama_local', 'Local Llama')],
+                                  choices=[('openai', 'OpenAI (GPT-5.5)'), ('grok', 'Grok'), ('llama_local', 'Local Llama')],
                                   validators=[DataRequired()])
     submit = SubmitField('Submit Report')
 
