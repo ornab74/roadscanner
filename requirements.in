@@ -15,5 +15,5 @@ numpy==2.4.4
 itsdangerous==2.2.0
 gunicorn==25.3.0
 requests==2.33.1
-llama-cpp-python==0.3.21
+llama-cpp-python==0.3.16
 liboqs-python==0.14.1
