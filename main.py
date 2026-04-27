@@ -15,7 +15,7 @@ psutil: Any = _psutil_mod
 
 from flask import (Flask, render_template_string, request, redirect, url_for,
                    session, jsonify, flash, make_response, Response,
-                   stream_with_context)
+                   stream_with_context, send_from_directory)
 from flask_wtf import FlaskForm, CSRFProtect
 from flask_wtf.csrf import generate_csrf
 from wtforms import StringField, PasswordField, SubmitField, TextAreaField, SelectField
@@ -35,32 +35,31 @@ except Exception:
         safe = _html.escape("" if text is None else str(text))
         return f"<p>{safe}</p>"
 
-class _BleachFallback:
-    class sanitizer:
-        ALLOWED_TAGS = frozenset({
-            "a", "abbr", "acronym", "b", "blockquote", "code", "em",
-            "i", "li", "ol", "strong", "ul"
-        })
-        ALLOWED_ATTRIBUTES = {
-            "a": ["href", "title"],
-            "abbr": ["title"],
-            "acronym": ["title"],
-        }
+class _Nh3Fallback:
+    ALLOWED_TAGS = frozenset({
+        "a", "abbr", "b", "blockquote", "br", "code", "em", "i",
+        "li", "ol", "p", "strong", "ul",
+    })
+    ALLOWED_ATTRIBUTES = {
+        "a": {"href", "title"},
+        "abbr": {"title"},
+    }
+    ALLOWED_URL_SCHEMES = frozenset({"http", "https", "mailto"})
 
     @staticmethod
-    def clean(text, tags=None, attributes=None, strip=False, **kwargs):
+    def clean(text, **kwargs):
         return _html.escape("" if text is None else str(text))
 
     @staticmethod
-    def linkify(text, callbacks=None, skip_tags=None, **kwargs):
-        return "" if text is None else str(text)
+    def clean_text(text, tags=None):
+        return _html.escape("" if text is None else str(text))
 
-_bleach_mod: Any = None
+_nh3_mod: Any = None
 try:
-    _bleach_mod = importlib.import_module("bleach")
+    _nh3_mod = importlib.import_module("nh3")
 except Exception:
     pass
-bleach: Any = _bleach_mod if _bleach_mod is not None else _BleachFallback()
+nh3: Any = _nh3_mod if _nh3_mod is not None else _Nh3Fallback()
 
 _geonamescache_mod: Any = None
 try:
@@ -270,7 +269,6 @@ if 'parse_safe_float' not in globals():
 
 
 def _safe_cpu_percent(interval: float | None = None) -> float:
-    """Return CPU percent without requiring psutil to be installed."""
     if psutil is not None:
         try:
             value = psutil.cpu_percent(interval=interval)
@@ -281,7 +279,7 @@ def _safe_cpu_percent(interval: float | None = None) -> float:
 
 
 def _safe_virtual_memory_percent() -> float:
-    """Return memory percent without requiring psutil to be installed."""
+
     if psutil is not None:
         try:
             memory = psutil.virtual_memory()
@@ -787,7 +785,1334 @@ def apply_csp(response):
                   "object-src 'none'; "
                   "base-uri 'self'; ")
     response.headers['Content-Security-Policy'] = csp_policy
+    if (
+        request.path.startswith(("/admin", "/api", "/settings"))
+        or request.endpoint in {"login", "register", "settings", "user_settings", "dashboard", "logout", "blog_admin"}
+    ):
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    if response.status_code == 200 and "text/html" in (response.content_type or ""):
+        canonical_path = _public_canonical_path_for_request()
+        if canonical_path:
+            response.headers.add("Link", f"<{_canonical_url(canonical_path)}>; rel=\"canonical\"")
+            response.headers.add(
+                "Link",
+                f"<{_canonical_url('/sitemap.xml')}>; rel=\"sitemap\"; type=\"application/xml\"",
+            )
+    _inject_button_polish(response)
     return response
+
+SEO_SITE_NAME = "QRoadScan.com"
+SEO_BRAND_NAME = "QRoadScan"
+SEO_DEFAULT_DESCRIPTION = (
+    "QRoadScan.com provides live traffic risk visualization, road hazard alerts, "
+    "and AI-assisted driving safety insights for calmer route decisions."
+)
+SEO_KEYWORDS = (
+    "QRoadScan, live traffic risk, road hazard alerts, traffic risk map, "
+    "AI driving safety, predictive road safety, commute safety, road conditions, "
+    "safe route planning, hazard detection"
+)
+SEO_OG_IMAGE_PATH = "/seo-preview.png"
+SEO_OG_IMAGE_ALT = (
+    "QRoadScan.com live traffic risk colorwheel with road hazard alert signals"
+)
+_SEO_PREVIEW_PNG_BODY: Optional[bytes] = None
+
+SUPPORTED_LANGUAGES: Dict[str, Dict[str, str]] = {
+    "en": {"name": "English", "native": "English", "locale": "en-US", "html_lang": "en", "dir": "ltr", "prompt": "Write the driver-facing report in English."},
+    "zh": {"name": "Mandarin Chinese", "native": "中文", "locale": "zh-CN", "html_lang": "zh-Hans", "dir": "ltr", "prompt": "用简体中文撰写面向驾驶者的报告。"},
+    "hi": {"name": "Hindi", "native": "हिन्दी", "locale": "hi-IN", "html_lang": "hi", "dir": "ltr", "prompt": "ड्राइवर के लिए रिपोर्ट हिन्दी में लिखें।"},
+    "es": {"name": "Spanish", "native": "Español", "locale": "es-ES", "html_lang": "es", "dir": "ltr", "prompt": "Escribe el informe para el conductor en español."},
+    "fr": {"name": "French", "native": "Français", "locale": "fr-FR", "html_lang": "fr", "dir": "ltr", "prompt": "Rédigez le rapport destiné au conducteur en français."},
+    "ar": {"name": "Arabic", "native": "العربية", "locale": "ar-SA", "html_lang": "ar", "dir": "rtl", "prompt": "اكتب التقرير الموجه للسائق باللغة العربية."},
+    "bn": {"name": "Bengali", "native": "বাংলা", "locale": "bn-BD", "html_lang": "bn", "dir": "ltr", "prompt": "চালকের জন্য প্রতিবেদনটি বাংলায় লিখুন।"},
+    "pt": {"name": "Portuguese", "native": "Português", "locale": "pt-BR", "html_lang": "pt", "dir": "ltr", "prompt": "Escreva o relatório para o motorista em português."},
+    "ru": {"name": "Russian", "native": "Русский", "locale": "ru-RU", "html_lang": "ru", "dir": "ltr", "prompt": "Напишите отчет для водителя на русском языке."},
+    "ur": {"name": "Urdu", "native": "اردو", "locale": "ur-PK", "html_lang": "ur", "dir": "rtl", "prompt": "ڈرائیور کے لیے رپورٹ اردو میں لکھیں۔"},
+    "id": {"name": "Indonesian", "native": "Bahasa Indonesia", "locale": "id-ID", "html_lang": "id", "dir": "ltr", "prompt": "Tulis laporan untuk pengemudi dalam bahasa Indonesia."},
+    "de": {"name": "German", "native": "Deutsch", "locale": "de-DE", "html_lang": "de", "dir": "ltr", "prompt": "Schreiben Sie den fahrerorientierten Bericht auf Deutsch."},
+    "ja": {"name": "Japanese", "native": "日本語", "locale": "ja-JP", "html_lang": "ja", "dir": "ltr", "prompt": "ドライバー向けのレポートを日本語で書いてください。"},
+    "sw": {"name": "Swahili", "native": "Kiswahili", "locale": "sw-KE", "html_lang": "sw", "dir": "ltr", "prompt": "Andika ripoti ya dereva kwa Kiswahili."},
+}
+
+LANGUAGE_MODEL_PROMPTS: Dict[str, str] = {
+    "en": "Respond entirely in English. Use clear headings such as Risk Level, Hazards, Driver Guidance, and Detour Guidance only when useful. Keep the tone calm, direct, and practical for a driver. Do not add unsupported sensor claims.",
+    "es": "Responde completamente en español natural. Usa encabezados claros como Nivel de riesgo, Peligros, Recomendación para el conductor y Desvío solo si hace falta. Mantén un tono tranquilo, directo y práctico. No incluyas frases en inglés salvo nombres de modelos, unidades, coordenadas o marcas.",
+    "fr": "Répondez entièrement en français naturel. Utilisez des titres clairs comme Niveau de risque, Dangers, Conseils au conducteur et Détour uniquement si nécessaire. Gardez un ton calme, direct et pratique. N’utilisez pas d’anglais sauf pour les noms de modèles, unités, coordonnées ou marques.",
+    "de": "Antworte vollständig auf Deutsch. Verwende klare Überschriften wie Risikostufe, Gefahren, Hinweise für Fahrer und Umleitung nur wenn nötig. Bleibe ruhig, direkt und praktisch. Kein Englisch außer Modellnamen, Einheiten, Koordinaten oder Markennamen.",
+    "pt": "Responda inteiramente em português do Brasil. Use títulos claros como Nível de risco, Perigos, Orientação ao motorista e Desvio apenas quando necessário. Mantenha o tom calmo, direto e prático. Não use inglês exceto nomes de modelos, unidades, coordenadas ou marcas.",
+    "zh": "请完全使用简体中文回复。使用清晰的小标题，例如风险等级、道路隐患、驾驶建议，以及仅在需要时使用绕行建议。语气要冷静、直接、实用。除模型名称、单位、坐标或品牌外，不要夹杂英文。",
+    "hi": "पूरा उत्तर स्वाभाविक हिन्दी में दें। जोखिम स्तर, खतरे, चालक के लिए सलाह और केवल आवश्यकता होने पर वैकल्पिक मार्ग जैसे स्पष्ट शीर्षक रखें। लहजा शांत, सीधा और व्यावहारिक हो। मॉडल नाम, इकाइयों, निर्देशांकों या ब्रांड के अलावा अंग्रेज़ी न मिलाएँ।",
+    "ar": "اكتب الرد بالكامل بالعربية الفصحى الواضحة. استخدم عناوين مثل مستوى الخطر، المخاطر، إرشادات السائق، والتحويلة عند الحاجة فقط. حافظ على نبرة هادئة ومباشرة وعملية. لا تستخدم الإنجليزية إلا لأسماء النماذج أو الوحدات أو الإحداثيات أو العلامات التجارية.",
+    "bn": "সম্পূর্ণ উত্তরটি স্বাভাবিক বাংলায় লিখুন। ঝুঁকির মাত্রা, বিপদ, চালকের নির্দেশনা এবং প্রয়োজন হলে বিকল্প পথ—এই ধরনের পরিষ্কার শিরোনাম ব্যবহার করুন। ভাষা শান্ত, সরাসরি ও ব্যবহারিক রাখুন। মডেল নাম, একক, স্থানাঙ্ক বা ব্র্যান্ড ছাড়া ইংরেজি মেশাবেন না।",
+    "ru": "Отвечайте полностью на естественном русском языке. Используйте понятные заголовки: Уровень риска, Опасности, Рекомендации водителю и Объезд только при необходимости. Тон должен быть спокойным, прямым и практичным. Не используйте английский, кроме названий моделей, единиц, координат или брендов.",
+    "ur": "پورا جواب صاف اور فطری اردو میں دیں۔ خطرے کی سطح، خطرات، ڈرائیور کے لیے رہنمائی، اور صرف ضرورت ہو تو متبادل راستہ جیسے واضح عنوانات استعمال کریں۔ لہجہ پُرسکون، براہ راست اور عملی رکھیں۔ ماڈل ناموں، اکائیوں، کوآرڈینیٹس یا برانڈز کے علاوہ انگریزی شامل نہ کریں۔",
+    "id": "Jawab sepenuhnya dalam bahasa Indonesia yang alami. Gunakan judul yang jelas seperti Tingkat risiko, Bahaya, Panduan pengemudi, dan Rute alternatif hanya jika perlu. Pertahankan nada tenang, langsung, dan praktis. Jangan gunakan bahasa Inggris kecuali nama model, satuan, koordinat, atau merek.",
+    "ja": "回答は自然な日本語だけで書いてください。『リスクレベル』『危険要因』『ドライバーへの助言』『迂回案（必要な場合のみ）』のような明確な見出しを使ってください。落ち着いた、直接的で実用的な口調にしてください。モデル名、単位、座標、ブランド名以外で英語を混ぜないでください。",
+    "sw": "Jibu lote kwa Kiswahili cha kawaida. Tumia vichwa vya habari vilivyo wazi kama Kiwango cha hatari, Hatari barabarani, Ushauri kwa dereva, na Njia mbadala ikiwa tu inahitajika. Tumia sauti tulivu, ya moja kwa moja na ya vitendo. Usitumie Kiingereza isipokuwa majina ya modeli, vipimo, koordinati au chapa.",
+}
+
+
+LANGUAGE_REPORT_GUIDANCE: Dict[str, Dict[str, str]] = {
+    "en": {"headings": "Risk Level; Hazards; Driver Guidance; Detour Guidance", "style": "Use short, direct sentences for a driver already on the road."},
+    "es": {"headings": "Nivel de riesgo; Peligros; Recomendación para el conductor; Desvío", "style": "Use español neutro, natural y breve para un conductor en ruta."},
+    "fr": {"headings": "Niveau de risque; Dangers; Conseils au conducteur; Détour", "style": "Utilisez un français naturel, bref et pratique pour un conducteur en route."},
+    "de": {"headings": "Risikostufe; Gefahren; Hinweise für Fahrer; Umleitung", "style": "Nutze natürliches, knappes Deutsch für Fahrer unterwegs."},
+    "pt": {"headings": "Nível de risco; Perigos; Orientação ao motorista; Desvio", "style": "Use português do Brasil natural, curto e prático para um motorista em rota."},
+    "zh": {"headings": "风险等级；道路隐患；驾驶建议；绕行建议", "style": "使用简体中文，句子简短、冷静，适合正在行驶的驾驶者。"},
+    "hi": {"headings": "जोखिम स्तर; खतरे; चालक के लिए सलाह; वैकल्पिक मार्ग", "style": "रास्ते में चल रहे चालक के लिए स्वाभाविक, संक्षिप्त और व्यावहारिक हिन्दी लिखें।"},
+    "ar": {"headings": "مستوى الخطر؛ المخاطر؛ إرشادات السائق؛ التحويلة", "style": "استخدم عربية فصحى واضحة ومختصرة ومناسبة لسائق أثناء القيادة."},
+    "bn": {"headings": "ঝুঁকির মাত্রা; বিপদ; চালকের নির্দেশনা; বিকল্প পথ", "style": "চালকের জন্য স্বাভাবিক, সংক্ষিপ্ত ও ব্যবহারিক বাংলা ব্যবহার করুন।"},
+    "ru": {"headings": "Уровень риска; Опасности; Рекомендации водителю; Объезд", "style": "Используйте естественный, краткий и практичный русский язык для водителя в пути."},
+    "ur": {"headings": "خطرے کی سطح؛ خطرات؛ ڈرائیور کے لیے رہنمائی؛ متبادل راستہ", "style": "ڈرائیور کے لیے صاف، مختصر اور عملی اردو استعمال کریں۔"},
+    "id": {"headings": "Tingkat risiko; Bahaya; Panduan pengemudi; Rute alternatif", "style": "Gunakan bahasa Indonesia yang alami, singkat, dan praktis untuk pengemudi di jalan."},
+    "ja": {"headings": "リスクレベル；危険要因；ドライバーへの助言；迂回案", "style": "走行中のドライバー向けに、自然で短く実用的な日本語にしてください。"},
+    "sw": {"headings": "Kiwango cha hatari; Hatari barabarani; Ushauri kwa dereva; Njia mbadala", "style": "Tumia Kiswahili cha kawaida, kifupi na cha vitendo kwa dereva aliyeko njiani."},
+}
+
+LANGUAGE_REPORT_MICRO_TEMPLATES: Dict[str, str] = {
+    'en': 'Risk Level: ...\\nHazards: ...\\nDriver Guidance: ...',
+    'es': 'Nivel de riesgo: ...\\nPeligros: ...\\nRecomendación para el conductor: ...',
+    'fr': 'Niveau de risque : ...\\nDangers : ...\\nConseils au conducteur : ...',
+    'de': 'Risikostufe: ...\\nGefahren: ...\\nHinweise für Fahrer: ...',
+    'pt': 'Nível de risco: ...\\nPerigos: ...\\nOrientação ao motorista: ...',
+    'zh': '风险等级：...\\n道路隐患：...\\n驾驶建议：...',
+    'hi': 'जोखिम स्तर: ...\\nखतरे: ...\\nचालक के लिए सलाह: ...',
+    'ar': 'مستوى الخطر: ...\\nالمخاطر: ...\\nإرشادات السائق: ...',
+    'bn': 'ঝুঁকির মাত্রা: ...\\nবিপদ: ...\\nচালকের নির্দেশনা: ...',
+    'ru': 'Уровень риска: ...\\nОпасности: ...\\nРекомендации водителю: ...',
+    'ur': 'خطرے کی سطح: ...\\nخطرات: ...\\nڈرائیور کے لیے رہنمائی: ...',
+    'id': 'Tingkat risiko: ...\\nBahaya: ...\\nPanduan pengemudi: ...',
+    'ja': 'リスクレベル：...\\n危険要因：...\\nドライバーへの助言：...',
+    'sw': 'Kiwango cha hatari: ...\\nHatari barabarani: ...\\nUshauri kwa dereva: ...',
+}
+
+
+PROVIDER_LANGUAGE_RULES: Dict[str, str] = {
+    "openai": "OpenAI response rule: treat the target language as a hard output constraint, not a preference. Do not explain that you are translating.",
+    "grok": "Grok response rule: ignore any default English assistant style. Return the driver-facing report directly in the target language, without JSON unless explicitly requested elsewhere.",
+    "llama_local": "Local Llama rule: use the target language only for summaries. Risk classifier labels may remain Low, Medium, or High internally.",
+    "offline": "Offline fallback rule: use the stored localized safety summary for the selected language.",
+}
+
+LANGUAGE_ALIASES: Dict[str, str] = {
+    "zh-cn": "zh", "zh-hans": "zh", "zh-sg": "zh", "cn": "zh", "chinese": "zh", "mandarin": "zh",
+    "pt-br": "pt", "pt-pt": "pt", "br": "pt",
+    "ja-jp": "ja", "jp": "ja", "jpn": "ja",
+    "es-es": "es", "es-mx": "es", "fr-fr": "fr", "de-de": "de", "ar-sa": "ar", "ur-pk": "ur",
+    "hi-in": "hi", "bn-bd": "bn", "id-id": "id", "sw-ke": "sw",
+}
+
+UI_MESSAGES: Dict[str, Dict[str, str]] = {
+    "en": {"scan_completed": "Scan completed successfully", "saved": "Saved", "risk": "Risk", "read_report": "Read Report", "stop": "Stop", "route_details": "Route Details", "date": "Date", "location": "Location", "nearest_city": "Nearest City", "vehicle_type": "Vehicle Type", "destination": "Destination", "model_used": "Model Used", "language": "Language", "speech_unsupported": "Sorry, your browser does not support Speech Synthesis."},
+    "es": {"scan_completed": "Escaneo completado correctamente", "saved": "Guardado", "risk": "Riesgo", "read_report": "Leer informe", "stop": "Detener", "route_details": "Detalles de ruta", "date": "Fecha", "location": "Ubicación", "nearest_city": "Ciudad más cercana", "vehicle_type": "Tipo de vehículo", "destination": "Destino", "model_used": "Modelo usado", "language": "Idioma", "speech_unsupported": "Tu navegador no admite síntesis de voz."},
+    "fr": {"scan_completed": "Analyse terminée avec succès", "saved": "Enregistré", "risk": "Risque", "read_report": "Lire le rapport", "stop": "Arrêter", "route_details": "Détails de l’itinéraire", "date": "Date", "location": "Position", "nearest_city": "Ville la plus proche", "vehicle_type": "Type de véhicule", "destination": "Destination", "model_used": "Modèle utilisé", "language": "Langue", "speech_unsupported": "Votre navigateur ne prend pas en charge la synthèse vocale."},
+    "de": {"scan_completed": "Scan erfolgreich abgeschlossen", "saved": "Gespeichert", "risk": "Risiko", "read_report": "Bericht vorlesen", "stop": "Stopp", "route_details": "Routendetails", "date": "Datum", "location": "Standort", "nearest_city": "Nächste Stadt", "vehicle_type": "Fahrzeugtyp", "destination": "Ziel", "model_used": "Verwendetes Modell", "language": "Sprache", "speech_unsupported": "Ihr Browser unterstützt keine Sprachsynthese."},
+    "pt": {"scan_completed": "Varredura concluída com sucesso", "saved": "Salvo", "risk": "Risco", "read_report": "Ler relatório", "stop": "Parar", "route_details": "Detalhes da rota", "date": "Data", "location": "Localização", "nearest_city": "Cidade mais próxima", "vehicle_type": "Tipo de veículo", "destination": "Destino", "model_used": "Modelo usado", "language": "Idioma", "speech_unsupported": "Seu navegador não suporta síntese de fala."},
+    "ar": {"scan_completed": "اكتمل الفحص بنجاح", "saved": "تم الحفظ", "risk": "الخطر", "read_report": "قراءة التقرير", "stop": "إيقاف", "route_details": "تفاصيل المسار", "date": "التاريخ", "location": "الموقع", "nearest_city": "أقرب مدينة", "vehicle_type": "نوع المركبة", "destination": "الوجهة", "model_used": "النموذج المستخدم", "language": "اللغة", "speech_unsupported": "المتصفح لا يدعم تركيب الكلام."},
+    "zh": {"scan_completed": "扫描成功完成", "saved": "已保存", "risk": "风险", "read_report": "朗读报告", "stop": "停止", "route_details": "路线详情", "date": "日期", "location": "位置", "nearest_city": "最近城市", "vehicle_type": "车辆类型", "destination": "目的地", "model_used": "使用的模型", "language": "语言", "speech_unsupported": "此浏览器不支持语音合成。"},
+    "hi": {"scan_completed": "स्कैन सफलतापूर्वक पूरा हुआ", "saved": "सहेजा गया", "risk": "जोखिम", "read_report": "रिपोर्ट पढ़ें", "stop": "रोकें", "route_details": "मार्ग विवरण", "date": "तारीख", "location": "स्थान", "nearest_city": "निकटतम शहर", "vehicle_type": "वाहन प्रकार", "destination": "गंतव्य", "model_used": "प्रयुक्त मॉडल", "language": "भाषा", "speech_unsupported": "आपका ब्राउज़र स्पीच सिंथेसिस का समर्थन नहीं करता।"},
+    "bn": {"scan_completed": "স্ক্যান সফলভাবে সম্পন্ন", "saved": "সংরক্ষিত", "risk": "ঝুঁকি", "read_report": "রিপোর্ট পড়ুন", "stop": "থামান", "route_details": "রুটের বিবরণ", "date": "তারিখ", "location": "অবস্থান", "nearest_city": "নিকটতম শহর", "vehicle_type": "যানের ধরন", "destination": "গন্তব্য", "model_used": "ব্যবহৃত মডেল", "language": "ভাষা", "speech_unsupported": "আপনার ব্রাউজার স্পিচ সিন্থেসিস সমর্থন করে না।"},
+    "ru": {"scan_completed": "Сканирование успешно завершено", "saved": "Сохранено", "risk": "Риск", "read_report": "Прочитать отчет", "stop": "Стоп", "route_details": "Детали маршрута", "date": "Дата", "location": "Местоположение", "nearest_city": "Ближайший город", "vehicle_type": "Тип транспорта", "destination": "Пункт назначения", "model_used": "Использованная модель", "language": "Язык", "speech_unsupported": "Ваш браузер не поддерживает синтез речи."},
+    "ur": {"scan_completed": "اسکین کامیابی سے مکمل", "saved": "محفوظ", "risk": "خطرہ", "read_report": "رپورٹ پڑھیں", "stop": "روکیں", "route_details": "روٹ تفصیلات", "date": "تاریخ", "location": "مقام", "nearest_city": "قریب ترین شہر", "vehicle_type": "گاڑی کی قسم", "destination": "منزل", "model_used": "استعمال شدہ ماڈل", "language": "زبان", "speech_unsupported": "آپ کا براؤزر اسپیچ سنتھیسز کو سپورٹ نہیں کرتا۔"},
+    "id": {"scan_completed": "Pemindaian berhasil selesai", "saved": "Tersimpan", "risk": "Risiko", "read_report": "Bacakan laporan", "stop": "Berhenti", "route_details": "Detail rute", "date": "Tanggal", "location": "Lokasi", "nearest_city": "Kota terdekat", "vehicle_type": "Jenis kendaraan", "destination": "Tujuan", "model_used": "Model digunakan", "language": "Bahasa", "speech_unsupported": "Browser Anda tidak mendukung sintesis suara."},
+    "ja": {"scan_completed": "スキャンが完了しました", "saved": "保存済み", "risk": "リスク", "read_report": "レポートを読み上げる", "stop": "停止", "route_details": "ルート詳細", "date": "日付", "location": "場所", "nearest_city": "最寄りの市区町村", "vehicle_type": "車両タイプ", "destination": "目的地", "model_used": "使用モデル", "language": "言語", "speech_unsupported": "このブラウザは音声合成に対応していません。"},
+    "sw": {"scan_completed": "Uchanganuzi umekamilika", "saved": "Imehifadhiwa", "risk": "Hatari", "read_report": "Soma ripoti", "stop": "Simamisha", "route_details": "Maelezo ya njia", "date": "Tarehe", "location": "Mahali", "nearest_city": "Mji ulio karibu", "vehicle_type": "Aina ya gari", "destination": "Mahali pa kwenda", "model_used": "Muundo uliotumika", "language": "Lugha", "speech_unsupported": "Kivinjari chako hakiungi mkono usanisi wa sauti."},
+}
+
+RISK_TEXT: Dict[str, Dict[str, str]] = {
+    "en": {"Low": "Low risk. Continue normally while watching the road surface.", "Medium": "Moderate risk. Slow down, increase following distance, and watch for debris.", "High": "High risk. Use caution, slow down, and consider a safer route if conditions worsen."},
+    "es": {"Low": "Riesgo bajo. Continúe con normalidad observando la vía.", "Medium": "Riesgo moderado. Reduzca la velocidad, aumente la distancia y vigile los escombros.", "High": "Riesgo alto. Conduzca con precaución y considere una ruta más segura si las condiciones empeoran."},
+    "fr": {"Low": "Risque faible. Continuez normalement en surveillant la chaussée.", "Medium": "Risque modéré. Ralentissez, augmentez la distance de sécurité et surveillez les débris.", "High": "Risque élevé. Soyez prudent et envisagez un itinéraire plus sûr si les conditions empirent."},
+    "de": {"Low": "Geringes Risiko. Fahren Sie normal weiter und achten Sie auf die Fahrbahn.", "Medium": "Mäßiges Risiko. Fahren Sie langsamer, halten Sie mehr Abstand und achten Sie auf Hindernisse.", "High": "Hohes Risiko. Fahren Sie vorsichtig und erwägen Sie eine sicherere Route, falls sich die Lage verschlechtert."},
+    "pt": {"Low": "Risco baixo. Continue normalmente observando a via.", "Medium": "Risco moderado. Reduza a velocidade, aumente a distância e observe detritos.", "High": "Risco alto. Dirija com cautela e considere uma rota mais segura se as condições piorarem."},
+    "zh": {"Low": "风险较低。可正常行驶，但请继续观察路面。", "Medium": "风险中等。请降低车速、增加跟车距离，并留意碎片或障碍物。", "High": "风险较高。请谨慎驾驶、减速；若情况恶化，请考虑更安全的路线。"},
+    "hi": {"Low": "जोखिम कम है। सड़क की सतह पर नज़र रखते हुए सामान्य रूप से चलें।", "Medium": "जोखिम मध्यम है। गति कम करें, आगे की दूरी बढ़ाएँ और मलबे पर नज़र रखें।", "High": "जोखिम अधिक है। सावधानी से चलें, गति कम करें और हालत बिगड़ने पर सुरक्षित मार्ग चुनें।"},
+    "ar": {"Low": "الخطر منخفض. واصل القيادة بشكل طبيعي مع مراقبة سطح الطريق.", "Medium": "الخطر متوسط. خفف السرعة، وزد مسافة التتبع، وانتبه للحطام.", "High": "الخطر مرتفع. قد بحذر، وخفف السرعة، وفكر في مسار أكثر أمانًا إذا ساءت الظروف."},
+    "bn": {"Low": "ঝুঁকি কম। রাস্তার পৃষ্ঠ লক্ষ্য রেখে স্বাভাবিকভাবে চালিয়ে যান।", "Medium": "ঝুঁকি মাঝারি। গতি কমান, সামনের দূরত্ব বাড়ান এবং ধ্বংসাবশেষের দিকে নজর রাখুন।", "High": "ঝুঁকি বেশি। সতর্কভাবে চালান, গতি কমান এবং পরিস্থিতি খারাপ হলে নিরাপদ পথ বিবেচনা করুন।"},
+    "ru": {"Low": "Низкий риск. Продолжайте движение в обычном режиме, следя за покрытием дороги.", "Medium": "Умеренный риск. Снизьте скорость, увеличьте дистанцию и следите за мусором или препятствиями.", "High": "Высокий риск. Двигайтесь осторожно, снизьте скорость и при ухудшении условий рассмотрите более безопасный маршрут."},
+    "ur": {"Low": "خطرہ کم ہے۔ سڑک کی سطح پر نظر رکھتے ہوئے معمول کے مطابق چلتے رہیں۔", "Medium": "خطرہ درمیانہ ہے۔ رفتار کم کریں، فاصلہ بڑھائیں اور ملبے پر نظر رکھیں۔", "High": "خطرہ زیادہ ہے۔ احتیاط سے چلائیں، رفتار کم کریں، اور حالات خراب ہوں تو محفوظ راستہ اختیار کریں۔"},
+    "id": {"Low": "Risiko rendah. Lanjutkan seperti biasa sambil tetap memperhatikan permukaan jalan.", "Medium": "Risiko sedang. Kurangi kecepatan, tambah jarak aman, dan waspadai serpihan atau penghalang.", "High": "Risiko tinggi. Berkendaralah hati-hati, kurangi kecepatan, dan pertimbangkan rute yang lebih aman jika kondisi memburuk."},
+    "ja": {"Low": "リスクは低めです。路面に注意しながら通常どおり走行してください。", "Medium": "リスクは中程度です。速度を落とし、車間距離を広げ、落下物や障害物に注意してください。", "High": "リスクは高めです。慎重に走行し、速度を落としてください。状況が悪化する場合は、より安全なルートを検討してください。"},
+    "sw": {"Low": "Hatari ni ndogo. Endelea kawaida huku ukiangalia uso wa barabara.", "Medium": "Hatari ni ya wastani. Punguza mwendo, ongeza umbali wa kufuata, na angalia vifusi au vizuizi.", "High": "Hatari ni kubwa. Endesha kwa tahadhari, punguza mwendo, na fikiria njia salama zaidi ikiwa hali itazidi kuwa mbaya."},
+}
+
+def normalize_language_key(value: Any) -> str:
+    key = re.sub(r"[^a-z_-]+", "", str(value or "").strip().lower()).replace("_", "-")
+    if not key:
+        return "en"
+    if key in LANGUAGE_ALIASES:
+        return LANGUAGE_ALIASES[key]
+    if key in SUPPORTED_LANGUAGES:
+        return key
+    if key.startswith("zh"):
+        return "zh"
+    base = key.split("-", 1)[0]
+    return LANGUAGE_ALIASES.get(base, base if base in SUPPORTED_LANGUAGES else "en")
+
+
+def language_label(language_key: Any) -> str:
+    key = normalize_language_key(language_key)
+    spec = SUPPORTED_LANGUAGES[key]
+    return f"{spec['name']} / {spec['native']}"
+
+
+def language_locale(language_key: Any) -> str:
+    key = normalize_language_key(language_key)
+    return SUPPORTED_LANGUAGES[key].get("locale", "en-US")
+
+
+def language_html_lang(language_key: Any) -> str:
+    key = normalize_language_key(language_key)
+    return SUPPORTED_LANGUAGES[key].get("html_lang", key)
+
+
+def language_text_direction(language_key: Any) -> str:
+    key = normalize_language_key(language_key)
+    return SUPPORTED_LANGUAGES[key].get("dir", "rtl" if key in {"ar", "ur"} else "ltr")
+
+
+def get_ui_messages(language_key: Any) -> Dict[str, str]:
+    key = normalize_language_key(language_key)
+    defaults = {
+        "scan_completed": "Scan completed successfully",
+        "saved": "Saved",
+        "risk": "Risk",
+        "read_report": "Read Report",
+        "stop": "Stop",
+        "route_details": "Route Details",
+        "date": "Date",
+        "location": "Location",
+        "nearest_city": "Nearest City",
+        "vehicle_type": "Vehicle Type",
+        "destination": "Destination",
+        "model_used": "Model Used",
+        "language": "Language",
+        "report_details": "Report Details",
+        "speech_inactive": "Speech synthesis is not active.",
+        "speech_active": "Speech synthesis is in progress.",
+        "speech_unsupported": "Sorry, your browser does not support Speech Synthesis.",
+    }
+    merged = dict(defaults)
+    merged.update(UI_MESSAGES.get("en", {}))
+    merged.update(UI_MESSAGES.get(key, {}))
+    return merged
+
+
+def localized_risk_summary(level: Any, language_key: Any) -> str:
+    normalized = str(level or "Medium").strip().capitalize()
+    if normalized not in {"Low", "Medium", "High"}:
+        normalized = "Medium"
+    lang = normalize_language_key(language_key)
+    return RISK_TEXT.get(lang, RISK_TEXT["en"]).get(normalized, RISK_TEXT["en"][normalized])
+
+
+def language_prompt_block(language_key: Any, provider: Optional[str] = None) -> str:
+    key = normalize_language_key(language_key)
+    spec = SUPPORTED_LANGUAGES[key]
+    model_prompt = LANGUAGE_MODEL_PROMPTS.get(key, spec.get("prompt", LANGUAGE_MODEL_PROMPTS["en"]))
+    guidance = LANGUAGE_REPORT_GUIDANCE.get(key, LANGUAGE_REPORT_GUIDANCE["en"])
+    micro_template = LANGUAGE_REPORT_MICRO_TEMPLATES.get(key, LANGUAGE_REPORT_MICRO_TEMPLATES["en"])
+    provider_key = (provider or "openai").strip().lower()
+    provider_rule = PROVIDER_LANGUAGE_RULES.get(provider_key, PROVIDER_LANGUAGE_RULES["openai"])
+    direction = language_text_direction(key)
+    return (
+        "LANGUAGE REQUIREMENT\n"
+        f"- Target language: {spec['name']} ({spec['native']}).\n"
+        f"- Locale for speech and formatting: {language_locale(key)}. Text direction: {direction}.\n"
+        f"- Language-specific model instruction: {model_prompt}\n"
+        f"- Localized heading candidates: {guidance['headings']}.\n"
+        f"- Preferred compact report skeleton:\n{micro_template}\n"
+        f"- Style guide: {guidance['style']}\n"
+        f"- Provider-specific instruction: {provider_rule}\n"
+        "- The final driver-facing report must be in the target language only.\n"
+        "- Do not include an English translation or bilingual duplicate.\n"
+        "- Do not preface the answer with language notes such as 'Here is the report'.\n"
+        "- Keep coordinates, model names, numbers, units, street names, vehicle makes, API/model names, and bracket tags unchanged.\n"
+        "- Translate section headings and driver guidance into the target language.\n"
+        "- Keep the report concise, calm, structured, and practical for a driver.\n"
+        "- Do not translate internal field names inside bracket tags."
+    )
+
+
+LANGUAGE_VALIDATION_PROFILES: Dict[str, Dict[str, Any]] = {
+    "en": {"markers": ("risk", "hazard", "driver", "road", "route", "caution", "detour")},
+    "es": {"markers": ("riesgo", "peligro", "conductor", "ruta", "desvío", "desvio", "precaución", "precaucion", "nivel")},
+    "fr": {"markers": ("risque", "danger", "conducteur", "route", "détour", "detour", "prudence", "niveau")},
+    "de": {"markers": ("risiko", "gefahr", "fahrer", "straße", "strasse", "umleitung", "vorsicht", "stufe")},
+    "pt": {"markers": ("risco", "perigo", "motorista", "rota", "desvio", "cuidado", "nível", "nivel")},
+    "id": {"markers": ("risiko", "bahaya", "pengemudi", "jalan", "rute", "waspada", "tingkat")},
+    "sw": {"markers": ("hatari", "dereva", "barabara", "njia", "tahadhari", "kiwango", "ushauri")},
+    "zh": {"script": r"[\u4e00-\u9fff]", "markers": ("风险", "隐患", "驾驶", "道路", "绕行", "建议", "等级")},
+    "hi": {"script": r"[\u0900-\u097F]", "markers": ("जोखिम", "खतरे", "चालक", "मार्ग", "सावधानी", "सलाह")},
+    "ar": {"script": r"[\u0600-\u06FF]", "markers": ("خطر", "السائق", "الطريق", "المخاطر", "التحويلة", "إرشادات")},
+    "bn": {"script": r"[\u0980-\u09FF]", "markers": ("ঝুঁকি", "বিপদ", "চালক", "রাস্তা", "সতর্ক", "নির্দেশনা")},
+    "ru": {"script": r"[\u0400-\u04FF]", "markers": ("риск", "опас", "водител", "дорог", "маршрут", "объезд", "уровень")},
+    "ur": {"script": r"[\u0600-\u06FF]", "markers": ("خطر", "ڈرائیور", "سڑک", "رہنمائی", "متبادل", "احتیاط")},
+    "ja": {"script": r"[\u3040-\u30FF\u4E00-\u9FFF]", "markers": ("リスク", "危険", "ドライバー", "道路", "迂回", "助言", "レベル")},
+}
+
+ENGLISH_LEAKAGE_MARKERS = (
+    "risk", "hazard", "hazards", "driver", "guidance", "detour", "road",
+    "route", "debris", "caution", "collision", "weather", "pedestrian",
+)
+
+
+def _marker_hits(text: str, markers: tuple[str, ...]) -> int:
+    lowered = (text or "").lower()
+    return sum(1 for marker in markers if marker.lower() in lowered)
+
+
+def language_match_score(text: Any, language_key: Any) -> float:
+    """Return a lightweight confidence score that generated text matches the target language.
+
+    This is intentionally heuristic: it avoids storing language-detection dependencies in the
+    deployment image and only gates obvious language drift before saving a report.
+    """
+    lang = normalize_language_key(language_key)
+    sample = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not sample:
+        return 0.0
+    if lang == "en":
+        return 1.0
+    profile = LANGUAGE_VALIDATION_PROFILES.get(lang, {})
+    markers = cast(tuple[str, ...], profile.get("markers", ()))
+    marker_score = min(1.0, _marker_hits(sample, markers) / 3.0) if markers else 0.0
+    script_expr = profile.get("script")
+    if script_expr:
+        script_chars = len(re.findall(str(script_expr), sample))
+        letters = len(re.findall(r"[^\W\d_]", sample, flags=re.UNICODE)) or len(sample)
+        script_score = min(1.0, script_chars / max(1, letters) * 1.35)
+        return max(script_score, marker_score)
+    english_hits = _marker_hits(sample, ENGLISH_LEAKAGE_MARKERS)
+    if marker_score > 0 and english_hits <= _marker_hits(sample, markers) + 1:
+        return max(marker_score, 0.55)
+    return marker_score
+
+
+def is_probably_target_language(text: Any, language_key: Any, *, min_score: float = 0.52) -> bool:
+    lang = normalize_language_key(language_key)
+    sample = str(text or "").strip()
+    if lang == "en":
+        return True
+    if len(sample) < 60:
+        # Tiny fallback snippets are hard to classify reliably. Let them pass.
+        return bool(sample)
+    return language_match_score(sample, lang) >= min_score
+
+
+def localized_report_contract(language_key: Any) -> str:
+    key = normalize_language_key(language_key)
+    guidance = LANGUAGE_REPORT_GUIDANCE.get(key, LANGUAGE_REPORT_GUIDANCE["en"])
+    return (
+        f"Use these localized section heading candidates when helpful: {guidance['headings']}.\n"
+        f"Style: {guidance['style']}\n"
+        "Keep the output to 4 short sections or fewer. Keep numbers, coordinates, model names, units, and proper nouns unchanged."
+    )
+
+
+def language_repair_prompt(language_key: Any, provider: Optional[str], original_prompt: str, bad_report: str) -> str:
+    key = normalize_language_key(language_key)
+    return (
+        f"{language_prompt_block(key, provider)}\n\n"
+        "LANGUAGE REPAIR TASK\n"
+        "The previous model output did not satisfy the target-language requirement. Rewrite the driver-facing report now.\n"
+        "Do not mention the rewrite. Do not include English. Do not output JSON.\n"
+        f"{localized_report_contract(key)}\n\n"
+        "ORIGINAL SCAN CONTEXT:\n"
+        f"{original_prompt[:6500]}\n\n"
+        "PREVIOUS OUTPUT TO REWRITE SAFELY:\n"
+        f"{bad_report[:2500]}"
+    )
+
+
+def build_language_audit(
+    report: Any,
+    language_key: Any,
+    provider: Optional[str] = None,
+    *,
+    repaired: bool = False,
+    fallback: bool = False,
+    initial_score: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Small encrypted QA payload for language persistence/debugging.
+
+    The app stores this as encrypted JSON next to the hazard report so admins can tell
+    whether a hosted model followed the saved language preference, needed repair, or
+    fell back to a local translated summary.
+    """
+    lang = normalize_language_key(language_key)
+    score = float(language_match_score(report, lang))
+    audit: Dict[str, Any] = {
+        "language": lang,
+        "label": language_label(lang),
+        "locale": language_locale(lang),
+        "dir": language_text_direction(lang),
+        "provider": (provider or "offline"),
+        "score": round(score, 4),
+        "match": bool(is_probably_target_language(report, lang)),
+        "repaired": bool(repaired),
+        "fallback": bool(fallback),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if initial_score is not None:
+        audit["initial_score"] = round(float(initial_score), 4)
+    return audit
+
+
+def encode_language_audit(audit: Any) -> str:
+    if isinstance(audit, str):
+        return audit
+    if not isinstance(audit, Mapping):
+        audit = {}
+    return json.dumps(dict(audit), ensure_ascii=False, separators=(",", ":"))
+
+
+def decode_language_audit(value: Any) -> Dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        if isinstance(value, Mapping):
+            return dict(value)
+        parsed = json.loads(str(value))
+        return dict(parsed) if isinstance(parsed, Mapping) else {}
+    except Exception:
+        return {}
+
+
+async def enforce_report_language_with_audit(
+    report: str,
+    language_key: Any,
+    provider: str,
+    original_prompt: str,
+) -> tuple[str, Dict[str, Any]]:
+    """Retry once when the selected hosted model drifts away from the saved language preference."""
+    lang = normalize_language_key(language_key)
+    cleaned = (report or "").strip()
+    provider_key = (provider or "openai").strip().lower()
+    if not cleaned:
+        fallback_text = localized_risk_summary("Low", lang)
+        return fallback_text, build_language_audit(fallback_text, lang, provider_key, fallback=True)
+
+    initial_audit = build_language_audit(cleaned, lang, provider_key)
+    initial_score = float(initial_audit.get("score", 0.0) or 0.0)
+    if bool(initial_audit.get("match")):
+        return cleaned, initial_audit
+
+    repair_prompt = language_repair_prompt(lang, provider_key, original_prompt, cleaned)
+    candidates: list[str] = []
+
+    try:
+        if provider_key == "grok" and os.getenv("GROK_API_KEY"):
+            repaired = await run_grok_completion(repair_prompt, temperature=0.0, max_tokens=900, json_mode=False)
+            if repaired:
+                candidates.append(str(repaired).strip())
+        if os.getenv("OPENAI_API_KEY"):
+            repaired = await run_openai_response_text(
+                repair_prompt,
+                max_output_tokens=760,
+                temperature=0.0,
+                reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
+            )
+            if repaired:
+                candidates.append(str(repaired).strip())
+        if provider_key != "grok" and os.getenv("GROK_API_KEY"):
+            repaired = await run_grok_completion(repair_prompt, temperature=0.0, max_tokens=900, json_mode=False)
+            if repaired:
+                candidates.append(str(repaired).strip())
+    except Exception:
+        logger.debug("Language repair attempt failed for lang=%s provider=%s", lang, provider_key, exc_info=True)
+
+    for candidate in candidates:
+        if is_probably_target_language(candidate, lang):
+            audit_payload = build_language_audit(
+                candidate,
+                lang,
+                provider_key,
+                repaired=True,
+                initial_score=initial_score,
+            )
+            logger.info(
+                "Repaired report language drift: lang=%s provider=%s score=%.2f initial_score=%.2f",
+                lang,
+                provider_key,
+                float(audit_payload.get("score", 0.0) or 0.0),
+                initial_score,
+            )
+            return candidate, audit_payload
+
+    logger.warning(
+        "Model output language drift remained after repair; using localized fallback summary lang=%s provider=%s score=%.2f",
+        lang,
+        provider_key,
+        initial_score,
+    )
+    fallback_text = localized_risk_summary(calculate_harm_level(cleaned), lang)
+    return fallback_text, build_language_audit(
+        fallback_text,
+        lang,
+        provider_key,
+        fallback=True,
+        initial_score=initial_score,
+    )
+
+
+async def enforce_report_language(report: str, language_key: Any, provider: str, original_prompt: str) -> str:
+    fixed_report, _audit_payload = await enforce_report_language_with_audit(report, language_key, provider, original_prompt)
+    return fixed_report
+
+APP_BUTTON_POLISH_CSS = """
+<style id="qrs-button-polish">
+:root{
+  --qrs-control-radius:12px;
+  --qrs-control-ink:#f7fbff;
+  --qrs-control-muted:#b8cfe4;
+  --qrs-control-accent:#49c2ff;
+  --qrs-control-accent-2:#73f0cf;
+  --qrs-control-panel:#101827;
+  --qrs-control-stroke:rgba(255,255,255,.18);
+}
+.btn:not(.navbar-toggler), .btn-custom{
+  min-height:42px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:.5rem;
+  border-radius:var(--qrs-control-radius) !important;
+  padding:.68rem 1rem;
+  font-weight:800;
+  letter-spacing:0;
+  line-height:1.1;
+  border:1px solid var(--qrs-control-stroke);
+  box-shadow:0 10px 24px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.08);
+  transition:transform .16s ease, box-shadow .16s ease, background-color .16s ease, border-color .16s ease, color .16s ease;
+  text-decoration:none !important;
+}
+.btn:not(.navbar-toggler):hover, .btn-custom:hover{
+  transform:translateY(-1px);
+  box-shadow:0 14px 30px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.1);
+}
+.btn:not(.navbar-toggler):active, .btn-custom:active{
+  transform:translateY(0);
+  box-shadow:0 6px 16px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.btn:focus-visible, .btn-custom:focus-visible{
+  outline:2px solid color-mix(in srgb, var(--qrs-control-accent) 72%, #ffffff);
+  outline-offset:3px;
+}
+.btn-sm{
+  min-height:34px !important;
+  padding:.45rem .72rem !important;
+  border-radius:10px !important;
+  font-size:.88rem;
+}
+.btn-block{
+  width:100%;
+}
+.btn-primary, .btn-custom{
+  color:#07121f !important;
+  background:linear-gradient(180deg, color-mix(in srgb, var(--qrs-control-accent) 76%, #ffffff), var(--qrs-control-accent)) !important;
+  border-color:rgba(255,255,255,.18) !important;
+}
+.btn-primary:hover, .btn-custom:hover{
+  color:#07121f !important;
+  background:linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--qrs-control-accent) 84%, #ffffff)) !important;
+}
+.btn-info, .btn-light, .btn-outline-light, .btn-outline-warning{
+  color:var(--qrs-control-ink) !important;
+  background:rgba(255,255,255,.08) !important;
+  border-color:var(--qrs-control-stroke) !important;
+}
+.btn-info:hover, .btn-light:hover, .btn-outline-light:hover, .btn-outline-warning:hover{
+  color:#07121f !important;
+  background:linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--qrs-control-accent-2) 50%, #ffffff)) !important;
+}
+.btn-warning{
+  color:#17120a !important;
+  background:linear-gradient(180deg, #ffe8a6, #f6c454) !important;
+  border-color:rgba(255,255,255,.2) !important;
+}
+.btn-danger{
+  color:#fff !important;
+  background:linear-gradient(180deg, #ff7d7d, #d83b3b) !important;
+  border-color:rgba(255,255,255,.16) !important;
+}
+.btn[disabled], .btn:disabled, .btn-custom[disabled]{
+  opacity:.58;
+  transform:none;
+  cursor:not-allowed;
+  filter:saturate(.7);
+}
+body.bg-dark, body.text-light{
+  background:
+    radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%),
+    linear-gradient(135deg, #090d14, #111827 54%, #090d14) !important;
+  color:var(--qrs-control-ink) !important;
+}
+.container, .container-fluid{
+  color:inherit;
+}
+.card, .modal-content, .dropdown-menu, .list-group-item{
+  background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.055)) !important;
+  color:var(--qrs-control-ink) !important;
+  border:1px solid var(--qrs-control-stroke) !important;
+  border-radius:16px !important;
+  box-shadow:0 20px 58px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.card-body{
+  padding:1.2rem;
+}
+.form-control, input.form-control, select.form-control, textarea.form-control{
+  min-height:44px;
+  color:var(--qrs-control-ink) !important;
+  background:#0b1220 !important;
+  border:1px solid rgba(255,255,255,.20) !important;
+  border-radius:12px !important;
+  padding:.7rem .85rem;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+textarea.form-control{
+  line-height:1.45;
+}
+.form-control:focus, input.form-control:focus, select.form-control:focus, textarea.form-control:focus{
+  color:var(--qrs-control-ink) !important;
+  background:#0b1220 !important;
+  border-color:color-mix(in srgb, var(--qrs-control-accent) 72%, #ffffff) !important;
+  box-shadow:0 0 0 .2rem rgba(73,194,255,.16), inset 0 1px 0 rgba(255,255,255,.04) !important;
+}
+.form-control::placeholder{
+  color:#7d90a8 !important;
+}
+label, .form-check-label{
+  color:var(--qrs-control-ink);
+  font-weight:800;
+}
+.text-muted, .muted{
+  color:var(--qrs-control-muted) !important;
+}
+code{
+  color:#9fe8ff;
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;
+  padding:.08rem .32rem;
+}
+.table{
+  color:var(--qrs-control-ink) !important;
+  border-collapse:separate;
+  border-spacing:0;
+}
+.table thead th{
+  color:var(--qrs-control-muted) !important;
+  background:rgba(255,255,255,.07) !important;
+  border-color:rgba(255,255,255,.12) !important;
+  font-size:.78rem;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.table td, .table th{
+  border-color:rgba(255,255,255,.12) !important;
+}
+.table tbody td{
+  color:var(--qrs-control-ink) !important;
+  background:rgba(255,255,255,.035) !important;
+}
+.table-hover tbody tr:hover td{
+  background:rgba(73,194,255,.10) !important;
+}
+.alert, .alert-info{
+  color:var(--qrs-control-ink) !important;
+  background:rgba(73,194,255,.10) !important;
+  border:1px solid rgba(73,194,255,.28) !important;
+  border-radius:14px !important;
+}
+.badge{
+  border-radius:999px;
+  padding:.42em .68em;
+  letter-spacing:0;
+}
+.modal-header{
+  border-bottom:1px solid rgba(255,255,255,.12) !important;
+}
+.modal-body{
+  color:var(--qrs-control-ink);
+}
+hr{
+  border-top-color:rgba(255,255,255,.14) !important;
+}
+</style>
+"""
+
+
+def _inject_button_polish(response):
+    if response.status_code != 200 or response.is_streamed or response.direct_passthrough:
+        return response
+    if "text/html" not in (response.content_type or ""):
+        return response
+    if response.headers.get("Content-Encoding"):
+        return response
+    try:
+        body = response.get_data(as_text=True)
+    except Exception:
+        return response
+    if "qrs-button-polish" in body or not re.search(r"</head\s*>", body, flags=re.I):
+        return response
+    body = re.sub(r"</head\s*>", APP_BUTTON_POLISH_CSS + "\n</head>", body, count=1, flags=re.I)
+    response.set_data(body)
+    return response
+
+
+def _site_base_url() -> str:
+    base = (
+        os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("SITE_URL")
+        or os.getenv("BASE_URL")
+        or request.url_root
+    )
+    base = str(base or "").strip()
+    if not base:
+        base = "https://qroadscan.com"
+    if not base.startswith(("http://", "https://")):
+        base = "https://" + base
+    return base.rstrip("/")
+
+
+def _canonical_url(path: str = "/home") -> str:
+    path = path or "/home"
+    if path.startswith(("http://", "https://")):
+        return path
+    if not path.startswith("/"):
+        path = "/" + path
+    return _site_base_url() + path
+
+
+def _public_canonical_path_for_request() -> Optional[str]:
+    endpoint = request.endpoint or ""
+    if endpoint == "home":
+        return "/home"
+    if endpoint == "blog_index":
+        return "/blog"
+    if endpoint == "blog_view":
+        slug = ""
+        if request.view_args:
+            slug = str(request.view_args.get("slug") or "").strip()
+        return f"/blog/{slug}" if _valid_slug(slug) else None
+    return None
+
+
+def _seo_image_url() -> str:
+    return _canonical_url(SEO_OG_IMAGE_PATH)
+
+
+def _seo_favicon_url() -> str:
+    return _canonical_url("/favicon.svg")
+
+
+def _seo_manifest_url() -> str:
+    return _canonical_url("/site.webmanifest")
+
+
+def _seo_text(value: Any, max_len: int = 180) -> str:
+    text = _html.unescape(re.sub(r"<[^>]+>", " ", "" if value is None else str(value)))
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= max_len:
+        return text
+    clipped = text[:max_len].rsplit(" ", 1)[0].strip()
+    return (clipped or text[:max_len]).rstrip(".,;:") + "..."
+
+
+def _seo_date(value: Any) -> str:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value or "").strip()
+        dt = None
+        if raw:
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d",
+            ):
+                try:
+                    dt = datetime.strptime(raw.replace("Z", "+0000"), fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
+            dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).date().isoformat()
+
+
+def _seo_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value or "").strip()
+        dt = None
+        if raw:
+            for fmt in (
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d",
+            ):
+                try:
+                    dt = datetime.strptime(raw.replace("Z", "+0000"), fmt)
+                    break
+                except ValueError:
+                    continue
+        if dt is None:
+            dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _rss_date(value: Any) -> str:
+    return _seo_datetime(value).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+
+def _seo_iso_datetime(value: Any) -> str:
+    return _seo_datetime(value).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _xml_escape(value: Any) -> str:
+    return _html.escape("" if value is None else str(value), quote=True)
+
+
+def _json_ld(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+
+
+def _seo_page_rank(nodes: list[str], edges: Mapping[str, list[str]]) -> Dict[str, float]:
+    nodes = list(dict.fromkeys(nodes))
+    if not nodes:
+        return {}
+    n = len(nodes)
+    scores = {node: 1.0 / n for node in nodes}
+    damping = 0.85
+    for _ in range(28):
+        next_scores = {node: (1.0 - damping) / n for node in nodes}
+        for node in nodes:
+            outgoing = [target for target in edges.get(node, []) if target in next_scores]
+            if not outgoing:
+                outgoing = nodes
+            share = scores.get(node, 0.0) / len(outgoing)
+            for target in outgoing:
+                next_scores[target] += damping * share
+        scores = next_scores
+    max_score = max(scores.values()) if scores else 1.0
+    return {node: (score / max_score if max_score else 0.0) for node, score in scores.items()}
+
+
+def _seo_sitemap_entries() -> list[dict[str, Any]]:
+    today = datetime.now(timezone.utc).date().isoformat()
+    entries: list[dict[str, Any]] = [
+        {"path": "/home", "lastmod": today, "changefreq": "daily", "kind": "home"},
+        {"path": "/blog", "lastmod": today, "changefreq": "daily", "kind": "blog"},
+    ]
+    try:
+        posts = blog_list_published(limit=500, offset=0)
+    except Exception:
+        posts = []
+    if posts:
+        entries[1]["lastmod"] = max(
+            _seo_date(post.get("updated_at") or post.get("created_at"))
+            for post in posts
+        )
+    try:
+        featured_slugs = {p.get("slug") for p in blog_list_featured(limit=12)}
+    except Exception:
+        featured_slugs = set()
+
+    for post in posts:
+        slug = str(post.get("slug") or "").strip()
+        if not slug:
+            continue
+        entries.append({
+            "path": f"/blog/{slug}",
+            "lastmod": _seo_date(post.get("updated_at") or post.get("created_at")),
+            "changefreq": "weekly",
+            "kind": "post",
+            "title": _seo_text(post.get("title") or "QRoadScan traffic safety article", 120),
+            "featured": slug in featured_slugs,
+        })
+
+    nodes = [entry["path"] for entry in entries]
+    post_paths = [entry["path"] for entry in entries if entry.get("kind") == "post"]
+    featured_paths = [entry["path"] for entry in entries if entry.get("featured")]
+    edges: Dict[str, list[str]] = {
+        "/home": ["/blog", *featured_paths[:6], *post_paths[:3]],
+        "/blog": post_paths[:100] or ["/home"],
+    }
+    for i, path in enumerate(post_paths):
+        neighbors = ["/home", "/blog"]
+        if i > 0:
+            neighbors.append(post_paths[i - 1])
+        if i + 1 < len(post_paths):
+            neighbors.append(post_paths[i + 1])
+        edges[path] = neighbors
+
+    rank = _seo_page_rank(nodes, edges)
+    for entry in entries:
+        base_priority = 1.0 if entry["path"] == "/home" else 0.86 if entry["path"] == "/blog" else 0.62
+        score = rank.get(entry["path"], 0.0)
+        featured_boost = 0.08 if entry.get("featured") else 0.0
+        entry["priority"] = f"{min(1.0, max(0.50, base_priority + score * 0.16 + featured_boost)):.2f}"
+    return entries
+
+
+def _blog_item_list_schema(posts: list[dict], *, page_url: str) -> str:
+    items = []
+    for idx, post in enumerate(posts[:20], 1):
+        slug = post.get("slug")
+        if not slug:
+            continue
+        items.append({
+            "@type": "ListItem",
+            "position": idx,
+            "url": _canonical_url(f"/blog/{slug}"),
+            "name": _seo_text(post.get("title") or "QRoadScan blog post", 90),
+        })
+    return _json_ld({
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "QRoadScan traffic safety articles",
+        "url": page_url,
+        "itemListElement": items,
+    })
+
+
+def _blog_collection_schema(posts: list[dict], *, page_url: str) -> str:
+    items = []
+    for idx, post in enumerate(posts[:20], 1):
+        slug = post.get("slug")
+        if not slug:
+            continue
+        items.append({
+            "@type": "ListItem",
+            "position": idx,
+            "url": _canonical_url(f"/blog/{slug}"),
+            "name": _seo_text(post.get("title") or "QRoadScan blog post", 90),
+            "description": _seo_text(post.get("summary") or SEO_DEFAULT_DESCRIPTION, 140),
+        })
+    return _json_ld({
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "CollectionPage",
+                "@id": f"{page_url}#collection",
+                "url": page_url,
+                "name": "QRoadScan Blog",
+                "description": "Traffic risk, road hazard, commute safety, and predictive driving safety articles from QRoadScan.",
+                "isPartOf": {"@id": f"{_canonical_url('/home')}#website"},
+                "inLanguage": "en-US",
+                "image": _seo_image_url(),
+                "mainEntity": {"@id": f"{page_url}#itemlist"},
+            },
+            {
+                "@type": "BreadcrumbList",
+                "@id": f"{page_url}#breadcrumb",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Home", "item": _canonical_url("/home")},
+                    {"@type": "ListItem", "position": 2, "name": "Blog", "item": page_url},
+                ],
+            },
+            {
+                "@type": "ItemList",
+                "@id": f"{page_url}#itemlist",
+                "name": "QRoadScan traffic safety articles",
+                "url": page_url,
+                "itemListElement": items,
+            },
+        ],
+    })
+
+
+def _related_blog_posts(post: dict, posts: list[dict], limit: int = 3) -> list[dict]:
+    current_slug = str(post.get("slug") or "")
+    current_tags = {
+        tag.strip().lower()
+        for tag in str(post.get("tags") or "").split(",")
+        if tag.strip()
+    }
+    ranked = []
+    for candidate in posts:
+        slug = str(candidate.get("slug") or "")
+        if not slug or slug == current_slug:
+            continue
+        tags = {
+            tag.strip().lower()
+            for tag in str(candidate.get("tags") or "").split(",")
+            if tag.strip()
+        }
+        overlap = len(current_tags & tags)
+        freshness = _seo_datetime(candidate.get("updated_at") or candidate.get("created_at")).timestamp()
+        ranked.append((overlap, freshness, candidate))
+    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item[2] for item in ranked[:limit]]
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    body = "\n".join([
+        "User-agent: *",
+        "Allow: /",
+        "Allow: /home",
+        "Allow: /blog",
+        "Allow: /blog/",
+        "Allow: /feed.xml",
+        "Allow: /blog/feed.xml",
+        "Allow: /llms.txt",
+        "Allow: /seo-preview.png",
+        "Allow: /seo-preview.svg",
+        "Allow: /site.webmanifest",
+        "Disallow: /admin/",
+        "Disallow: /api/",
+        "Disallow: /dashboard",
+        "Disallow: /settings",
+        "Disallow: /login",
+        "Disallow: /logout",
+        "Disallow: /register",
+        f"Sitemap: {_canonical_url('/sitemap.xml')}",
+        f"AI-Content: {_canonical_url('/llms.txt')}",
+        "",
+    ])
+    resp = Response(body, mimetype="text/plain; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    rows = []
+    for entry in _seo_sitemap_entries():
+        image_title = entry.get("title") or (
+            "QRoadScan live traffic risk map"
+            if entry.get("kind") == "home"
+            else "QRoadScan traffic safety articles"
+        )
+        rows.append(
+            "  <url>"
+            f"<loc>{_xml_escape(_canonical_url(entry['path']))}</loc>"
+            f"<lastmod>{_xml_escape(entry['lastmod'])}</lastmod>"
+            f"<changefreq>{_xml_escape(entry['changefreq'])}</changefreq>"
+            f"<priority>{_xml_escape(entry['priority'])}</priority>"
+            "<image:image>"
+            f"<image:loc>{_xml_escape(_seo_image_url())}</image:loc>"
+            f"<image:title>{_xml_escape(image_title)}</image:title>"
+            f"<image:caption>{_xml_escape(SEO_OG_IMAGE_ALT)}</image:caption>"
+            "</image:image>"
+            "</url>"
+        )
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    body += (
+        "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" "
+        "xmlns:image=\"http://www.google.com/schemas/sitemap-image/1.1\">\n"
+    )
+    body += "\n".join(rows)
+    body += "\n</urlset>\n"
+    resp = Response(body, mimetype="application/xml; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=1800"
+    resp.last_modified = datetime.now(timezone.utc)
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/feed.xml")
+@app.get("/blog/feed.xml")
+def blog_feed_xml():
+    try:
+        posts = blog_list_published(limit=25, offset=0)
+    except Exception:
+        posts = []
+    feed_url = _canonical_url("/feed.xml")
+    blog_url = _canonical_url("/blog")
+    latest = posts[0].get("updated_at") if posts else datetime.now(timezone.utc)
+    rows = []
+    for post in posts:
+        slug = str(post.get("slug") or "").strip()
+        if not slug:
+            continue
+        post_url = _canonical_url(f"/blog/{slug}")
+        title = _seo_text(post.get("title") or "QRoadScan blog post", 120)
+        summary = _seo_text(post.get("summary") or SEO_DEFAULT_DESCRIPTION, 280)
+        pub_date = _rss_date(post.get("created_at") or post.get("updated_at"))
+        categories = "".join(
+            f"<category>{_xml_escape(tag.strip())}</category>"
+            for tag in str(post.get("tags") or "").split(",")
+            if tag.strip()
+        )
+        rows.append(
+            "<item>"
+            f"<title>{_xml_escape(title)}</title>"
+            f"<link>{_xml_escape(post_url)}</link>"
+            f"<guid isPermaLink=\"true\">{_xml_escape(post_url)}</guid>"
+            f"<pubDate>{_xml_escape(pub_date)}</pubDate>"
+            f"{categories}"
+            f"<description>{_xml_escape(summary)}</description>"
+            "</item>"
+        )
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    body += "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n"
+    body += "<channel>"
+    body += f"<title>{_xml_escape(SEO_SITE_NAME)} Blog</title>"
+    body += f"<link>{_xml_escape(blog_url)}</link>"
+    body += f"<atom:link href=\"{_xml_escape(feed_url)}\" rel=\"self\" type=\"application/rss+xml\" />"
+    body += f"<description>{_xml_escape(SEO_DEFAULT_DESCRIPTION)}</description>"
+    body += "<language>en-us</language>"
+    body += f"<lastBuildDate>{_xml_escape(_rss_date(latest))}</lastBuildDate>"
+    body += "".join(rows)
+    body += "</channel>\n</rss>\n"
+    resp = Response(body, mimetype="application/rss+xml; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=1800"
+    resp.last_modified = _seo_datetime(latest)
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/llms.txt")
+def llms_txt():
+    try:
+        posts = blog_list_published(limit=12, offset=0)
+    except Exception:
+        posts = []
+    lines = [
+        "# QRoadScan.com",
+        "",
+        "QRoadScan.com is a web application for live traffic risk visualization, road hazard alerts, predictive road safety, and calmer driving decisions.",
+        "",
+        "## Core Public URLs",
+        f"- Home: {_canonical_url('/home')}",
+        f"- Blog: {_canonical_url('/blog')}",
+        f"- RSS feed: {_canonical_url('/feed.xml')}",
+        f"- Sitemap: {_canonical_url('/sitemap.xml')}",
+        "",
+        "## Public Blog Articles",
+    ]
+    for post in posts:
+        slug = str(post.get("slug") or "").strip()
+        if not slug:
+            continue
+        title = _seo_text(post.get("title") or "QRoadScan blog post", 120)
+        summary = _seo_text(post.get("summary") or SEO_DEFAULT_DESCRIPTION, 220)
+        lines.append(f"- [{title}]({_canonical_url(f'/blog/{slug}')}) - {summary}")
+    lines.append("")
+    body = "\n".join(lines)
+    resp = Response(body, mimetype="text/plain; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return (
+        len(data).to_bytes(4, "big")
+        + kind
+        + data
+        + (_zlib.crc32(kind + data) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+
+
+def _blend_rgb(base: tuple[int, int, int], top: tuple[int, int, int], alpha: float) -> tuple[int, int, int]:
+    alpha = max(0.0, min(1.0, alpha))
+    inv = 1.0 - alpha
+    return (
+        int(base[0] * inv + top[0] * alpha),
+        int(base[1] * inv + top[1] * alpha),
+        int(base[2] * inv + top[2] * alpha),
+    )
+
+
+def _risk_rgb(t: float) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, t))
+    green = (67, 209, 122)
+    amber = (246, 196, 84)
+    red = (255, 106, 106)
+    if t < 0.46:
+        k = t / 0.46
+        return _blend_rgb(green, amber, k)
+    k = (t - 0.46) / 0.54
+    return _blend_rgb(amber, red, k)
+
+
+def _seo_preview_png_bytes() -> bytes:
+    global _SEO_PREVIEW_PNG_BODY
+    if _SEO_PREVIEW_PNG_BODY is not None:
+        return _SEO_PREVIEW_PNG_BODY
+
+    width, height = 1200, 630
+    accent = (73, 194, 255)
+    cx, cy = 885.0, 315.0
+    rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            gx = x / (width - 1)
+            gy = y / (height - 1)
+            glow_dist = math.hypot((x - 860.0) / 680.0, (y - 250.0) / 430.0)
+            glow = max(0.0, 1.0 - glow_dist) ** 2
+            rgb = (
+                int(11 + 18 * gx + 42 * glow),
+                int(15 + 25 * gy + 92 * glow),
+                int(23 + 45 * gx + 112 * glow),
+            )
+
+            if x < 620 and 470 < y < 505:
+                lane = 1.0 - abs(y - 488) / 18.0
+                rgb = _blend_rgb(rgb, accent, 0.10 * max(0.0, lane))
+            if x < 620 and 535 < y < 541 and (x // 42) % 2 == 0:
+                rgb = _blend_rgb(rgb, (234, 245, 255), 0.36)
+
+            dx, dy = x - cx, y - cy
+            dist = math.hypot(dx, dy)
+            if 166.0 <= dist <= 214.0:
+                angle = (math.atan2(dy, dx) + math.pi * 2.0) % (math.pi * 2.0)
+                risk = angle / (math.pi * 2.0)
+                ring_alpha = 1.0 - abs(dist - 190.0) / 24.0
+                rgb = _blend_rgb(rgb, _risk_rgb(risk), 0.86 * max(0.0, ring_alpha))
+            elif 132.0 <= dist <= 246.0:
+                halo = 1.0 - min(1.0, abs(dist - 190.0) / 56.0)
+                rgb = _blend_rgb(rgb, accent, 0.10 * halo)
+            if dist <= 106.0:
+                rgb = _blend_rgb(rgb, (16, 25, 41), 0.90)
+            if dist <= 16.0:
+                rgb = _blend_rgb(rgb, accent, 0.95)
+            if 690 < x < 1080 and 300 < y < 306:
+                rgb = _blend_rgb(rgb, (234, 245, 255), 0.12)
+
+            row.extend(bytes(rgb))
+        rows.append(bytes(row))
+
+    raw = b"".join(rows)
+    ihdr = (
+        width.to_bytes(4, "big")
+        + height.to_bytes(4, "big")
+        + bytes([8, 2, 0, 0, 0])
+    )
+    _SEO_PREVIEW_PNG_BODY = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", _zlib.compress(raw, 9))
+        + _png_chunk(b"IEND", b"")
+    )
+    return _SEO_PREVIEW_PNG_BODY
+
+
+@app.get("/seo-preview.png")
+def seo_preview_png():
+    body = _seo_preview_png_bytes()
+    resp = Response(body, mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    resp.set_etag(hashlib.sha256(body).hexdigest())
+    return resp
+
+
+@app.get("/seo-preview.svg")
+def seo_preview_svg():
+    accent = "#49c2ff"
+    try:
+        sample = colorsync.sample()
+        accent = str(sample.get("hex") or accent)
+    except Exception:
+        pass
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", accent):
+        accent = "#49c2ff"
+    body = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">{_xml_escape(SEO_SITE_NAME)} preview</title>
+  <desc id="desc">{_xml_escape(SEO_OG_IMAGE_ALT)}</desc>
+  <defs>
+    <radialGradient id="glow" cx="72%" cy="36%" r="58%">
+      <stop offset="0%" stop-color="{accent}" stop-opacity="0.72"/>
+      <stop offset="48%" stop-color="{accent}" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#0b0f17" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="risk" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#43d17a"/>
+      <stop offset="46%" stop-color="#f6c454"/>
+      <stop offset="100%" stop-color="#ff6a6a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0b0f17"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <circle cx="885" cy="315" r="190" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="44"/>
+  <circle cx="885" cy="315" r="190" fill="none" stroke="url(#risk)" stroke-linecap="round" stroke-width="44" stroke-dasharray="830 364" transform="rotate(-105 885 315)"/>
+  <circle cx="885" cy="315" r="104" fill="#101929" stroke="#ffffff" stroke-opacity="0.18" stroke-width="2"/>
+  <circle cx="885" cy="315" r="15" fill="{accent}"/>
+  <text x="82" y="220" fill="#eaf5ff" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800">QRoadScan.com</text>
+  <text x="86" y="294" fill="{accent}" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">Live Traffic Risk Map</text>
+  <text x="86" y="356" fill="#b8cfe4" font-family="Arial, Helvetica, sans-serif" font-size="31">Road hazard alerts, AI driving safety insights,</text>
+  <text x="86" y="404" fill="#b8cfe4" font-family="Arial, Helvetica, sans-serif" font-size="31">and calmer route decisions at a glance.</text>
+  <text x="86" y="512" fill="#eaf5ff" fill-opacity="0.76" font-family="Arial, Helvetica, sans-serif" font-size="24">qroadscan.com</text>
+</svg>
+"""
+    resp = Response(body, mimetype="image/svg+xml; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/favicon.svg")
+def favicon_svg():
+    body = f"""<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="{_xml_escape(SEO_BRAND_NAME)}">
+  <rect width="64" height="64" rx="14" fill="#0b0f17"/>
+  <circle cx="32" cy="32" r="22" fill="none" stroke="#49c2ff" stroke-width="7" stroke-dasharray="98 40" transform="rotate(-95 32 32)"/>
+  <path d="M30 18h8c6 0 10 4 10 10 0 5-3 9-8 10l8 8h-10l-7-7h-1v7h-8V18h8zm0 7v8h7c2 0 4-2 4-4s-2-4-4-4h-7z" fill="#eaf5ff"/>
+</svg>
+"""
+    resp = Response(body, mimetype="image/svg+xml; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/site.webmanifest")
+def site_webmanifest():
+    manifest = {
+        "name": SEO_SITE_NAME,
+        "short_name": SEO_BRAND_NAME,
+        "description": SEO_DEFAULT_DESCRIPTION,
+        "start_url": "/home",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#0b0f17",
+        "theme_color": "#0b0f17",
+        "icons": [
+            {
+                "src": "/favicon.svg",
+                "sizes": "64x64",
+                "type": "image/svg+xml",
+                "purpose": "any",
+            }
+        ],
+    }
+    body = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+    resp = Response(body, mimetype="application/manifest+json; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/favicon.ico")
+def favicon():
+    icon_dir = BASE_DIR / "icons"
+    icon_path = icon_dir / "favicon.ico"
+    if not icon_path.is_file():
+        return redirect(url_for("favicon_svg"), code=302)
+    return send_from_directory(
+        icon_dir,
+        "favicon.ico",
+        mimetype="image/vnd.microsoft.icon",
+        max_age=86400,
+    )
 
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I | re.M)
 
@@ -798,7 +2123,6 @@ def _sanitize(s: str) -> str:
 
 
 def _request_json_dict(*, force: bool = False, silent: bool = True) -> Dict[str, Any]:
-    """Return a JSON object body or {}, never None/list/scalar."""
     try:
         obj = request.get_json(force=force, silent=silent)
     except Exception:
@@ -2140,7 +3464,8 @@ def create_tables():
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 is_admin BOOLEAN DEFAULT 0,
-                preferred_model TEXT DEFAULT 'openai'
+                preferred_model TEXT DEFAULT 'openai',
+                preferred_language TEXT DEFAULT 'en'
             )
         """)
         cursor.execute("""
@@ -2159,9 +3484,66 @@ def create_tables():
                 timestamp TEXT,
                 risk_level TEXT,
                 model_used TEXT,
+                language TEXT,
+                language_audit TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
+        cursor.execute("PRAGMA table_info(hazard_reports)")
+        hazard_cols = {row[1] for row in cursor.fetchall()}
+        if "language" not in hazard_cols:
+            cursor.execute("ALTER TABLE hazard_reports ADD COLUMN language TEXT")
+        if "language_audit" not in hazard_cols:
+            cursor.execute("ALTER TABLE hazard_reports ADD COLUMN language_audit TEXT")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                setting_key TEXT NOT NULL,
+                setting_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(user_id, setting_key),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("PRAGMA table_info(users)")
+        user_cols = {row[1] for row in cursor.fetchall()}
+        if "preferred_language" not in user_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN preferred_language TEXT")
+        try:
+            encrypted_default_language = encrypt_data("en") or "en"
+            cursor.execute(
+                "UPDATE users SET preferred_language = ? WHERE preferred_language IS NULL OR preferred_language = ''",
+                (encrypted_default_language,),
+            )
+            for language_code in SUPPORTED_LANGUAGES:
+                encrypted_language = encrypt_data(language_code) or language_code
+                cursor.execute(
+                    "UPDATE users SET preferred_language = ? WHERE preferred_language = ?",
+                    (encrypted_language, language_code),
+                )
+            cursor.execute("SELECT id, preferred_language FROM users")
+            for uid, stored_language in cursor.fetchall():
+                plain_language = decrypt_data(stored_language) if stored_language else None
+                language_code = normalize_language_key(plain_language or stored_language or "en")
+                encrypted_setting = (
+                    encrypt_data(
+                        language_code,
+                        ctx={"domain": "user_settings", "field": f"{uid}:preferred_language"},
+                    )
+                    or encrypt_data(language_code)
+                    or language_code
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO user_settings (user_id, setting_key, setting_value, updated_at)
+                    VALUES (?, 'preferred_language', ?, ?)
+                    """,
+                    (uid, encrypted_setting, now),
+                )
+        except Exception:
+            logger.exception("Unable to backfill encrypted preferred_language defaults")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -2185,6 +3567,7 @@ def create_tables():
             "quantum_results":"ALTER TABLE hazard_reports ADD COLUMN quantum_results TEXT",
             "risk_level":     "ALTER TABLE hazard_reports ADD COLUMN risk_level TEXT",
             "model_used":     "ALTER TABLE hazard_reports ADD COLUMN model_used TEXT",
+            "language":       "ALTER TABLE hazard_reports ADD COLUMN language TEXT",
         }
         for col, alter_sql in alter_map.items():
             if col not in existing:
@@ -2292,50 +3675,135 @@ def _slugify(title: str) -> str:
 def _valid_slug(slug: str) -> bool:
     return bool(_SLUG_RE.fullmatch(slug or ''))
 
-_ALLOWED_TAGS = set(bleach.sanitizer.ALLOWED_TAGS) | {
+def _copy_allowed_attrs(raw: Mapping[str, Any]) -> Dict[str, set[str]]:
+    copied: Dict[str, set[str]] = {}
+    for tag, attrs in (raw or {}).items():
+        try:
+            copied[str(tag)] = {str(attr) for attr in attrs}
+        except TypeError:
+            copied[str(tag)] = set()
+    return copied
+
+
+_BASE_ALLOWED_TAGS = {
+    'a','abbr','acronym','b','blockquote','code','em','i','li','ol','strong','ul'
+}
+_BASE_ALLOWED_ATTRS = {
+    'a': {'href','title'},
+    'abbr': {'title'},
+    'acronym': {'title'},
+}
+
+_ALLOWED_TAGS = _BASE_ALLOWED_TAGS | {
     'p','h1','h2','h3','h4','h5','h6','ul','ol','li','strong','em','blockquote','code','pre',
     'a','img','hr','br','table','thead','tbody','tr','th','td','span'
 }
-_ALLOWED_ATTRS = {
-    **bleach.sanitizer.ALLOWED_ATTRIBUTES,
-    'a': ['href','title','rel','target'],
-    'img': ['src','alt','title','width','height','loading','decoding'],
-    'span': ['class','data-emoji'],
-    'code': ['class'],
-    'pre': ['class'],
-    'th': ['colspan','rowspan'],
-    'td': ['colspan','rowspan']
-}
-_ALLOWED_PROTOCOLS = ['http','https','mailto','data']
+_ALLOWED_ATTRS = _copy_allowed_attrs(_BASE_ALLOWED_ATTRS)
+_ALLOWED_ATTRS.setdefault('a', set()).update({'href','title'})
+_ALLOWED_ATTRS.setdefault('img', set()).update({'src','alt','title','width','height','loading','decoding'})
+_ALLOWED_ATTRS.setdefault('span', set()).update({'class','data-emoji'})
+_ALLOWED_ATTRS.setdefault('code', set()).update({'class'})
+_ALLOWED_ATTRS.setdefault('pre', set()).update({'class'})
+_ALLOWED_ATTRS.setdefault('th', set()).update({'colspan','rowspan'})
+_ALLOWED_ATTRS.setdefault('td', set()).update({'colspan','rowspan'})
+for _anchor_attr_set in (_ALLOWED_ATTRS.get('a'), _ALLOWED_ATTRS.get('*')):
+    if _anchor_attr_set is not None:
+        _anchor_attr_set.discard('rel')
+        _anchor_attr_set.discard('target')
+_ALLOWED_PROTOCOLS = {'http','https','mailto','data'}
+_CLEAN_CONTENT_TAGS = {'script','style','iframe','object','embed','svg','math','template','noscript'}
+_LINK_REL = 'nofollow noopener noreferrer'
+_DATA_IMAGE_RE = re.compile(r'^data:image/(?:gif|png|jpe?g|webp|avif);base64,[A-Za-z0-9+/=\s]+$', re.I)
+_SAFE_CLASS_RE = re.compile(r'^[A-Za-z0-9_-]{1,80}$')
 
-def _link_cb_rel_and_target(attrs, new):
-    if (None, 'href') not in attrs:
-        return attrs
-    rel_key = (None, 'rel')
-    rel_tokens = set((attrs.get(rel_key, '') or '').split())
-    rel_tokens.update({'nofollow', 'noopener', 'noreferrer'})
-    attrs[rel_key] = ' '.join(sorted(t for t in rel_tokens if t))
-    attrs[(None, 'target')] = '_blank'
-    return attrs
+
+def _safe_class_value(value: str) -> Optional[str]:
+    tokens = [
+        token for token in re.split(r'\s+', value or '')
+        if token and _SAFE_CLASS_RE.fullmatch(token)
+    ]
+    return ' '.join(tokens[:20]) if tokens else None
+
+
+def _sanitize_html_attr(tag: str, attr: str, value: str) -> Optional[str]:
+    tag = (tag or '').lower()
+    attr = (attr or '').lower()
+    value = (value or '').strip()
+
+    if attr.startswith('on'):
+        return None
+    if attr == 'class':
+        return _safe_class_value(value)
+    if attr in {'href', 'src'}:
+        lowered = re.sub(r'[\x00-\x20]+', '', value.lower())
+        if lowered.startswith(('javascript:', 'vbscript:')):
+            return None
+        if lowered.startswith('data:'):
+            if tag == 'img' and attr == 'src' and _DATA_IMAGE_RE.fullmatch(value):
+                return re.sub(r'\s+', '', value)
+            return None
+        return value
+    if attr in {'width', 'height'}:
+        return value if re.fullmatch(r'[1-9][0-9]{0,3}', value) else None
+    if attr in {'colspan', 'rowspan'}:
+        return value if re.fullmatch(r'[1-9][0-9]?', value) else None
+    if attr == 'loading':
+        return value if value in {'lazy', 'eager'} else None
+    if attr == 'decoding':
+        return value if value in {'async', 'sync', 'auto'} else None
+    if attr == 'data-emoji':
+        return value[:64] if value else None
+    return value
+
+
+def _clean_html_fragment(
+    html: str,
+    *,
+    tags: set[str],
+    attributes: Dict[str, set[str]],
+) -> str:
+    clean_kwargs = {
+        'tags': tags,
+        'attributes': attributes,
+        'attribute_filter': _sanitize_html_attr,
+        'strip_comments': True,
+        'link_rel': _LINK_REL if 'a' in tags else None,
+        'clean_content_tags': _CLEAN_CONTENT_TAGS,
+        'url_schemes': _ALLOWED_PROTOCOLS,
+    }
+    if 'a' in tags:
+        clean_kwargs['set_tag_attribute_values'] = {'a': {'target': '_blank'}}
+    return nh3.clean("" if html is None else str(html), **clean_kwargs)
+
+
+def _clean_text_fragment(s: Any) -> str:
+    return nh3.clean(
+        "" if s is None else str(s),
+        tags=set(),
+        attributes={},
+        attribute_filter=_sanitize_html_attr,
+        strip_comments=True,
+        link_rel=None,
+        clean_content_tags=_CLEAN_CONTENT_TAGS,
+        url_schemes=set(),
+    )
+
+
+_REPORT_ALLOWED_TAGS = {
+    'a','abbr','acronym','b','blockquote','code','em','i','li','ol','strong','ul',
+    'p','h1','h2','h3','h4','h5','h6','br'
+}
+_REPORT_ALLOWED_ATTRS = _copy_allowed_attrs(_BASE_ALLOWED_ATTRS)
+for _anchor_attr_set in (_REPORT_ALLOWED_ATTRS.get('a'), _REPORT_ALLOWED_ATTRS.get('*')):
+    if _anchor_attr_set is not None:
+        _anchor_attr_set.discard('rel')
+        _anchor_attr_set.discard('target')
 
 def sanitize_html(html: str) -> str:
-    html = html or ""
-    html = bleach.clean(
-        html,
-        tags=_ALLOWED_TAGS,
-        attributes=_ALLOWED_ATTRS,
-        protocols=_ALLOWED_PROTOCOLS,
-        strip=True,
-    )
-    html = bleach.linkify(
-        html,
-        callbacks=[_link_cb_rel_and_target],
-        skip_tags=['code','pre'],
-    )
-    return html
+    return _clean_html_fragment(html or "", tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS)
 
 def sanitize_text(s: str, max_len: int) -> str:
-    s = bleach.clean(s or "", tags=[], attributes={}, protocols=_ALLOWED_PROTOCOLS, strip=True, strip_comments=True)
+    s = _clean_text_fragment(s or "")
     s = re.sub(r'\s+', ' ', s).strip()
     return s[:max_len]
 
@@ -2706,21 +4174,65 @@ def blog_delete(post_id: int) -> bool:
         logger.error(f"blog_delete failed: {e}", exc_info=True)
         return False
 
+@app.get("/blog/")
+def blog_index_slash():
+    return redirect(url_for("blog_index"), code=301)
+
+
 @app.get("/blog")
 def blog_index():
     posts = blog_list_published(limit=50, offset=0)
     seed = colorsync.sample()
     accent = seed.get("hex", "#49c2ff")
-    return render_template_string("""
+    blog_url = _canonical_url("/blog")
+    sitemap_url = _canonical_url("/sitemap.xml")
+    feed_url = _canonical_url("/feed.xml")
+    og_image_url = _seo_image_url()
+    favicon_svg_url = _seo_favicon_url()
+    manifest_url = _seo_manifest_url()
+    blog_description = (
+        "QRoadScan blog articles on traffic risk, road hazard alerts, commute safety, "
+        "predictive road safety, and the live risk colorwheel."
+    )
+    blog_schema = _blog_collection_schema(posts, page_url=blog_url)
+    rendered = render_template_string("""
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>QRS - Blog</title>
+  <title>QRoadScan Blog | Traffic Risk, Road Hazards & Safer Driving</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ blog_description }}">
+  <meta name="keywords" content="{{ seo_keywords }}">
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1">
+  <link rel="canonical" href="{{ blog_url }}">
+  <link rel="alternate" hreflang="en" href="{{ blog_url }}">
+  <link rel="alternate" hreflang="x-default" href="{{ blog_url }}">
+  <link rel="alternate" type="application/rss+xml" title="QRoadScan Blog RSS" href="{{ feed_url }}">
+  <link rel="sitemap" type="application/xml" href="{{ sitemap_url }}">
+  <link rel="manifest" href="{{ manifest_url }}">
+  <link rel="icon" type="image/svg+xml" href="{{ favicon_svg_url }}" sizes="any">
+  <link rel="icon" href="{{ url_for('favicon') }}" sizes="any">
+  <meta property="og:type" content="blog">
+  <meta property="og:site_name" content="QRoadScan.com">
+  <meta property="og:title" content="QRoadScan Blog | Traffic Risk, Road Hazards & Safer Driving">
+  <meta property="og:description" content="{{ blog_description }}">
+  <meta property="og:url" content="{{ blog_url }}">
+  <meta property="og:image" content="{{ og_image_url }}">
+  <meta property="og:image:secure_url" content="{{ og_image_url }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ og_image_alt }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="QRoadScan Blog">
+  <meta name="twitter:description" content="{{ blog_description }}">
+  <meta name="twitter:image" content="{{ og_image_url }}">
+  <meta name="twitter:image:alt" content="{{ og_image_alt }}">
   <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+  <script type="application/ld+json">{{ blog_schema|safe }}</script>
   <style>
     :root{ --accent: {{ accent }}; }
     body{ background:#0b0f17; color:#eaf5ff; font-family:'Roboto',sans-serif; }
@@ -2751,8 +4263,8 @@ def blog_index():
     {% if posts %}
       {% for p in posts %}
         <div class="post">
-          <h3 class="mb-1"><a href="{{ url_for('blog_view', slug=p['slug']) }}">{{ p['title'] or '(untitled)' }}</a></h3>
-          <div class="meta mb-2">{{ p['created_at'] }}</div>
+          <h3 class="mb-1"><a rel="bookmark" href="{{ url_for('blog_view', slug=p['slug']) }}">{{ p['title'] or '(untitled)' }}</a></h3>
+          <div class="meta mb-2"><time datetime="{{ seo_iso_datetime(p['created_at']) }}">{{ p['created_at'] }}</time></div>
           {% if p['summary'] %}<div class="mb-2">{{ p['summary']|safe }}</div>{% endif %}
           {% if p['tags'] %}
             <div class="mb-1">
@@ -2770,7 +4282,32 @@ def blog_index():
 </main>
 </body>
 </html>
-    """, posts=posts, accent=accent)
+    """,
+        posts=posts,
+        accent=accent,
+        blog_url=blog_url,
+        sitemap_url=sitemap_url,
+        feed_url=feed_url,
+        og_image_url=og_image_url,
+        og_image_alt=SEO_OG_IMAGE_ALT,
+        favicon_svg_url=favicon_svg_url,
+        manifest_url=manifest_url,
+        blog_description=blog_description,
+        seo_keywords=SEO_KEYWORDS,
+        seo_iso_datetime=_seo_iso_datetime,
+        blog_schema=blog_schema,
+    )
+    response = make_response(rendered)
+    response.cache_control.public = True
+    response.cache_control.max_age = 300
+    return response
+
+@app.get("/blog/<slug>/")
+def blog_view_slash(slug: str):
+    if slug == "feed.xml":
+        return redirect(url_for("blog_feed_xml"), code=301)
+    return redirect(url_for("blog_view", slug=slug), code=301)
+
 
 @app.get("/blog/<slug>")
 def blog_view(slug: str):
@@ -2780,16 +4317,120 @@ def blog_view(slug: str):
         return "Not found", 404
     seed = colorsync.sample()
     accent = seed.get("hex", "#49c2ff")
-    return render_template_string("""
+    post_url = _canonical_url(f"/blog/{post['slug']}")
+    blog_url = _canonical_url("/blog")
+    feed_url = _canonical_url("/feed.xml")
+    sitemap_url = _canonical_url("/sitemap.xml")
+    og_image_url = _seo_image_url()
+    favicon_svg_url = _seo_favicon_url()
+    manifest_url = _seo_manifest_url()
+    post_title = _seo_text(post.get("title") or "QRoadScan blog post", 110)
+    post_description = _seo_text(post.get("summary") or post.get("content") or SEO_DEFAULT_DESCRIPTION, 180)
+    post_tags = [t.strip() for t in str(post.get("tags") or "").split(",") if t.strip()]
+    published = _seo_date(post.get("created_at"))
+    modified = _seo_date(post.get("updated_at") or post.get("created_at"))
+    published_iso = _seo_iso_datetime(post.get("created_at"))
+    modified_iso = _seo_iso_datetime(post.get("updated_at") or post.get("created_at"))
+    word_count = len(re.findall(r"\b\w+\b", _seo_text(post.get("content") or "", 200000)))
+    try:
+        related_posts = _related_blog_posts(post, blog_list_published(limit=50, offset=0), limit=3)
+    except Exception:
+        related_posts = []
+    robots_meta = (
+        "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+        if post.get("status") == "published"
+        else "noindex,nofollow"
+    )
+    post_schema = _json_ld({
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "BlogPosting",
+                "@id": f"{post_url}#article",
+                "mainEntityOfPage": {"@type": "WebPage", "@id": post_url},
+                "headline": post_title,
+                "description": post_description,
+                "url": post_url,
+                "datePublished": published_iso,
+                "dateModified": modified_iso,
+                "inLanguage": "en-US",
+                "keywords": post_tags or SEO_KEYWORDS,
+                "articleSection": post_tags[0] if post_tags else "Traffic Safety",
+                "wordCount": word_count,
+                "image": {"@type": "ImageObject", "url": og_image_url, "width": 1200, "height": 630},
+                "thumbnailUrl": og_image_url,
+                "isAccessibleForFree": True,
+                "relatedLink": [_canonical_url(f"/blog/{p['slug']}") for p in related_posts if p.get("slug")],
+                "author": {"@type": "Organization", "name": SEO_SITE_NAME, "url": _canonical_url("/home")},
+                "publisher": {
+                    "@type": "Organization",
+                    "name": SEO_SITE_NAME,
+                    "url": _canonical_url("/home"),
+                    "logo": {"@type": "ImageObject", "url": favicon_svg_url, "width": 64, "height": 64},
+                },
+            },
+            {
+                "@type": "WebPage",
+                "@id": f"{post_url}#webpage",
+                "url": post_url,
+                "name": post_title,
+                "description": post_description,
+                "isPartOf": {"@id": f"{_canonical_url('/home')}#website"},
+                "primaryImageOfPage": {"@type": "ImageObject", "url": og_image_url, "width": 1200, "height": 630},
+                "breadcrumb": {"@id": f"{post_url}#breadcrumb"},
+            },
+            {
+                "@type": "BreadcrumbList",
+                "@id": f"{post_url}#breadcrumb",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Home", "item": _canonical_url("/home")},
+                    {"@type": "ListItem", "position": 2, "name": "Blog", "item": blog_url},
+                    {"@type": "ListItem", "position": 3, "name": post_title, "item": post_url},
+                ],
+            },
+        ],
+    })
+    rendered = render_template_string("""
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>{{ post['title'] }} - QRS Blog</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ post_description }}">
+  <meta name="keywords" content="{{ post_tags|join(', ') if post_tags else seo_keywords }}">
+  <meta name="robots" content="{{ robots_meta }}">
+  <link rel="canonical" href="{{ post_url }}">
+  <link rel="alternate" hreflang="en" href="{{ post_url }}">
+  <link rel="alternate" hreflang="x-default" href="{{ post_url }}">
+  <link rel="alternate" type="application/rss+xml" title="QRoadScan Blog RSS" href="{{ feed_url }}">
+  <link rel="sitemap" type="application/xml" href="{{ sitemap_url }}">
+  <link rel="manifest" href="{{ manifest_url }}">
+  <link rel="icon" type="image/svg+xml" href="{{ favicon_svg_url }}" sizes="any">
+  <link rel="icon" href="{{ url_for('favicon') }}" sizes="any">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="QRoadScan.com">
+  <meta property="og:title" content="{{ post_title }}">
+  <meta property="og:description" content="{{ post_description }}">
+  <meta property="og:url" content="{{ post_url }}">
+  <meta property="og:image" content="{{ og_image_url }}">
+  <meta property="og:image:secure_url" content="{{ og_image_url }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ og_image_alt }}">
+  <meta property="article:published_time" content="{{ published_iso }}">
+  <meta property="article:modified_time" content="{{ modified_iso }}">
+  {% for tag in post_tags %}<meta property="article:tag" content="{{ tag }}">{% endfor %}
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ post_title }}">
+  <meta name="twitter:description" content="{{ post_description }}">
+  <meta name="twitter:image" content="{{ og_image_url }}">
+  <meta name="twitter:image:alt" content="{{ og_image_alt }}">
   <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+  <script type="application/ld+json">{{ post_schema|safe }}</script>
   <style>
     :root{ --accent: {{ accent }}; }
     body{ background:#0b0f17; color:#eaf5ff; font-family:'Roboto',sans-serif; }
@@ -2817,10 +4458,11 @@ def blog_view(slug: str):
   </div>
 </nav>
 <main class="container py-4">
-  <div class="card-g p-3 p-md-4">
+  <article class="card-g p-3 p-md-4">
     <h1 class="title mb-2">{{ post['title'] }}</h1>
     <div class="meta mb-3">
-      {{ post['created_at'] }}
+      <time datetime="{{ published_iso }}">{{ post['created_at'] }}</time>
+      {% if modified != published %} | Updated <time datetime="{{ modified_iso }}">{{ modified }}</time>{% endif %}
       {% if post['tags'] %} - {% for t in post['tags'].split(',') if t %}
           <span class="tag">{{ t }}</span>
         {% endfor %}{% endif %}
@@ -2830,11 +4472,56 @@ def blog_view(slug: str):
     </div>
     {% if post['summary'] %}<div class="mb-3">{{ post['summary']|safe }}</div>{% endif %}
     <div class="content">{{ post['content']|safe }}</div>
-  </div>
+    {% if related_posts %}
+      <section class="mt-4 pt-3" style="border-top:1px solid #ffffff22">
+        <h2 class="h5 mb-3">Related QRoadScan articles</h2>
+        <div class="row">
+          {% for related in related_posts %}
+            <div class="col-md-4 mb-3">
+              <a rel="bookmark" href="{{ url_for('blog_view', slug=related['slug']) }}">{{ related.get('title') or 'QRoadScan article' }}</a>
+              {% if related.get('summary') %}
+                <p class="meta mt-2 mb-0">{{ related.get('summary')|safe }}</p>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+  </article>
 </main>
 </body>
 </html>
-    """, post=post, accent=accent)
+    """,
+        post=post,
+        accent=accent,
+        post_url=post_url,
+        post_title=post_title,
+        post_description=post_description,
+        post_tags=post_tags,
+        robots_meta=robots_meta,
+        published=published,
+        modified=modified,
+        published_iso=published_iso,
+        modified_iso=modified_iso,
+        feed_url=feed_url,
+        sitemap_url=sitemap_url,
+        og_image_url=og_image_url,
+        og_image_alt=SEO_OG_IMAGE_ALT,
+        favicon_svg_url=favicon_svg_url,
+        manifest_url=manifest_url,
+        related_posts=related_posts,
+        seo_keywords=SEO_KEYWORDS,
+        post_schema=post_schema,
+    )
+    response = make_response(rendered)
+    response.last_modified = _seo_datetime(post.get("updated_at") or post.get("created_at"))
+    response.cache_control.public = post.get("status") == "published"
+    response.cache_control.max_age = 300 if post.get("status") == "published" else 0
+    if post.get("status") != "published":
+        response.cache_control.private = True
+        response.cache_control.no_store = True
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
 
 
 def _csrf_from_request():
@@ -3872,6 +5559,7 @@ def ensure_admin_from_env():
     dyn_hasher = _dynamic_argon2_hasher()
     hashed = dyn_hasher.hash(admin_pass)
     preferred_model_encrypted = encrypt_data('openai')
+    preferred_language_encrypted = encrypt_data('en')
 
     with sqlite3.connect(DB_FILE) as db:
         cursor = db.cursor()
@@ -3905,8 +5593,24 @@ def ensure_admin_from_env():
                 "Admin user ensured/updated from env (dynamic Argon2id).")
         else:
             cursor.execute(
-                "INSERT INTO users (username, password, is_admin, preferred_model) VALUES (?, ?, 1, ?)",
-                (admin_user, hashed, preferred_model_encrypted))
+                "INSERT INTO users (username, password, is_admin, preferred_model, preferred_language) VALUES (?, ?, 1, ?, ?)",
+                (admin_user, hashed, preferred_model_encrypted, preferred_language_encrypted))
+            user_id = cursor.lastrowid
+            preferred_language_setting = (
+                encrypt_data(
+                    "en",
+                    ctx={"domain": "user_settings", "field": f"{user_id}:preferred_language"},
+                )
+                or preferred_language_encrypted
+                or "en"
+            )
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO user_settings (user_id, setting_key, setting_value, updated_at)
+                VALUES (?, 'preferred_language', ?, ?)
+                """,
+                (user_id, preferred_language_setting, datetime.now(timezone.utc).isoformat()),
+            )
             db.commit()
             logger.debug("Admin user created from env (dynamic Argon2id).")
 
@@ -4132,7 +5836,7 @@ def sanitize_input(user_input):
         return ""
     if not isinstance(user_input, str):
         user_input = str(user_input)
-    return bleach.clean(user_input)
+    return _clean_text_fragment(user_input)
 
 def sanitize_password(password):
 
@@ -5963,6 +7667,7 @@ def register_user(username, password, invite_code=None):
 
     hashed_password = ph.hash(password)
     preferred_model_encrypted = encrypt_data('openai')
+    preferred_language_encrypted = encrypt_data('en')
 
     with sqlite3.connect(DB_FILE) as db:
         cursor = db.cursor()
@@ -6004,10 +7709,25 @@ def register_user(username, password, invite_code=None):
             is_admin = 0
 
             cursor.execute(
-                "INSERT INTO users (username, password, is_admin, preferred_model) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (username, password, is_admin, preferred_model, preferred_language) VALUES (?, ?, ?, ?, ?)",
                 (username, hashed_password, is_admin,
-                 preferred_model_encrypted))
+                 preferred_model_encrypted, preferred_language_encrypted))
             user_id = cursor.lastrowid
+            preferred_language_setting = (
+                encrypt_data(
+                    "en",
+                    ctx={"domain": "user_settings", "field": f"{user_id}:preferred_language"},
+                )
+                or preferred_language_encrypted
+                or "en"
+            )
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO user_settings (user_id, setting_key, setting_value, updated_at)
+                VALUES (?, 'preferred_language', ?, ?)
+                """,
+                (user_id, preferred_language_setting, datetime.now(timezone.utc).isoformat()),
+            )
             logger.debug(
                 f"User '{username}' registered successfully with user_id {user_id}."
             )
@@ -6147,13 +7867,14 @@ def get_user_id(username):
 
 def save_hazard_report(lat, lon, street_name, vehicle_type, destination,
                        result, cpu_usage, ram_usage, quantum_results, user_id,
-                       risk_level, model_used):
+                       risk_level, model_used, language_key: str = "en",
+                       language_audit: Optional[Mapping[str, Any] | str] = None):
     lat = sanitize_input(lat)
     lon = sanitize_input(lon)
     street_name = sanitize_input(street_name)
     vehicle_type = sanitize_input(vehicle_type)
     destination = sanitize_input(destination)
-    result = bleach.clean(result)
+    result = sanitize_input(result)
     model_used = sanitize_input(model_used)
 
     lat_encrypted = encrypt_data(lat)
@@ -6167,6 +7888,11 @@ def save_hazard_report(lat, lon, street_name, vehicle_type, destination,
     quantum_results_encrypted = encrypt_data(str(quantum_results))
     risk_level_encrypted = encrypt_data(risk_level)
     model_used_encrypted = encrypt_data(model_used)
+    normalized_language = normalize_language_key(language_key)
+    language_encrypted = encrypt_data(normalized_language)
+    if language_audit is None:
+        language_audit = build_language_audit(result, normalized_language, model_used)
+    language_audit_encrypted = encrypt_data(encode_language_audit(language_audit))
 
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -6176,13 +7902,13 @@ def save_hazard_report(lat, lon, street_name, vehicle_type, destination,
             """
             INSERT INTO hazard_reports (
                 latitude, longitude, street_name, vehicle_type, destination, result,
-                cpu_usage, ram_usage, quantum_results, user_id, timestamp, risk_level, model_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cpu_usage, ram_usage, quantum_results, user_id, timestamp, risk_level, model_used, language, language_audit
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (lat_encrypted, lon_encrypted, street_name_encrypted,
               vehicle_type_encrypted, destination_encrypted, result_encrypted,
               cpu_usage_encrypted, ram_usage_encrypted,
               quantum_results_encrypted, user_id, timestamp,
-              risk_level_encrypted, model_used_encrypted))
+              risk_level_encrypted, model_used_encrypted, language_encrypted, language_audit_encrypted))
         report_id = cursor.lastrowid
         db.commit()
 
@@ -6218,6 +7944,99 @@ def set_user_preferred_model(user_id: int, model_key: str) -> None:
         db.commit()
 
 
+USER_SETTING_PREFERRED_LANGUAGE = "preferred_language"
+
+
+def _decrypt_setting_value(value: Any) -> str:
+    if value is None:
+        return ""
+    raw = str(value)
+    decrypted = decrypt_data(raw)
+    return str(decrypted or raw)
+
+
+def _encrypt_user_setting(user_id: int, setting_key: str, value: str) -> str:
+    encrypted = encrypt_data(
+        value,
+        ctx={"domain": "user_settings", "field": f"{int(user_id)}:{setting_key}"},
+    )
+    if encrypted:
+        return encrypted
+    fallback = encrypt_data(value)
+    return fallback or value
+
+
+def get_user_setting(user_id: Optional[int], setting_key: str, default: str = "") -> str:
+    if not user_id or not setting_key:
+        return default
+    try:
+        with sqlite3.connect(DB_FILE) as db:
+            cur = db.cursor()
+            cur.execute(
+                "SELECT setting_value FROM user_settings WHERE user_id = ? AND setting_key = ?",
+                (user_id, setting_key),
+            )
+            row = cur.fetchone()
+        if row and row[0]:
+            value = _decrypt_setting_value(row[0])
+            return value if value else default
+    except Exception:
+        logger.debug("Could not read user setting %s for user_id=%s", setting_key, user_id, exc_info=True)
+    return default
+
+
+def set_user_setting(user_id: int, setting_key: str, value: str) -> None:
+    if not user_id or not setting_key:
+        return
+    setting_key = re.sub(r"[^a-z0-9_]+", "", str(setting_key).strip().lower())
+    if setting_key not in {USER_SETTING_PREFERRED_LANGUAGE}:
+        raise ValueError(f"Unsupported user setting: {setting_key}")
+    encrypted = _encrypt_user_setting(user_id, setting_key, str(value))
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DB_FILE) as db:
+        cur = db.cursor()
+        cur.execute(
+            "UPDATE user_settings SET setting_value = ?, updated_at = ? WHERE user_id = ? AND setting_key = ?",
+            (encrypted, now, user_id, setting_key),
+        )
+        if cur.rowcount == 0:
+            cur.execute(
+                "INSERT INTO user_settings (user_id, setting_key, setting_value, updated_at) VALUES (?, ?, ?, ?)",
+                (user_id, setting_key, encrypted, now),
+            )
+        db.commit()
+
+
+def get_user_preferred_language(user_id: Optional[int]) -> str:
+    if not user_id:
+        return "en"
+    preferred = get_user_setting(user_id, USER_SETTING_PREFERRED_LANGUAGE, "")
+    if preferred:
+        return normalize_language_key(preferred)
+    try:
+        with sqlite3.connect(DB_FILE) as db:
+            cursor = db.cursor()
+            cursor.execute("SELECT preferred_language FROM users WHERE id = ?", (user_id,))
+            row = cursor.fetchone()
+        if row and row[0]:
+            return normalize_language_key(_decrypt_setting_value(row[0]))
+    except Exception:
+        logger.debug("Could not read legacy preferred_language for user_id=%s", user_id, exc_info=True)
+    return "en"
+
+
+def set_user_preferred_language(user_id: int, language_key: str) -> None:
+    if not user_id:
+        return
+    language_key = normalize_language_key(language_key)
+    set_user_setting(user_id, USER_SETTING_PREFERRED_LANGUAGE, language_key)
+    legacy_enc = encrypt_data(language_key) or language_key
+    with sqlite3.connect(DB_FILE) as db:
+        cur = db.cursor()
+        cur.execute("UPDATE users SET preferred_language = ? WHERE id = ?", (legacy_enc, user_id))
+        db.commit()
+
+
 
 def get_hazard_reports(user_id):
     with sqlite3.connect(DB_FILE) as db:
@@ -6242,7 +8061,9 @@ def get_hazard_reports(user_id):
                 'user_id': report[10],
                 'timestamp': report[11],
                 'risk_level': decrypt_data(report[12]),
-                'model_used': decrypt_data(report[13])
+                'model_used': decrypt_data(report[13]),
+                'language': normalize_language_key(decrypt_data(report[14]) if len(report) > 14 else "en"),
+                'language_audit': decode_language_audit(decrypt_data(report[15]) if len(report) > 15 else "")
             }
             decrypted_reports.append(decrypted_report)
         return decrypted_reports
@@ -6269,11 +8090,39 @@ def get_hazard_report_by_id(report_id, user_id):
                 'user_id': report[10],
                 'timestamp': report[11],
                 'risk_level': decrypt_data(report[12]),
-                'model_used': decrypt_data(report[13])
+                'model_used': decrypt_data(report[13]),
+                'language': normalize_language_key(decrypt_data(report[14]) if len(report) > 14 else "en"),
+                'language_audit': decode_language_audit(decrypt_data(report[15]) if len(report) > 15 else "")
             }
             return decrypted_report
         else:
             return None
+
+
+def get_user_language_audit_history(user_id: int, limit: int = 10) -> list[dict[str, Any]]:
+    """Return recent encrypted language-QA audit summaries for the settings page."""
+    try:
+        rows = get_hazard_reports(user_id)
+    except Exception:
+        logger.debug("Could not load language audit history for user_id=%s", user_id, exc_info=True)
+        return []
+    history: list[dict[str, Any]] = []
+    for report in rows:
+        audit_payload = report.get("language_audit") or {}
+        if not isinstance(audit_payload, Mapping):
+            continue
+        history.append({
+            "timestamp": report.get("timestamp", ""),
+            "language": normalize_language_key(audit_payload.get("language") or report.get("language") or "en"),
+            "provider": str(audit_payload.get("provider") or report.get("model_used") or ""),
+            "score": float(audit_payload.get("score", 0.0) or 0.0),
+            "match": bool(audit_payload.get("match")),
+            "repaired": bool(audit_payload.get("repaired")),
+            "fallback": bool(audit_payload.get("fallback")),
+        })
+        if len(history) >= max(1, int(limit)):
+            break
+    return history
 
 async def phf_filter_input(input_text: str) -> tuple[bool, str]:
 
@@ -6323,8 +8172,9 @@ async def scan_debris_for_route(
     vehicle_type: str,
     destination: str,
     user_id: int,
-    selected_model: str | None = None
-) -> tuple[str, str, str, str, str, str]:
+    selected_model: str | None = None,
+    language_key: str = "en",
+) -> tuple[str, str, str, str, str, str, Dict[str, Any]]:
 
     logger.debug(
         "Entering scan_debris_for_route: lat=%s, lon=%s, vehicle=%s, dest=%s, user=%s",
@@ -6332,6 +8182,11 @@ async def scan_debris_for_route(
     )
 
     model_used = selected_model or "OpenAI"
+    language_key = normalize_language_key(language_key)
+    selected = (selected_model or get_user_preferred_model(user_id) or "openai").strip().lower()
+    if selected not in ("openai", "grok", "llama_local"):
+        selected = "openai"
+    language_prompt = language_prompt_block(language_key, selected)
 
     try:
         cpu_usage, ram_usage = get_cpu_ram_usage()
@@ -6364,23 +8219,21 @@ System Performance: CPU Usage: {cpu_usage}%, RAM Usage: {ram_usage}%
 ACT By syncing to multiverse configurations that are more accurate
 [/reducefalsepositivesandnegatives]
 [keep model replies concise and to the point]
-Please assess the following:
+{language_prompt}
+
+Please assess the following, but write the driver-facing answer only in the target language named above:
 1. **Hazards**: Evaluate the road for any potential hazards that might impact operating vehicles.
 2. **Debris**: Identify any harmful debris or objects and provide their severity and location, including GPS coordinates. Triple-check the vehicle pathing, only reporting debris scanned in the probable path of the vehicle.
 3. **Collision Potential**: Analyze traffic flow and any potential risks for collisions caused by debris or other blockages.
 4. **Weather Impact**: Assess how weather conditions might influence road safety, particularly in relation to debris and vehicle control.
 5. **Pedestrian Risk Level**: Based on the debris assessment and live quantum nanobot scanner road safety assessments on conditions, determine the pedestrian risk urgency level if any.
 
-[debrisreport] Provide a structured debris report, including locations and severity of each hazard. [/debrisreport]
-[replyexample] Include recommendations for drivers, suggested detours only if required, and urgency levels based on the findings. [/replyexample]
+[debrisreport] Provide a structured debris report in the target language, including locations and severity of each hazard. [/debrisreport]
+[replyexample] Include target-language recommendations for drivers, suggested detours only if required, and urgency levels based on the findings. [/replyexample]
 [refrain from using the word high or metal and only use it only if risk elementaries are elevated(ie flat tire or accidents or other risk) utilizing your quantum scan intelligence]
 """
 
 
-
-    selected = (selected_model or get_user_preferred_model(user_id) or "openai").strip().lower()
-    if selected not in ("openai", "grok", "llama_local"):
-        selected = "openai"
 
     report: str = ""
     if selected == "llama_local" and llama_local_ready():
@@ -6396,7 +8249,7 @@ Please assess the following:
             "quantum_results": quantum_results,
         }
         label = llama_local_predict_risk(scene)
-        report = label if label else "Medium"
+        report = localized_risk_summary(label if label else "Medium", language_key)
         model_used = "llama_local"
     elif selected == "grok" and os.getenv("GROK_API_KEY"):
         raw_report = await run_grok_completion(grok_prompt)
@@ -6418,14 +8271,23 @@ Please assess the following:
             report = raw_report2 if raw_report2 is not None else ""
             model_used = "grok"
         else:
-            report = "Low"
+            report = localized_risk_summary("Low", language_key)
             model_used = "offline"
 
     report = (report or "").strip()
+    language_audit = build_language_audit(report, language_key, model_used)
+    if model_used in ("openai", "grok"):
+        report, language_audit = await enforce_report_language_with_audit(report, language_key, model_used, grok_prompt)
+    elif not report:
+        report = localized_risk_summary("Low", language_key)
+        language_audit = build_language_audit(report, language_key, model_used, fallback=True)
+    else:
+        language_audit = build_language_audit(report, language_key, model_used)
 
     harm_level = calculate_harm_level(report)
+    language_audit["risk_level"] = harm_level
 
-    logger.debug("Exiting scan_debris_for_route with model_used=%s", model_used)
+    logger.debug("Exiting scan_debris_for_route with model_used=%s language_score=%.2f", model_used, float(language_audit.get("score", 0.0) or 0.0))
     return (
         report,
         f"{cpu_usage}",
@@ -6433,6 +8295,7 @@ Please assess the following:
         str(quantum_results),
         street_name,
         model_used,
+        language_audit,
     )
 
 async def run_grok_completion(
@@ -6444,6 +8307,7 @@ async def run_grok_completion(
     base_delay: float = 1.0,
     max_delay: float = 45.0,
     jitter_factor: float = 0.6,
+    json_mode: bool = False,
 ) -> Optional[str]:
     client = _maybe_grok_client()
     if not client:
@@ -6455,9 +8319,10 @@ async def run_grok_completion(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
         "temperature": temperature,
     }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
 
     headers = client.headers.copy()
     delay = base_delay
@@ -6553,6 +8418,11 @@ class SettingsForm(FlaskForm):
     generate_invite_code = SubmitField('Generate New Invite Code')
 
 
+class UserSettingsForm(FlaskForm):
+    preferred_language = SelectField('Preferred report language', validators=[DataRequired()])
+    save_language = SubmitField('Save Language')
+
+
 class ReportForm(FlaskForm):
     latitude = StringField('Latitude',
                            validators=[DataRequired(),
@@ -6581,7 +8451,13 @@ class ReportForm(FlaskForm):
 
 @app.route('/')
 def index():
-    return redirect(url_for('home'))
+    return redirect(url_for('home'), code=301)
+
+
+@app.route('/home/')
+def home_slash():
+    return redirect(url_for('home'), code=301)
+
 
 @app.route('/home')
 def home():
@@ -6592,27 +8468,97 @@ def home():
         posts = blog_list_home(limit=3)
     except Exception:
         posts = []
+    home_url = _canonical_url("/home")
+    blog_url = _canonical_url("/blog")
+    sitemap_url = _canonical_url("/sitemap.xml")
+    feed_url = _canonical_url("/feed.xml")
+    og_image_url = _seo_image_url()
+    favicon_svg_url = _seo_favicon_url()
+    manifest_url = _seo_manifest_url()
+    home_schema = _json_ld({
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Organization",
+                "@id": f"{home_url}#organization",
+                "name": SEO_SITE_NAME,
+                "url": home_url,
+                "logo": {"@type": "ImageObject", "url": favicon_svg_url, "width": 64, "height": 64},
+                "image": og_image_url,
+            },
+            {
+                "@type": "WebSite",
+                "@id": f"{home_url}#website",
+                "name": SEO_SITE_NAME,
+                "url": home_url,
+                "publisher": {"@id": f"{home_url}#organization"},
+                "inLanguage": "en-US",
+                "image": og_image_url,
+            },
+            {
+                "@type": "SoftwareApplication",
+                "@id": f"{home_url}#app",
+                "name": SEO_BRAND_NAME,
+                "applicationCategory": "TravelApplication",
+                "operatingSystem": "Web",
+                "url": home_url,
+                "description": SEO_DEFAULT_DESCRIPTION,
+                "image": og_image_url,
+                "screenshot": og_image_url,
+                "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+            },
+            {
+                "@type": "WebPage",
+                "@id": f"{home_url}#webpage",
+                "url": home_url,
+                "name": "QRoadScan.com live traffic risk map and road hazard alerts",
+                "description": SEO_DEFAULT_DESCRIPTION,
+                "isPartOf": {"@id": f"{home_url}#website"},
+                "about": {"@id": f"{home_url}#app"},
+                "primaryImageOfPage": {"@type": "ImageObject", "url": og_image_url, "width": 1200, "height": 630},
+            },
+        ],
+    })
+    home_blog_schema = _blog_item_list_schema(posts, page_url=home_url)
     return render_template_string("""
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>QRoadScan.com | Live Traffic Risk Map and Road Hazard Alerts </title>
+  <title>QRoadScan.com | Live Traffic Risk Map, Road Hazard Alerts & Safer Driving</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="QRoadScan.com turns complex driving signals into a simple live risk colorwheel. Get traffic risk insights, road hazard awareness, and smarter safety decisions with a calming, perceptual visual that updates in real time." />
-  <meta name="keywords" content="QRoadScan, live traffic risk, road hazard alerts, driving safety, AI traffic insights, risk meter, traffic risk map, smart driving, predictive road safety, real-time hazard detection, safe route planning, road conditions, commute safety, accident risk, driver awareness" />
+  <meta name="description" content="{{ seo_description }}" />
+  <meta name="keywords" content="{{ seo_keywords }}" />
+  <meta name="author" content="QRoadScan.com" />
+  <meta name="application-name" content="QRoadScan.com" />
   <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
   <meta name="theme-color" content="#0b0f17" />
-  <link rel="canonical" href="{{ request.url }}" />
+  <link rel="canonical" href="{{ home_url }}" />
+  <link rel="alternate" hreflang="en" href="{{ home_url }}" />
+  <link rel="alternate" hreflang="x-default" href="{{ home_url }}" />
+  <link rel="alternate" type="application/rss+xml" title="QRoadScan Blog RSS" href="{{ feed_url }}" />
+  <link rel="sitemap" type="application/xml" href="{{ sitemap_url }}" />
+  <link rel="manifest" href="{{ manifest_url }}" />
+  <link rel="icon" type="image/svg+xml" href="{{ favicon_svg_url }}" sizes="any" />
+  <link rel="icon" href="{{ url_for('favicon') }}" sizes="any" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="QRoadScan.com" />
   <meta property="og:title" content="QRoadScan.com | Live Traffic Risk & Road Hazard Intelligence" />
-  <meta property="og:description" content="A live risk colorwheel that helps you read the road at a glance. Real-time safety signals, calm visuals, smarter driving decisions." />
-  <meta property="og:url" content="{{ request.url }}" />
+  <meta property="og:description" content="{{ seo_description }}" />
+  <meta property="og:url" content="{{ home_url }}" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:image" content="{{ og_image_url }}" />
+  <meta property="og:image:secure_url" content="{{ og_image_url }}" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="{{ og_image_alt }}" />
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="QRoadScan.com | Live Traffic Risk & Road Hazard Intelligence" />
   <meta name="twitter:description" content="See risk instantly with the QRoadScan Colorwheel. Safer decisions, calmer driving." />
+  <meta name="twitter:image" content="{{ og_image_url }}" />
+  <meta name="twitter:image:alt" content="{{ og_image_alt }}" />
 
 
   <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
@@ -6620,23 +8566,10 @@ def home():
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
 
   <script type="application/ld+json">
-  {
-    "@context":"https://schema.org",
-    "@type":"WebSite",
-    "name":"QRoadScan.com",
-    "url":"https://qroadscan.com/",
-    "description":"Live traffic risk and road hazard intelligence visualized as a calming, perceptual colorwheel.",
-    "publisher":{
-      "@type":"Organization",
-      "name":"QRoadScan.com",
-      "url":"https://qroadscan.com/"
-    },
-    "potentialAction":{
-      "@type":"SearchAction",
-      "target":"https://qroadscan.com/blog?q={search_term_string}",
-      "query-input":"required name=search_term_string"
-    }
-  }
+  {{ home_schema|safe }}
+  </script>
+  <script type="application/ld+json">
+  {{ home_blog_schema|safe }}
   </script>
 
   <style>
@@ -7194,7 +9127,23 @@ def home():
   </script>
 </body>
 </html>
-    """, seed_hex=seed_hex, seed_code=seed_code, posts=posts)
+    """,
+        seed_hex=seed_hex,
+        seed_code=seed_code,
+        posts=posts,
+        home_url=home_url,
+        blog_url=blog_url,
+        sitemap_url=sitemap_url,
+        feed_url=feed_url,
+        og_image_url=og_image_url,
+        og_image_alt=SEO_OG_IMAGE_ALT,
+        favicon_svg_url=favicon_svg_url,
+        manifest_url=manifest_url,
+        seo_description=SEO_DEFAULT_DESCRIPTION,
+        seo_keywords=SEO_KEYWORDS,
+        home_schema=home_schema,
+        home_blog_schema=home_blog_schema,
+    )
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -7215,6 +9164,8 @@ def login():
     <meta charset="UTF-8">
     <title>Login - QRS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="icon" href="{{ url_for('favicon') }}" sizes="any">
 
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/orbitron.css') }}" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
@@ -7352,6 +9303,8 @@ def register():
     <meta charset="UTF-8">
     <title>Register - QRS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="robots" content="noindex,nofollow">
+    <link rel="icon" href="{{ url_for('favicon') }}" sizes="any">
 
     <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet"
           integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
@@ -7470,7 +9423,7 @@ def register():
                 </div>
                 <div class="form-group">
                     {{ form.password.label }}
-                    {{ form.password(class="form-control", placeholder="Choose a password") }}
+                    {{ form.password(class="form-control", placeholder="Choose a password", autocomplete="new-password") }}
                     <div id="pwRules" class="pw-rules" aria-live="polite">
                       <div class="pw-rules-title">Password requirements</div>
                       <div class="pw-rule bad" id="rule-len"><span class="pw-icon" aria-hidden="true"></span><span>At least 8 characters</span></div>
@@ -7500,26 +9453,27 @@ def register():
             toggler.addEventListener('click', function () {
                 var isShown = nav.classList.toggle('show');
                 toggler.setAttribute('aria-expanded', isShown ? 'true' : 'false');
+            });
+        }
 
-        // Password live checklist (matches validate_password_strength on server)
-        const pw = document.getElementById('password');
-        const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
+        var pw = document.getElementById('password');
+        var submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
 
-        function setRule(id, ok){
-            const el = document.getElementById(id);
-            if(!el) return;
+        function setRule(id, ok) {
+            var el = document.getElementById(id);
+            if (!el) return;
             el.classList.toggle('ok', !!ok);
             el.classList.toggle('bad', !ok);
         }
 
-        function validatePw(val){
-            const v = val || "";
-            const rules = {
+        function validatePw(value) {
+            var v = value || "";
+            var rules = {
                 len: v.length >= 8,
                 upper: /[A-Z]/.test(v),
                 lower: /[a-z]/.test(v),
                 digit: /[0-9]/.test(v),
-                special: /[^A-Za-z0-9]/.test(v),
+                special: /[^A-Za-z0-9]/.test(v)
             };
             setRule('rule-len', rules.len);
             setRule('rule-upper', rules.upper);
@@ -7529,70 +9483,244 @@ def register():
             return rules.len && rules.upper && rules.lower && rules.digit && rules.special;
         }
 
-        function syncSubmit(){
-            if(!submitBtn) return;
-            const ok = pw ? validatePw(pw.value) : true;
-            // Only enforce if the password field is present (register page)
+        function syncSubmit() {
+            if (!submitBtn) return;
+            var ok = pw ? validatePw(pw.value) : true;
             submitBtn.disabled = !!pw && !ok;
             submitBtn.classList.toggle('pw-submit-disabled', submitBtn.disabled);
+            if (pw) {
+                pw.setAttribute('aria-invalid', ok ? 'false' : 'true');
+            }
         }
 
-        if(pw){
+        if (pw) {
             pw.addEventListener('input', syncSubmit);
             pw.addEventListener('blur', syncSubmit);
             syncSubmit();
         }
-
-    });
-        }
-
-        // Password live checklist (matches validate_password_strength on server)
-        const pw = document.getElementById('password');
-        const submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
-
-        function setRule(id, ok){
-            const el = document.getElementById(id);
-            if(!el) return;
-            el.classList.toggle('ok', !!ok);
-            el.classList.toggle('bad', !ok);
-        }
-
-        function validatePw(val){
-            const v = val || "";
-            const rules = {
-                len: v.length >= 8,
-                upper: /[A-Z]/.test(v),
-                lower: /[a-z]/.test(v),
-                digit: /[0-9]/.test(v),
-                special: /[^A-Za-z0-9]/.test(v),
-            };
-            setRule('rule-len', rules.len);
-            setRule('rule-upper', rules.upper);
-            setRule('rule-lower', rules.lower);
-            setRule('rule-digit', rules.digit);
-            setRule('rule-special', rules.special);
-            return rules.len && rules.upper && rules.lower && rules.digit && rules.special;
-        }
-
-        function syncSubmit(){
-            if(!submitBtn) return;
-            const ok = pw ? validatePw(pw.value) : true;
-            // Only enforce if the password field is present (register page)
-            submitBtn.disabled = !!pw && !ok;
-            submitBtn.classList.toggle('pw-submit-disabled', submitBtn.disabled);
-        }
-
-        if(pw){
-            pw.addEventListener('input', syncSubmit);
-            pw.addEventListener('blur', syncSubmit);
-            syncSubmit();
-        }
-
     });
     </script>
 </body>
 </html>
     """, form=form, error_message=error_message, registration_enabled=registration_enabled)
+
+@app.route('/settings/user', methods=['GET', 'POST'])
+def user_settings():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    user_id = get_user_id(session['username'])
+    if not user_id:
+        return redirect(url_for('login'))
+
+    form = UserSettingsForm()
+    form.preferred_language.choices = [
+        (key, f"{spec['name']} / {spec['native']}")
+        for key, spec in SUPPORTED_LANGUAGES.items()
+    ]
+    current_language = get_user_preferred_language(user_id)
+    prompt_preview = language_prompt_block(current_language, "openai")
+    audit_history = get_user_language_audit_history(user_id)
+    message = ""
+
+    if request.method == 'GET':
+        form.preferred_language.data = current_language
+    elif form.validate_on_submit():
+        selected_language = normalize_language_key(form.preferred_language.data)
+        set_user_preferred_language(user_id, selected_language)
+        current_language = selected_language
+        prompt_preview = language_prompt_block(current_language, "openai")
+        form.preferred_language.data = current_language
+        message = f"Language preference saved: {language_label(current_language)}"
+    else:
+        message = "Could not save settings. Please try again."
+
+    return render_template_string("""
+<!DOCTYPE html>
+<html lang="{{ language_html_lang(current_language) }}" dir="{{ language_text_direction(current_language) }}">
+<head>
+    <meta charset="UTF-8">
+    <title>User Settings - QRS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
+    <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
+    <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}" integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
+    <style>
+        :root{ --ink:#f4f8ff; --muted:#a8bad0; --line:rgba(255,255,255,.14); --accent:#49c2ff; --accent2:#73f0cf; --panel:#111827; }
+        body{ margin:0; background:radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%), linear-gradient(135deg, #090d14, #111827 54%, #090d14); color:var(--ink); font-family:'Roboto',sans-serif; }
+        .sidebar{ position:fixed; inset:0 auto 0 0; width:232px; padding:24px 14px; background:rgba(7,12,20,.82); border-right:1px solid var(--line); backdrop-filter:blur(16px) saturate(145%); }
+        .sidebar a{ display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; margin:6px 0; color:var(--muted); text-decoration:none; border:1px solid transparent; border-radius:12px; transition:background-color .16s ease, color .16s ease, transform .16s ease; }
+        .sidebar a:hover,.sidebar a.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line); transform:translateX(1px); }
+        .sidebar i{ width:18px; text-align:center; color:var(--accent); }
+        .navbar-brand{ display:flex; align-items:center; justify-content:center; height:48px; margin:0 8px 22px; color:var(--ink); border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)); font-family:'Orbitron',sans-serif; font-size:1.15rem; }
+        .content{ margin-left:232px; min-height:100vh; padding:28px; }
+        .settings-shell{ max-width:980px; margin:0 auto; display:grid; gap:20px; }
+        .settings-hero,.settings-card{ background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.055)); border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.05); }
+        .settings-hero{ padding:28px; }
+        .settings-hero h2{ margin:0; font-family:'Orbitron',sans-serif; }
+        .settings-hero p,.status-copy{ color:var(--muted); margin:8px 0 0; }
+        .settings-card{ padding:22px; }
+        .nav-tabs{ border-bottom:1px solid var(--line); margin-bottom:18px; }
+        .nav-tabs .nav-link{ color:var(--muted); border:1px solid transparent; border-radius:12px 12px 0 0; font-weight:800; }
+        .nav-tabs .nav-link.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line) var(--line) transparent; }
+        .form-control{ min-height:48px; color:var(--ink); background:#0b1220; border:1px solid rgba(255,255,255,.22); border-radius:12px; padding:.75rem .9rem; }
+        .form-control:focus{ color:var(--ink); background:#0b1220; border-color:rgba(73,194,255,.74); box-shadow:0 0 0 .2rem rgba(73,194,255,.16); }
+        label{ font-weight:900; color:var(--ink); }
+        .message{ color:var(--accent2); font-weight:900; }
+        .security-note{ border:1px solid rgba(115,240,207,.26); background:rgba(115,240,207,.08); border-radius:14px; padding:14px; color:var(--ink); }
+        .settings-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
+        .settings-stat{ border:1px solid var(--line); border-radius:14px; padding:12px; background:rgba(255,255,255,.06); }
+        .settings-stat span{ display:block; color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; font-weight:900; }
+        .settings-stat strong{ display:block; margin-top:4px; color:var(--ink); }
+        .prompt-preview{ min-height:220px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.86rem; white-space:pre-wrap; }
+        @media (max-width:768px){ .sidebar{width:70px; padding:18px 10px;} .sidebar a{justify-content:center; padding:0;} .sidebar a span{display:none;} .content{margin-left:70px; padding:16px;} }
+    </style>
+</head>
+<body>
+    <div class="sidebar" aria-label="User settings navigation">
+        <div class="navbar-brand">QRS</div>
+        <a href="{{ url_for('dashboard') }}"><i class="fas fa-home" aria-hidden="true"></i> <span>Dashboard</span></a>
+        <a href="{{ url_for('user_settings') }}" class="active"><i class="fas fa-user-cog" aria-hidden="true"></i> <span>User Settings</span></a>
+        {% if session.get('is_admin') %}
+        <a href="{{ url_for('settings') }}"><i class="fas fa-cogs" aria-hidden="true"></i> <span>Admin Settings</span></a>
+        {% endif %}
+        <a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span></a>
+    </div>
+
+    <main class="content">
+        <div class="settings-shell">
+            <section class="settings-hero">
+                <h2>User Settings</h2>
+                <p>Set your default report language. The dashboard scan language selector will use this saved encrypted preference automatically.</p>
+            </section>
+            <section class="settings-card">
+                <ul class="nav nav-tabs" role="tablist">
+                    <li class="nav-item"><a class="nav-link active" id="language-tab" data-toggle="tab" href="#language" role="tab" aria-controls="language" aria-selected="true"><i class="fas fa-language" aria-hidden="true"></i> Language</a></li>
+                    <li class="nav-item"><a class="nav-link" id="language-qa-tab" data-toggle="tab" href="#language-qa" role="tab" aria-controls="language-qa" aria-selected="false"><i class="fas fa-check-circle" aria-hidden="true"></i> Language QA</a></li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="language" role="tabpanel" aria-labelledby="language-tab">
+                        {% if message %}<p class="message">{{ message }}</p>{% endif %}
+                        <form method="POST" class="mt-3">
+                            {{ form.hidden_tag() }}
+                            <div class="form-group">
+                                {{ form.preferred_language.label(for='preferred_language') }}
+                                {{ form.preferred_language(class_='form-control', id='preferred_language') }}
+                                <p class="status-copy">Current saved language: <strong id="currentLanguageLabel">{{ language_label(current_language) }}</strong></p>
+                            </div>
+                            <div class="settings-grid" aria-label="Language metadata">
+                                <div class="settings-stat"><span>Locale</span><strong id="languageLocale">{{ language_locale(current_language) }}</strong></div>
+                                <div class="settings-stat"><span>HTML lang</span><strong id="languageHtmlLang">{{ language_html_lang(current_language) }}</strong></div>
+                                <div class="settings-stat"><span>Direction</span><strong id="languageDir">{{ language_text_direction(current_language) }}</strong></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="promptPreview">AI prompt preview</label>
+                                <textarea id="promptPreview" class="form-control prompt-preview" readonly>{{ prompt_preview }}</textarea>
+                                <p class="status-copy">This is the provider-ready language block that gets injected into OpenAI, Grok, and report-repair prompts.</p>
+                            </div>
+                            <button type="submit" class="btn btn-primary" name="action" value="save_language"><i class="fas fa-save" aria-hidden="true"></i> Save Language</button>
+                        </form>
+                        <div class="security-note mt-4">
+                            The selected language is normalized, validated, encrypted with <code>encrypt_data()</code>, and stored in the SQLite <code>user_settings</code> table under <code>preferred_language</code>. A legacy encrypted copy is also kept in <code>users.preferred_language</code> for compatibility. Hosted model replies are now checked for language drift before the report is saved.
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="language-qa" role="tabpanel" aria-labelledby="language-qa-tab">
+                        <h3>Recent language quality checks</h3>
+                        <p class="status-copy">Each completed scan stores an encrypted language QA audit next to the encrypted report. This helps confirm the model respected the saved target language.</p>
+                        {% if audit_history %}
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-hover">
+                                <thead><tr><th>Date</th><th>Language</th><th>Provider</th><th>Score</th><th>Status</th></tr></thead>
+                                <tbody>
+                                {% for item in audit_history %}
+                                    <tr>
+                                        <td>{{ item.timestamp }}</td>
+                                        <td>{{ language_label(item.language) }}</td>
+                                        <td>{{ item.provider }}</td>
+                                        <td>{{ (item.score * 100)|round(0) }}%</td>
+                                        <td>
+                                            {% if item.match %}<span class="badge badge-success">Matched</span>{% else %}<span class="badge badge-warning">Review</span>{% endif %}
+                                            {% if item.repaired %}<span class="badge badge-info">Repaired</span>{% endif %}
+                                            {% if item.fallback %}<span class="badge badge-secondary">Fallback</span>{% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="status-copy mt-3">No language QA audits yet. Run a scan to populate this history.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}" integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0=" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/popper.min.js') }}" integrity="sha256-/ijcOLwFf26xEYAjW75FizKVo5tnTYiQddPZoLUHHZ8=" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
+    <script>
+        const csrfToken = {{ csrf_token | tojson }};
+        async function refreshPromptPreview(language) {
+            try {
+                const response = await fetch(`{{ url_for('user_language_prompt_preview') }}?language=${encodeURIComponent(language)}&provider=openai`, {
+                    headers: { 'X-CSRFToken': csrfToken }
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                document.getElementById('promptPreview').value = data.prompt || '';
+                document.getElementById('currentLanguageLabel').textContent = data.label || language;
+                document.getElementById('languageLocale').textContent = data.locale || '';
+                document.getElementById('languageHtmlLang').textContent = data.html_lang || '';
+                document.getElementById('languageDir').textContent = data.dir || '';
+                if (data.html_lang) document.documentElement.lang = data.html_lang;
+                if (data.dir) document.documentElement.dir = data.dir;
+            } catch (error) {
+                console.warn('Could not refresh language prompt preview:', error);
+            }
+        }
+        document.getElementById('preferred_language')?.addEventListener('change', (event) => {
+            refreshPromptPreview(event.target.value);
+        });
+    </script>
+</body>
+</html>
+    """,
+        form=form,
+        message=message,
+        current_language=current_language,
+        prompt_preview=prompt_preview,
+        audit_history=audit_history,
+        csrf_token=generate_csrf(),
+        language_label=language_label,
+        language_locale=language_locale,
+        language_html_lang=language_html_lang,
+        language_text_direction=language_text_direction,
+    )
+
+
+@app.route('/settings/user/language_prompt_preview', methods=['GET'])
+def user_language_prompt_preview():
+    if 'username' not in session:
+        return jsonify({"error": "Login required"}), 401
+    user_id = get_user_id(session['username'])
+    if not user_id:
+        return jsonify({"error": "User not found"}), 404
+    language_key = normalize_language_key(request.args.get('language') or get_user_preferred_language(user_id))
+    provider = sanitize_input(request.args.get('provider') or 'openai')
+    if provider not in {'openai', 'grok', 'llama_local', 'offline'}:
+        provider = 'openai'
+    return jsonify({
+        "language": language_key,
+        "label": language_label(language_key),
+        "locale": language_locale(language_key),
+        "html_lang": language_html_lang(language_key),
+        "dir": language_text_direction(language_key),
+        "prompt": language_prompt_block(language_key, provider),
+        "score_threshold": 0.52,
+    })
+
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings():
@@ -7651,86 +9779,135 @@ def settings():
     <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}"
           integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
     <style>
-        body { background:#121212; color:#fff; font-family:'Roboto',sans-serif; }
-        .sidebar { position:fixed; top:0; left:0; height:100%; width:220px; background:#1f1f1f; padding-top:60px; border-right:1px solid #333; transition:width .3s; }
-        .sidebar a { color:#bbb; padding:15px 20px; text-decoration:none; display:block; font-size:1rem; transition:background-color .3s, color .3s; }
-        .sidebar a:hover, .sidebar a.active { background:#333; color:#fff; }
-        .content { margin-left:220px; padding:20px; transition:margin-left .3s; }
-        .navbar-brand { font-size:1.5rem; color:#fff; text-align:center; display:block; margin-bottom:20px; font-family:'Orbitron',sans-serif; }
-        .card { padding:30px; background:rgba(255,255,255,.1); border:none; border-radius:15px; }
-        .message { color:#4dff4d; }
-        .status { margin:10px 0 20px; }
-        .badge { display:inline-block; padding:.35em .6em; border-radius:.35rem; font-weight:bold; }
-        .badge-ok { background:#00cc00; color:#000; }
-        .badge-off { background:#cc0000; color:#fff; }
-        .alert-info { background:#0d6efd22; border:1px solid #0d6efd66; color:#cfe2ff; padding:10px 12px; border-radius:8px; }
-        .btn { color:#fff; font-weight:bold; transition:background-color .3s, border-color .3s; }
-        .btn-primary { background:#007bff; border-color:#007bff; }
-        .btn-primary:hover { background:#0056b3; border-color:#0056b3; }
-        .invite-codes { margin-top:20px; }
-        .invite-code { background:#2c2c2c; padding:10px; border-radius:5px; margin-bottom:5px; font-family:'Courier New', Courier, monospace; }
-        @media (max-width:768px){ .sidebar{width:60px;} .sidebar a{padding:15px 10px; text-align:center;} .sidebar a span{display:none;} .content{margin-left:60px;} }
+        :root{ --ink:#f4f8ff; --muted:#a8bad0; --line:rgba(255,255,255,.14); --accent:#49c2ff; --accent2:#73f0cf; --panel:#111827; }
+        body{
+            margin:0;
+            background:
+                radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%),
+                linear-gradient(135deg, #090d14, #111827 54%, #090d14);
+            color:var(--ink);
+            font-family:'Roboto',sans-serif;
+        }
+        .sidebar{
+            position:fixed; inset:0 auto 0 0; width:232px; padding:24px 14px;
+            background:rgba(7,12,20,.82); border-right:1px solid var(--line);
+            backdrop-filter:blur(16px) saturate(145%);
+        }
+        .sidebar a{
+            display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; margin:6px 0;
+            color:var(--muted); text-decoration:none; border:1px solid transparent; border-radius:12px;
+            transition:background-color .16s ease, color .16s ease, transform .16s ease;
+        }
+        .sidebar a:hover, .sidebar a.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line); transform:translateX(1px); }
+        .sidebar i{ width:18px; text-align:center; color:var(--accent); }
+        .content{ margin-left:232px; min-height:100vh; padding:28px; }
+        .navbar-brand{
+            display:flex; align-items:center; justify-content:center; height:48px; margin:0 8px 22px;
+            color:var(--ink); border:1px solid var(--line); border-radius:14px;
+            background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+            font-family:'Orbitron',sans-serif; font-size:1.15rem;
+        }
+        .settings-shell{ max-width:980px; margin:0 auto; display:grid; gap:20px; }
+        .settings-hero,.settings-card{
+            background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.055));
+            border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.05);
+        }
+        .settings-hero{ padding:28px; }
+        .settings-hero h2{ margin:0; font-family:'Orbitron',sans-serif; letter-spacing:0; }
+        .settings-hero p{ margin:10px 0 0; color:var(--muted); max-width:66ch; }
+        .settings-card{ padding:22px; }
+        .status-grid{ display:grid; grid-template-columns:1fr auto; gap:16px; align-items:center; }
+        .status-copy{ color:var(--muted); margin:6px 0 0; }
+        .badge-ok{ background:linear-gradient(180deg,#d8ffe9,var(--accent2)); color:#07121f; }
+        .badge-off{ background:linear-gradient(180deg,#ff9b9b,#d83b3b); color:#fff; }
+        .message{ color:var(--accent2); font-weight:800; }
+        .invite-codes{ list-style:none; padding:0; margin:14px 0 0; display:grid; gap:8px; }
+        .invite-code{
+            background:rgba(255,255,255,.07); border:1px solid var(--line); padding:12px 14px; border-radius:12px;
+            font-family:'Roboto Mono','Courier New',monospace; color:var(--ink);
+        }
+        @media (max-width:768px){
+            .sidebar{width:70px; padding:18px 10px;} .sidebar a{justify-content:center; padding:0;} .sidebar a span{display:none;}
+            .content{margin-left:70px; padding:16px;} .status-grid{grid-template-columns:1fr;}
+        }
     </style>
 </head>
 <body>
 
-    <div class="sidebar">
+    <div class="sidebar" aria-label="Settings navigation">
         <div class="navbar-brand">QRS</div>
-        <a href="{{ url_for('dashboard') }}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">
-            <i class="fas fa-home"></i> <span>Dashboard</span>
+        <a href="{{ url_for('dashboard') }}" class="nav-link">
+            <i class="fas fa-home" aria-hidden="true"></i> <span>Dashboard</span>
+        </a>
+        <a href="{{ url_for('user_settings') }}" class="nav-link">
+            <i class="fas fa-user-cog" aria-hidden="true"></i> <span>User Settings</span>
         </a>
         {% if session.get('is_admin') %}
-        <a href="{{ url_for('settings') }}" class="nav-link {% if active_page == 'settings' %}active{% endif %}">
-            <i class="fas fa-cogs"></i> <span>Settings</span>
+        <a href="{{ url_for('settings') }}" class="nav-link active">
+            <i class="fas fa-cogs" aria-hidden="true"></i> <span>Settings</span>
         </a>
         {% endif %}
         <a href="{{ url_for('logout') }}" class="nav-link">
-            <i class="fas fa-sign-out-alt"></i> <span>Logout</span>
+            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span>
         </a>
     </div>
 
     <div class="content">
-        <h2>Settings</h2>
+        <div class="settings-shell">
+            <section class="settings-hero">
+                <h2>Settings</h2>
+                <p>Admin controls for registration access and invite code management, kept separate from public crawlable pages.</p>
+            </section>
 
-        <div class="status">
-            <strong>Current registration:</strong>
-            {% if registration_enabled %}
-                <span class="badge badge-ok">ENABLED</span>
-            {% else %}
-                <span class="badge badge-off">DISABLED</span>
-            {% endif %}
-            <small style="opacity:.8;">(from ENV: REGISTRATION_ENABLED={{ registration_env_value }})</small>
+            <section class="settings-card">
+                <div class="status-grid">
+                    <div>
+                        <h4 class="mb-1">Registration</h4>
+                        <p class="status-copy">Current ENV value: <code>REGISTRATION_ENABLED={{ registration_env_value }}</code></p>
+                    </div>
+                    {% if registration_enabled %}
+                        <span class="badge badge-ok">Enabled</span>
+                    {% else %}
+                        <span class="badge badge-off">Disabled</span>
+                    {% endif %}
+                </div>
+
+                <div class="alert-info mt-3">
+                    Registration is controlled via environment only. Set <code>REGISTRATION_ENABLED=true</code> or <code>false</code> and restart the app.
+                </div>
+            </section>
+
+            <section class="settings-card">
+                <h4>Invite Codes</h4>
+                <p class="status-copy">Generate a fresh code for private onboarding. Unused codes stay listed below.</p>
+
+                {% if message %}
+                    <p class="message">{{ message }}</p>
+                {% endif %}
+
+                <form method="POST" class="mt-3">
+                    {{ form.hidden_tag() }}
+                    <button type="submit" name="action" value="generate_invite_code" class="btn btn-primary">
+                        <i class="fas fa-plus" aria-hidden="true"></i> Generate Invite Code
+                    </button>
+                </form>
+
+                {% if new_invite_code %}
+                    <p class="mt-3">New Invite Code: <code>{{ new_invite_code }}</code></p>
+                {% endif %}
+
+                <hr>
+
+                <h5>Unused Codes</h5>
+                <ul class="invite-codes">
+                {% for code in invite_codes %}
+                    <li class="invite-code">{{ code }}</li>
+                {% else %}
+                    <li class="invite-code">No unused invite codes available.</li>
+                {% endfor %}
+                </ul>
+            </section>
         </div>
-
-        <div class="alert-info">
-            Registration is controlled via environment only. Set <code>REGISTRATION_ENABLED=true</code> or <code>false</code> and restart the app.
-        </div>
-
-        {% if message %}
-            <p class="message">{{ message }}</p>
-        {% endif %}
-
-        <hr>
-
-        <form method="POST">
-            {{ form.hidden_tag() }}
-            <button type="submit" name="action" value="generate_invite_code" class="btn btn-primary">Generate New Invite Code</button>
-        </form>
-
-        {% if new_invite_code %}
-            <p>New Invite Code: {{ new_invite_code }}</p>
-        {% endif %}
-
-        <hr>
-
-        <h4>Unused Invite Codes:</h4>
-        <ul class="invite-codes">
-        {% for code in invite_codes %}
-            <li class="invite-code">{{ code }}</li>
-        {% else %}
-            <p>No unused invite codes available.</p>
-        {% endfor %}
-        </ul>
     </div>
 
     <script src="{{ url_for('static', filename='js/jquery.min.js') }}"
@@ -7844,38 +10021,51 @@ def view_report(report_id):
         wheel_color = interpolate_color(yellow, red, t)
 
     report_md = markdown(report['result'])
-    allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
-        'p', 'ul', 'ol', 'li', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5',
-        'h6', 'br'
-    ]
-    report_html = bleach.clean(report_md, tags=allowed_tags)
+    report_html = _clean_html_fragment(
+        report_md,
+        tags=_REPORT_ALLOWED_TAGS,
+        attributes=_REPORT_ALLOWED_ATTRS,
+    )
     report_html_escaped = report_html.replace('\\', '\\\\')
     csrf_token = generate_csrf()
+    report_language = normalize_language_key(report.get('language', 'en'))
+    ui_messages = get_ui_messages(report_language)
+    speech_locale = language_locale(report_language)
 
     return render_template_string(r"""
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language_html_lang(report_language) }}" dir="{{ language_text_direction(report_language) }}">
 <head>
     <meta charset="UTF-8">
-    <title>Report Details</title>
+    <title>{{ ui_messages.report_details if ui_messages.report_details is defined else "Report Details" }}</title>
     <style>
         #view-report-container .btn-custom {
             width: 100%;
-            padding: 15px;
-            font-size: 1.2rem;
-            background-color: #007bff;
-            border: none;
-            color: #ffffff;
-            border-radius: 5px;
-            transition: background-color 0.3s;
+            min-height: 46px;
+            padding: 13px 16px;
+            font-size: 1rem;
+            font-weight: 900;
+            background: linear-gradient(180deg, #ffffff, #49c2ff);
+            border: 1px solid rgba(255,255,255,.28);
+            color: #07121f;
+            border-radius: 12px;
+            box-shadow: 0 12px 28px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.12);
+            transition: transform .16s ease, box-shadow .16s ease, background-color .16s ease;
         }
         #view-report-container .btn-custom:hover {
-            background-color: #0056b3;
+            transform: translateY(-1px);
+            box-shadow: 0 16px 34px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.14);
         }
         #view-report-container .btn-danger {
             width: 100%;
-            padding: 10px;
-            font-size: 1rem;
+            min-height: 40px;
+            padding: 10px 14px;
+            font-size: .95rem;
+            font-weight: 900;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,.16);
+            background: linear-gradient(180deg, #ff7d7d, #d83b3b);
+            box-shadow: 0 10px 22px rgba(0,0,0,.22);
         }
 
         .hazard-wheel {
@@ -7945,14 +10135,14 @@ def view_report(report_id):
     <div class="container mt-5">
         <div class="report-container">
             <div class="hazard-summary">
-                <div class="hazard-wheel">Risk</div>
+                <div class="hazard-wheel">{{ ui_messages.risk }}</div>
             </div>
             <button class="btn-custom mt-3" onclick="readAloud()" aria-label="Read Report">
-                <i class="fas fa-volume-up" aria-hidden="true"></i> Read Report
+                <i class="fas fa-volume-up" aria-hidden="true"></i> {{ ui_messages.read_report }}
             </button>
             <div class="mt-2">
                 <button class="btn btn-danger btn-sm" onclick="stopSpeech()" aria-label="Stop Reading">
-                    <i class="fas fa-stop" aria-hidden="true"></i> Stop
+                    <i class="fas fa-stop" aria-hidden="true"></i> {{ ui_messages.stop }}
                 </button>
             </div>
             <div class="progress mt-3" style="height: 25px;">
@@ -7961,21 +10151,33 @@ def view_report(report_id):
                 </div>
             </div>
             <div id="reportMarkdown">{{ report_html_escaped | safe }}</div>
-            <h4>Route Details</h4>
-            <p><span class="report-text-bold">Date:</span> {{ report['timestamp'] }}</p>
-            <p><span class="report-text-bold">Location:</span> {{ report['latitude'] }}, {{ report['longitude'] }}</p>
-            <p><span class="report-text-bold">Nearest City:</span> {{ report['street_name'] }}</p>
-            <p><span class="report-text-bold">Vehicle Type:</span> {{ report['vehicle_type'] }}</p>
-            <p><span class="report-text-bold">Destination:</span> {{ report['destination'] }}</p>
-            <p><span class="report-text-bold">Model Used:</span> {{ report['model_used'] }}</p>
+            <h4>{{ ui_messages.route_details }}</h4>
+            <p><span class="report-text-bold">{{ ui_messages.date }}:</span> {{ report['timestamp'] }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.location }}:</span> {{ report['latitude'] }}, {{ report['longitude'] }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.nearest_city }}:</span> {{ report['street_name'] }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.vehicle_type }}:</span> {{ report['vehicle_type'] }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.destination }}:</span> {{ report['destination'] }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.model_used }}:</span> {{ report['model_used'] }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.language }}:</span> {{ language_label(report.get('language', 'en')) }}</p>
+            {% set audit = report.get('language_audit') or {} %}
+            {% if audit %}
+            <p><span class="report-text-bold">Language QA:</span>
+                {{ ((audit.get('score', 0)|float) * 100)|round(0) }}% target match
+                {% if audit.get('repaired') %} · repaired{% endif %}
+                {% if audit.get('fallback') %} · localized fallback{% endif %}
+            </p>
+            {% endif %}
             <div aria-live="polite" aria-atomic="true" id="speechStatus" class="sr-only">
-                Speech synthesis is not active.
+                {{ ui_messages.speech_inactive if ui_messages.speech_inactive is defined else "Speech synthesis is not active." }}
             </div>
         </div>
     </div>
 </div>
 <script>
     const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
+    const REPORT_LANGUAGE = {{ report_language | tojson }};
+    const SPEECH_LOCALE = {{ speech_locale | tojson }};
+    const UI_MESSAGES = {{ ui_messages | tojson }};
     let utterances = [];
     let currentUtteranceIndex = 0;
     let isSpeaking = false;
@@ -8063,8 +10265,13 @@ def view_report(report_id):
 
     function selectBestVoice() {
         const voices = availableVoices.length ? availableVoices : (synth ? synth.getVoices() : []);
-        let voice = voices.find(v => v.lang && v.lang.startsWith('en') && v.name.toLowerCase().includes('female'));
-        if (!voice) voice = voices.find(v => v.lang && v.lang.startsWith('en'));
+        const preferred = String(SPEECH_LOCALE || 'en-US').toLowerCase();
+        const base = preferred.split('-')[0];
+        let voice = voices.find(v => String(v.lang || '').toLowerCase() === preferred);
+        if (!voice) voice = voices.find(v => String(v.lang || '').toLowerCase().startsWith(base + '-'));
+        if (!voice) voice = voices.find(v => String(v.lang || '').toLowerCase() === base);
+        if (!voice && base === 'zh') voice = voices.find(v => String(v.lang || '').toLowerCase().startsWith('zh'));
+        if (!voice) voice = voices.find(v => v.default);
         if (!voice && voices.length > 0) voice = voices[0];
         return voice || null;
     }
@@ -8072,6 +10279,9 @@ def view_report(report_id):
     function preprocessText(text) {
         const sentences = splitIntoSentences(text);
         const mergedSentences = mergeShortSentences(sentences);
+        if (!String(SPEECH_LOCALE || 'en').toLowerCase().startsWith('en')) {
+            return mergedSentences.join(' ');
+        }
         const preprocessedSentences = mergedSentences.map(sentence => {
             let fillerType = null;
             const rand = Math.random();
@@ -8166,12 +10376,12 @@ def view_report(report_id):
 
     function updateSpeechStatus(status) {
         const speechStatus = document.getElementById('speechStatus');
-        if (speechStatus) speechStatus.textContent = `Speech synthesis is ${status}.`;
+        if (speechStatus) speechStatus.textContent = status === 'in progress' ? (UI_MESSAGES.speech_active || `Speech synthesis is ${status}.`) : (UI_MESSAGES.speech_inactive || `Speech synthesis is ${status}.`);
     }
 
     async function readAloud() {
         if (!synth) {
-            alert("Sorry, your browser does not support Speech Synthesis.");
+            alert(UI_MESSAGES.speech_unsupported || "Sorry, your browser does not support Speech Synthesis.");
             return;
         }
         if (isSpeaking) return;
@@ -8191,12 +10401,13 @@ def view_report(report_id):
         if (!reportContentElement) return;
         const reportContent = reportContentElement.innerText || '';
         const routeDetails = `
-            Date: {{ report['timestamp'] }}.
-            Location: {{ report['latitude'] }}, {{ report['longitude'] }}.
-            Nearest City: {{ report['street_name'] }}.
-            Vehicle Type: {{ report['vehicle_type'] }}.
-            Destination: {{ report['destination'] }}.
-            Model Used: {{ report['model_used'] }}.
+            {{ ui_messages.date }}: {{ report['timestamp'] }}.
+            {{ ui_messages.location }}: {{ report['latitude'] }}, {{ report['longitude'] }}.
+            {{ ui_messages.nearest_city }}: {{ report['street_name'] }}.
+            {{ ui_messages.vehicle_type }}: {{ report['vehicle_type'] }}.
+            {{ ui_messages.destination }}: {{ report['destination'] }}.
+            {{ ui_messages.model_used }}: {{ report['model_used'] }}.
+            {{ ui_messages.language }}: {{ language_label(report.get('language', 'en')) }}.
         `;
         const combinedText = preprocessText(reportContent + ' ' + routeDetails);
         const sentences = splitIntoSentences(combinedText).filter(s => s.length > 1);
@@ -8210,7 +10421,7 @@ def view_report(report_id):
             adjustSpeechParameters(utterance, sentence);
             utterance.volume = 1;
             utterance.voice = selectedVoice || null;
-            utterance.lang = (selectedVoice && selectedVoice.lang) || 'en-US';
+            utterance.lang = (selectedVoice && selectedVoice.lang) || SPEECH_LOCALE || 'en-US';
             return utterance;
         });
 
@@ -8288,6 +10499,12 @@ def view_report(report_id):
                                   report=report,
                                   report_html_escaped=report_html_escaped,
                                   csrf_token=csrf_token,
+                                  language_label=language_label,
+                                  language_html_lang=language_html_lang,
+                                  language_text_direction=language_text_direction,
+                                  report_language=report_language,
+                                  speech_locale=speech_locale,
+                                  ui_messages=ui_messages,
                                   wheel_color=wheel_color)
 
 
@@ -8299,11 +10516,12 @@ def dashboard():
     user_id = get_user_id(username)
     reports = get_hazard_reports(user_id)
     csrf_token = generate_csrf()
-    preferred_model = get_user_preferred_model(user_id)
+    preferred_model = get_user_preferred_model(user_id) or "openai"
+    preferred_language = get_user_preferred_language(user_id)
 
     return render_template_string("""
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language_html_lang(preferred_language) }}" dir="{{ language_text_direction(preferred_language) }}">
 <head>
     <meta charset="UTF-8">
     <title>Dashboard - Quantum Road Scanner</title>
@@ -8319,261 +10537,670 @@ def dashboard():
           integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
 
     <style>
-        body {
-            background-color: #121212;
-            color: #ffffff;
-            font-family: 'Roboto', sans-serif;
+        :root{
+            --bg:#090d14;
+            --panel:#111827;
+            --panel-2:#0d1421;
+            --ink:#f4f8ff;
+            --muted:#a8bad0;
+            --line:rgba(255,255,255,.12);
+            --line-strong:rgba(255,255,255,.20);
+            --accent:#49c2ff;
+            --accent-2:#73f0cf;
+            --danger:#ff6b6b;
+            --radius:18px;
+            --shadow:0 24px 70px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.05);
         }
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 100%;
-            width: 220px;
-            background-color: #1f1f1f;
-            padding-top: 60px;
-            border-right: 1px solid #333;
-            transition: width 0.3s;
+        html, body{ min-height:100%; }
+        body{
+            margin:0;
+            background:
+                radial-gradient(900px 540px at 85% -10%, rgba(73,194,255,.18), transparent 62%),
+                radial-gradient(680px 420px at 12% 5%, rgba(115,240,207,.11), transparent 66%),
+                linear-gradient(135deg, #090d14 0%, #111827 52%, #090d14 100%);
+            color:var(--ink);
+            font-family:'Roboto', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            -webkit-font-smoothing:antialiased;
+            text-rendering:optimizeLegibility;
         }
-        .sidebar a {
-            color: #bbbbbb;
-            padding: 15px 20px;
-            text-decoration: none;
-            display: block;
-            font-size: 1rem;
-            transition: background-color 0.3s, color 0.3s;
+        .sidebar{
+            position:fixed;
+            inset:0 auto 0 0;
+            width:232px;
+            padding:24px 14px;
+            background:rgba(7,12,20,.82);
+            border-right:1px solid var(--line);
+            backdrop-filter:blur(16px) saturate(145%);
+            -webkit-backdrop-filter:blur(16px) saturate(145%);
+            z-index:20;
         }
-        .sidebar a:hover, .sidebar a.active {
-            background-color: #333;
-            color: #ffffff;
+        .navbar-brand{
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            height:48px;
+            margin:0 8px 22px;
+            border-radius:14px;
+            color:var(--ink);
+            font-family:'Orbitron', sans-serif;
+            font-size:1.15rem;
+            letter-spacing:.02em;
+            background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+            border:1px solid var(--line);
         }
-        .content {
-            margin-left: 220px;
-            padding: 20px;
-            transition: margin-left 0.3s;
+        .sidebar a{
+            display:flex;
+            align-items:center;
+            gap:12px;
+            min-height:44px;
+            padding:0 14px;
+            margin:6px 0;
+            color:var(--muted);
+            text-decoration:none;
+            border:1px solid transparent;
+            border-radius:12px;
+            transition:background-color .16s ease, color .16s ease, border-color .16s ease, transform .16s ease;
         }
-        .navbar-brand {
-            font-size: 1.5rem;
-            color: #ffffff;
-            text-align: center;
-            display: block;
-            margin-bottom: 20px;
-            font-family: 'Orbitron', sans-serif;
+        .sidebar a:hover,
+        .sidebar a.active{
+            color:var(--ink);
+            background:rgba(255,255,255,.08);
+            border-color:var(--line);
+            transform:translateX(1px);
         }
-        .stepper {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 30px;
+        .sidebar i{ width:18px; text-align:center; color:color-mix(in srgb, var(--accent) 76%, #ffffff); }
+        .content{
+            margin-left:232px;
+            min-height:100vh;
+            padding:28px;
         }
-        .step {
-            text-align: center;
-            flex: 1;
-            position: relative;
+        .dashboard-shell{
+            max-width:1180px;
+            margin:0 auto;
+            display:grid;
+            gap:22px;
         }
-        .step::before {
-            content: '';
-            position: absolute;
-            top: 15px;
-            right: -50%;
-            width: 100%;
-            height: 2px;
-            background-color: #444;
-            z-index: -1;
+        .dashboard-hero,
+        .workflow-card,
+        .reports-card{
+            background:linear-gradient(180deg, rgba(255,255,255,.105), rgba(255,255,255,.055));
+            border:1px solid var(--line);
+            border-radius:var(--radius);
+            box-shadow:var(--shadow);
         }
-        .step:last-child::before {
-            display: none;
+        .dashboard-hero{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-end;
+            gap:24px;
+            padding:30px;
+            overflow:hidden;
+            position:relative;
         }
-        .step .circle {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background-color: #444;
-            margin: 0 auto 10px;
-            line-height: 30px;
-            color: #fff;
-            font-weight: bold;
+        .dashboard-hero::after{
+            content:"";
+            position:absolute;
+            inset:auto -90px -170px auto;
+            width:380px;
+            height:380px;
+            border-radius:50%;
+            background:radial-gradient(circle, rgba(73,194,255,.22), transparent 68%);
+            pointer-events:none;
         }
-        .step.active .circle, .step.completed .circle {
-            background-color: #00adb5;
+        .eyebrow{
+            display:inline-flex;
+            align-items:center;
+            gap:.45rem;
+            margin-bottom:10px;
+            color:color-mix(in srgb, var(--accent) 72%, #ffffff);
+            font-size:.78rem;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.12em;
         }
-        .form-section {
-            display: none;
+        h1, h2, h3, h4{ color:var(--ink); }
+        .dashboard-hero h1{
+            margin:0;
+            font-family:'Orbitron', sans-serif;
+            font-size:clamp(2rem, 4vw, 3.2rem);
+            line-height:1.05;
+            letter-spacing:0;
         }
-        .form-section.active {
-            display: block;
+        .hero-copy{
+            margin:14px 0 0;
+            max-width:66ch;
+            color:var(--muted);
+            font-size:1.02rem;
         }
-        .table thead th {
-            background-color: #1f1f1f;
-            color: #00adb5;
+        .hero-meta{
+            display:flex;
+            flex-wrap:wrap;
+            justify-content:flex-end;
+            gap:10px;
+            min-width:240px;
+            position:relative;
+            z-index:1;
         }
-        .table tbody td {
-            color: #ffffff;
-            background-color: #2c2c2c;
+        .metric-pill,
+        .status-pill{
+            display:inline-flex;
+            align-items:center;
+            gap:.5rem;
+            min-height:36px;
+            padding:.45rem .75rem;
+            border-radius:999px;
+            border:1px solid var(--line);
+            background:rgba(255,255,255,.07);
+            color:var(--ink);
+            font-size:.9rem;
+            white-space:nowrap;
         }
-        .modal-header {
-            background-color: #1f1f1f;
-            color: #00adb5;
+        .metric-pill strong{ color:var(--accent-2); }
+        .workflow-card{ padding:22px; }
+        .stepper{
+            display:grid;
+            grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:12px;
+            margin:0 0 22px;
         }
-        .modal-body {
-            background-color: #121212;
-            color: #ffffff;
+        .step{
+            appearance:none;
+            display:grid;
+            grid-template-columns:auto 1fr;
+            align-items:center;
+            gap:12px;
+            min-height:88px;
+            text-align:left;
+            color:var(--muted);
+            background:rgba(255,255,255,.055);
+            border:1px solid var(--line);
+            border-radius:16px;
+            padding:14px;
+            cursor:pointer;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+            transition:transform .16s ease, border-color .16s ease, background-color .16s ease, color .16s ease;
         }
-        .btn-custom {
-            background: #00adb5;
-            border: none;
-            color: #ffffff;
-            padding: 10px 20px;
-            border-radius: 5px;
-            transition: background 0.3s;
+        .step:hover{
+            transform:translateY(-1px);
+            border-color:var(--line-strong);
+            color:var(--ink);
         }
-        .btn-custom:hover {
-            background: #019a9e;
+        .step .circle{
+            width:42px;
+            height:42px;
+            border-radius:50%;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:var(--ink);
+            font-weight:900;
+            background:#151f30;
+            border:1px solid var(--line-strong);
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
         }
-        @media (max-width: 767px) {
-            .sidebar { width: 60px; }
-            .sidebar a { padding: 15px 10px; text-align: center; }
-            .sidebar a span { display: none; }
-            .content { margin-left: 60px; }
-            .stepper {
-                flex-direction: column;
+        .step-title{
+            display:block;
+            color:var(--ink);
+            font-weight:900;
+            margin-bottom:3px;
+        }
+        .step-desc{
+            display:block;
+            color:var(--muted);
+            font-size:.88rem;
+            line-height:1.35;
+        }
+        .step.active,
+        .step.completed{
+            background:linear-gradient(180deg, rgba(73,194,255,.16), rgba(115,240,207,.08));
+            border-color:rgba(73,194,255,.38);
+        }
+        .step.active .circle,
+        .step.completed .circle{
+            color:#07121f;
+            background:linear-gradient(180deg, #ffffff, var(--accent));
+            border-color:rgba(255,255,255,.36);
+        }
+        .step-panels{
+            background:rgba(5,10,17,.34);
+            border:1px solid var(--line);
+            border-radius:16px;
+            padding:22px;
+        }
+        .form-section{ display:none; }
+        .form-section.active{ display:block; }
+        .section-head{
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:18px;
+            margin-bottom:20px;
+        }
+        .section-head h2{
+            margin:0 0 6px;
+            font-size:1.35rem;
+            letter-spacing:0;
+        }
+        .section-head p{
+            margin:0;
+            color:var(--muted);
+            max-width:62ch;
+        }
+        .step-count{
+            color:var(--accent-2);
+            font-weight:900;
+            font-size:.82rem;
+            text-transform:uppercase;
+            letter-spacing:.1em;
+            white-space:nowrap;
+        }
+        .field-grid{
+            display:grid;
+            grid-template-columns:repeat(2, minmax(0, 1fr));
+            gap:16px;
+        }
+        .form-group{ margin-bottom:16px; }
+        label{
+            color:var(--ink);
+            font-size:.88rem;
+            font-weight:900;
+            margin-bottom:8px;
+        }
+        .form-control{
+            min-height:48px;
+            color:var(--ink);
+            background:#0b1220;
+            border:1px solid var(--line-strong);
+            border-radius:12px;
+            padding:.75rem .9rem;
+            box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+        }
+        .form-control:focus{
+            color:var(--ink);
+            background:#0b1220;
+            border-color:rgba(73,194,255,.74);
+            box-shadow:0 0 0 .2rem rgba(73,194,255,.16);
+        }
+        .form-control::placeholder{ color:#71849b; }
+        select.form-control{ cursor:pointer; }
+        .action-row{
+            display:flex;
+            flex-wrap:wrap;
+            align-items:center;
+            gap:10px;
+            margin-top:8px;
+        }
+        .status-message{
+            margin-top:14px;
+            min-height:24px;
+            color:var(--muted);
+        }
+        .status-message:not(:empty){
+            display:inline-flex;
+            align-items:center;
+            padding:.55rem .72rem;
+            border:1px solid var(--line);
+            border-radius:12px;
+            background:rgba(255,255,255,.06);
+        }
+        .street-card{
+            display:grid;
+            grid-template-columns:auto 1fr;
+            gap:16px;
+            align-items:center;
+            padding:18px;
+            margin-bottom:16px;
+            border:1px solid var(--line);
+            border-radius:16px;
+            background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+        }
+        .street-icon{
+            width:54px;
+            height:54px;
+            border-radius:16px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:#07121f;
+            background:linear-gradient(180deg, #ffffff, var(--accent-2));
+            box-shadow:0 12px 28px rgba(0,0,0,.28);
+        }
+        .street-label{
+            color:var(--muted);
+            font-size:.84rem;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.1em;
+        }
+        #streetName{
+            margin:4px 0 0;
+            color:var(--ink);
+            font-size:1.28rem;
+            font-weight:900;
+        }
+        .reports-card{ padding:22px; }
+        .reports-head{
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-end;
+            gap:16px;
+            margin-bottom:16px;
+        }
+        .reports-head h2{ margin:0; font-size:1.35rem; }
+        .reports-head p{ margin:5px 0 0; color:var(--muted); }
+        .table-wrap{
+            overflow:auto;
+            border:1px solid var(--line);
+            border-radius:16px;
+            background:rgba(5,10,17,.35);
+        }
+        .table{
+            margin:0;
+            color:var(--ink);
+        }
+        .table thead th{
+            border:0;
+            color:var(--muted);
+            background:rgba(255,255,255,.06);
+            font-size:.78rem;
+            text-transform:uppercase;
+            letter-spacing:.1em;
+        }
+        .table tbody td{
+            color:var(--ink);
+            background:transparent;
+            border-top:1px solid var(--line);
+            vertical-align:middle;
+        }
+        .table-dark,
+        .table-dark > th,
+        .table-dark > td{ background:transparent; }
+        .empty-state{
+            padding:28px;
+            border:1px dashed var(--line-strong);
+            border-radius:16px;
+            color:var(--muted);
+            background:rgba(255,255,255,.04);
+        }
+        .modal-content{
+            background:var(--panel);
+            color:var(--ink);
+            border:1px solid var(--line);
+            border-radius:18px;
+            box-shadow:var(--shadow);
+            overflow:hidden;
+        }
+        .modal-header{
+            background:rgba(255,255,255,.06);
+            color:var(--ink);
+            border-bottom:1px solid var(--line);
+        }
+        .modal-body{
+            background:var(--panel);
+            color:var(--ink);
+        }
+        .close{ color:var(--ink); text-shadow:none; opacity:.8; }
+        .loading-spinner{
+            transform:translate(-50%, -50%);
+            padding:18px;
+            border-radius:18px;
+            background:rgba(5,10,17,.72);
+            border:1px solid var(--line);
+            box-shadow:var(--shadow);
+        }
+        @media (max-width: 960px){
+            .dashboard-hero{ align-items:flex-start; flex-direction:column; }
+            .hero-meta{ justify-content:flex-start; }
+            .stepper{ grid-template-columns:1fr; }
+            .field-grid{ grid-template-columns:1fr; }
+        }
+        @media (max-width: 767px){
+            .sidebar{
+                width:70px;
+                padding:18px 10px;
             }
-            .step::before {
-                display: none;
+            .navbar-brand{ font-size:.9rem; margin:0 0 18px; }
+            .sidebar a{ justify-content:center; padding:0; }
+            .sidebar a span{ display:none; }
+            .content{
+                margin-left:70px;
+                padding:16px;
             }
+            .dashboard-hero,
+            .workflow-card,
+            .reports-card{ border-radius:16px; }
+            .dashboard-hero,
+            .workflow-card,
+            .reports-card,
+            .step-panels{ padding:16px; }
+            .section-head{ flex-direction:column; }
+            .action-row .btn{ width:100%; }
         }
     </style>
 </head>
 <body>
 
-    <div class="sidebar">
+    <div class="sidebar" aria-label="Dashboard navigation">
         <div class="navbar-brand">QRS</div>
-        <a href="#" class="nav-link active" onclick="showSection('step1')">
-            <i class="fas fa-home"></i> <span>Dashboard</span>
+        <a href="#" class="nav-link active" onclick="showSection('step1'); return false;">
+            <i class="fas fa-home" aria-hidden="true"></i> <span>Dashboard</span>
+        </a>
+        <a href="{{ url_for('user_settings') }}">
+            <i class="fas fa-user-cog" aria-hidden="true"></i> <span>User Settings</span>
         </a>
         {% if session.is_admin %}
         <a href="{{ url_for('settings') }}">
-            <i class="fas fa-cogs"></i> <span>Settings</span>
+            <i class="fas fa-cogs" aria-hidden="true"></i> <span>Admin Settings</span>
         </a>
         <a href="{{ url_for('admin_blog_backup_page') }}">
-            <i class="fas fa-database"></i> <span>Blog Backup</span>
+            <i class="fas fa-database" aria-hidden="true"></i> <span>Blog Backup</span>
         </a>
         <a href="{{ url_for('admin_local_llm_page') }}">
-            <i class="fas fa-microchip"></i> <span>Local Llama</span>
+            <i class="fas fa-microchip" aria-hidden="true"></i> <span>Local Llama</span>
         </a>
         {% endif %}
         <a href="{{ url_for('logout') }}">
-            <i class="fas fa-sign-out-alt"></i> <span>Logout</span>
+            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span>
         </a>
     </div>
 
-    <div class="content">
-        <div class="stepper">
-            <div class="step active" id="stepper1">
-                <div class="circle">1</div>
-                Grabs
-            </div>
-            <div class="step" id="stepper2">
-                <div class="circle">2</div>
-                Street Name
-            </div>
-            <div class="step" id="stepper3">
-                <div class="circle">3</div>
-                Run Scan
-            </div>
-        </div>
-
-        <div id="step1" class="form-section active">
-            <form id="grabCoordinatesForm">
-                <div class="form-group">
-                    <label for="latitude">Latitude</label>
-                    <input type="text" class="form-control" id="latitude" name="latitude" placeholder="Enter latitude" required>
+    <main class="content">
+        <div class="dashboard-shell">
+            <section class="dashboard-hero" aria-labelledby="dashboardTitle">
+                <div>
+                    <div class="eyebrow"><i class="fas fa-compass" aria-hidden="true"></i> Road Scan Studio</div>
+                    <h1 id="dashboardTitle">A cleaner scan flow for safer decisions.</h1>
+                    <p class="hero-copy">
+                        Set the location, confirm the street context, then run one focused hazard scan.
+                        Each step stays visually anchored so the route from input to report feels deliberate.
+                    </p>
                 </div>
-                <div class="form-group">
-                    <label for="longitude">Longitude</label>
-                    <input type="text" class="form-control" id="longitude" name="longitude" placeholder="Enter longitude" required>
+                <div class="hero-meta" aria-label="Dashboard summary">
+                    <span class="metric-pill"><strong>{{ reports|length }}</strong> reports</span>
+                    <span class="status-pill"><i class="fas fa-user" aria-hidden="true"></i> {{ username }}</span>
+                    <span class="status-pill"><i class="fas fa-brain" aria-hidden="true"></i> {{ preferred_model }}</span>
+                    <span class="status-pill"><i class="fas fa-language" aria-hidden="true"></i> {{ language_label(preferred_language) }}</span>
                 </div>
-                <button type="button" class="btn btn-custom" onclick="getCoordinates()">
-                    <i class="fas fa-location-arrow"></i> Get Current Location
-                </button>
-                <button type="button" class="btn btn-custom" onclick="nextStep(1)">
-                    <i class="fas fa-arrow-right"></i> Next
-                </button>
-            </form>
-            <div id="statusMessage1" class="mt-3"></div>
-        </div>
+            </section>
 
-        <div id="step2" class="form-section">
-            <h4>Street Name</h4>
-            <p id="streetName">Fetching street name...</p>
-            <button type="button" class="btn btn-custom" onclick="nextStep(2)">
-                <i class="fas fa-arrow-right"></i> Next
-            </button>
-        </div>
-
-        <div id="step3" class="form-section">
-            <form id="runScanForm">
-                <div class="form-group">
-                    <label for="vehicle_type">Vehicle Type</label>
-                    <select class="form-control" id="vehicle_type" name="vehicle_type">
-                        <option value="motorbike">Motorbike</option>
-                        <option value="car">Car</option>
-                        <option value="truck">Truck</option>
-
-                    </select>
+            <section class="workflow-card" aria-label="Road scan workflow">
+                <div class="stepper" role="tablist" aria-label="Scan steps">
+                    <button type="button" class="step active" id="stepper1" onclick="showSection('step1')" role="tab" aria-selected="true" aria-controls="step1" aria-current="step">
+                        <span class="circle">1</span>
+                        <span>
+                            <span class="step-title">Locate</span>
+                            <span class="step-desc">Enter coordinates or use device location.</span>
+                        </span>
+                    </button>
+                    <button type="button" class="step" id="stepper2" onclick="nextStep(1)" role="tab" aria-selected="false" aria-controls="step2">
+                        <span class="circle">2</span>
+                        <span>
+                            <span class="step-title">Confirm</span>
+                            <span class="step-desc">Resolve the nearby street before scanning.</span>
+                        </span>
+                    </button>
+                    <button type="button" class="step" id="stepper3" onclick="currentStep >= 2 ? nextStep(2) : nextStep(1)" role="tab" aria-selected="false" aria-controls="step3">
+                        <span class="circle">3</span>
+                        <span>
+                            <span class="step-title">Scan</span>
+                            <span class="step-desc">Choose route details and create a report.</span>
+                        </span>
+                    </button>
                 </div>
-                <div class="form-group">
-                    <label for="destination">Destination</label>
-                    <input type="text" class="form-control" id="destination" name="destination" placeholder="Enter destination" required>
-                </div>
-                <div class="form-group">
-                    <label for="model_selection">Select Model</label>
-                    <select class="form-control" id="model_selection" name="model_selection">
 
-                        <option value="openai" {% if preferred_model == 'openai' %}selected{% endif %}>OpenAI (GPT-5.2)</option>
+                <div class="step-panels">
+                    <div id="step1" class="form-section active" role="tabpanel" aria-labelledby="stepper1">
+                        <div class="section-head">
+                            <div>
+                                <h2>Location</h2>
+                                <p>Start with exact coordinates. The location button can fill both fields when browser permission is available.</p>
+                            </div>
+                            <div class="step-count">Step 1 of 3</div>
+                        </div>
+                        <form id="grabCoordinatesForm">
+                            <div class="field-grid">
+                                <div class="form-group">
+                                    <label for="latitude">Latitude</label>
+                                    <input type="text" class="form-control" id="latitude" name="latitude" placeholder="Example: 40.7128" inputmode="decimal" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="longitude">Longitude</label>
+                                    <input type="text" class="form-control" id="longitude" name="longitude" placeholder="Example: -74.0060" inputmode="decimal" required>
+                                </div>
+                            </div>
+                            <div class="action-row">
+                                <button type="button" class="btn btn-outline-light" onclick="getCoordinates()">
+                                    <i class="fas fa-location-arrow" aria-hidden="true"></i> Use Current Location
+                                </button>
+                                <button type="button" class="btn btn-primary" onclick="nextStep(1)">
+                                    Continue <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </form>
+                        <div id="statusMessage1" class="status-message" aria-live="polite"></div>
+                    </div>
+
+                    <div id="step2" class="form-section" role="tabpanel" aria-labelledby="stepper2">
+                        <div class="section-head">
+                            <div>
+                                <h2>Street Context</h2>
+                                <p>QRoadScan checks the coordinates against a nearby road label before the scan begins.</p>
+                            </div>
+                            <div class="step-count">Step 2 of 3</div>
+                        </div>
+                        <div class="street-card">
+                            <div class="street-icon"><i class="fas fa-road" aria-hidden="true"></i></div>
+                            <div>
+                                <div class="street-label">Detected street</div>
+                                <p id="streetName">Waiting for coordinates...</p>
+                            </div>
+                        </div>
+                        <div class="action-row">
+                            <button type="button" class="btn btn-outline-light" onclick="showSection('step1')">
+                                <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="nextStep(2)">
+                                Looks Right <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="step3" class="form-section" role="tabpanel" aria-labelledby="stepper3">
+                        <div class="section-head">
+                            <div>
+                                <h2>Scan Details</h2>
+                                <p>Choose the vehicle profile, destination, and model. The scan report opens automatically when it is ready.</p>
+                            </div>
+                            <div class="step-count">Step 3 of 3</div>
+                        </div>
+                        <form id="runScanForm">
+                            <div class="field-grid">
+                                <div class="form-group">
+                                    <label for="vehicle_type">Vehicle Type</label>
+                                    <select class="form-control" id="vehicle_type" name="vehicle_type">
+                                        <option value="motorbike">Motorbike</option>
+                                        <option value="car">Car</option>
+                                        <option value="truck">Truck</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="destination">Destination</label>
+                                    <input type="text" class="form-control" id="destination" name="destination" placeholder="Where are you headed?" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="model_selection">Model</label>
+                                <select class="form-control" id="model_selection" name="model_selection">
+                                    <option value="openai" {% if preferred_model == 'openai' %}selected{% endif %}>OpenAI (GPT-5.2)</option>
 {% if grok_ready %}
-<option value="grok" {% if preferred_model == 'grok' %}selected{% endif %}>Grok</option>
+                                    <option value="grok" {% if preferred_model == 'grok' %}selected{% endif %}>Grok</option>
 {% endif %}
 {% if llama_ready %}
-<option value="llama_local" {% if preferred_model == 'llama_local' %}selected{% endif %}>Local Llama (llama_cpp)</option>
+                                    <option value="llama_local" {% if preferred_model == 'llama_local' %}selected{% endif %}>Local Llama (llama_cpp)</option>
 {% endif %}
-
-                    </select>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="language_selection">Report Language</label>
+                                <select class="form-control" id="language_selection" name="language_selection">
+                                    {% for key, spec in supported_languages.items() %}
+                                    <option value="{{ key }}" {% if preferred_language == key %}selected{% endif %}>{{ spec.name }} / {{ spec.native }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="action-row">
+                                <button type="button" class="btn btn-outline-light" onclick="showSection('step2')">
+                                    <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+                                </button>
+                                <button type="button" class="btn btn-primary" id="startScanButton" onclick="startScan()">
+                                    <i class="fas fa-play" aria-hidden="true"></i> Start Scan
+                                </button>
+                            </div>
+                        </form>
+                        <div id="statusMessage3" class="status-message" aria-live="polite"></div>
+                    </div>
                 </div>
-                <button type="button" class="btn btn-custom" onclick="startScan()">
-                    <i class="fas fa-play"></i> Start Scan
-                </button>
-            </form>
-            <div id="statusMessage3" class="mt-3"></div>
-        </div>
+            </section>
 
-        <div id="reportsSection" class="mt-5">
-            <h3>Your Reports</h3>
-            {% if reports %}
-            <table class="table table-dark table-hover">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for report in reports %}
-                    <tr>
-                        <td>{{ report['timestamp'] }}</td>
-                        <td>
-                            <button class="btn btn-info btn-sm" onclick="viewReport({{ report['id'] }})">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p>No reports available.</p>
-            {% endif %}
+            <section id="reportsSection" class="reports-card" aria-labelledby="reportsTitle">
+                <div class="reports-head">
+                    <div>
+                        <h2 id="reportsTitle">Reports</h2>
+                        <p>Review previous scans and compare route decisions over time.</p>
+                    </div>
+                    <span class="metric-pill"><strong>{{ reports|length }}</strong> total</span>
+                </div>
+                {% if reports %}
+                <div class="table-wrap">
+                    <table class="table table-dark table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th class="text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for report in reports %}
+                            <tr>
+                                <td>{{ report['timestamp'] }}</td>
+                                <td class="text-right">
+                                    <button class="btn btn-info btn-sm" onclick="viewReport({{ report['id'] }})">
+                                        <i class="fas fa-eye" aria-hidden="true"></i> View
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">
+                    No reports yet. Run your first scan and the result will appear here.
+                </div>
+                {% endif %}
+            </section>
         </div>
-    </div>
+    </main>
 
     <div class="modal fade" id="reportModal" tabindex="-1" aria-labelledby="reportModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg">
@@ -8615,30 +11242,47 @@ def dashboard():
 
         var currentStep = 1;
 
+        function stepNumber(step) {
+            var parsed = parseInt(String(step).replace(/[^0-9]/g, ''), 10);
+            return parsed && parsed >= 1 ? Math.min(parsed, 3) : 1;
+        }
+
+        function setStatus(selector, message) {
+            $(selector).text(message || '');
+        }
+
         function showSection(step) {
+            currentStep = stepNumber(step);
             $('.form-section').removeClass('active');
-            $('#' + step).addClass('active');
-            updateStepper(step);
+            $('#step' + currentStep).addClass('active');
+            updateStepper(currentStep);
         }
 
         function updateStepper(step) {
+            step = stepNumber(step);
             $('.step').removeClass('active completed');
             for(var i=1; i<=step; i++) {
                 $('#stepper' + i).addClass('completed');
             }
             $('#stepper' + step).addClass('active');
+            $('.step').removeAttr('aria-current');
+            $('.step').attr('aria-selected', 'false');
+            $('#stepper' + step).attr('aria-current', 'step');
+            $('#stepper' + step).attr('aria-selected', 'true');
         }
 
         function getCoordinates() {
             if (navigator.geolocation) {
+                setStatus('#statusMessage1', 'Requesting your browser location...');
                 navigator.geolocation.getCurrentPosition(function(position) {
                     $('#latitude').val(position.coords.latitude);
                     $('#longitude').val(position.coords.longitude);
+                    setStatus('#statusMessage1', 'Location filled. Review the coordinates, then continue.');
                 }, function(error) {
-                    alert("Error obtaining location: " + error.message);
+                    setStatus('#statusMessage1', "Location unavailable: " + error.message);
                 });
             } else {
-                alert("Geolocation is not supported by this browser.");
+                setStatus('#statusMessage1', "Geolocation is not supported by this browser.");
             }
         }
 
@@ -8662,12 +11306,14 @@ def dashboard():
                 const lat = $('#latitude').val();
                 const lon = $('#longitude').val();
                 if(!lat || !lon) {
-                    alert("Please enter both latitude and longitude.");
+                    setStatus('#statusMessage1', "Please enter both latitude and longitude.");
                     return;
                 }
                 $('#streetName').text("Fetching street name...");
+                setStatus('#statusMessage1', 'Resolving nearby street...');
                 const streetName = await fetchStreetName(lat, lon);
                 $('#streetName').text(streetName);
+                setStatus('#statusMessage1', '');
                 showSection('step2');
             } else if(step === 2) {
                 showSection('step3');
@@ -8680,13 +11326,15 @@ def dashboard():
             const vehicle_type = $('#vehicle_type').val();
             const destination = $('#destination').val();
             const model_selection = $('#model_selection').val();
+            const language_selection = $('#language_selection').val();
 
             if(!vehicle_type || !destination) {
-                alert("Please select vehicle type and enter destination.");
+                setStatus('#statusMessage3', "Please select vehicle type and enter destination.");
                 return;
             }
 
-            $('#statusMessage3').text("Scan started. Please wait...");
+            $('#startScanButton').prop('disabled', true);
+            setStatus('#statusMessage3', "Scan started. Please wait...");
             $('.loading-spinner').show();
 
             const formData = {
@@ -8694,7 +11342,8 @@ def dashboard():
                 longitude: lon,
                 vehicle_type: vehicle_type,
                 destination: destination,
-                model_selection: model_selection
+                model_selection: model_selection,
+                language_selection: language_selection
             };
 
             try {
@@ -8710,13 +11359,15 @@ def dashboard():
                 if (!response.ok) {
                     const errorData = await response.json();
                     $('.loading-spinner').hide();
-                    $('#statusMessage3').text("Error: " + (errorData.error || 'Unknown error occurred.'));
+                    $('#startScanButton').prop('disabled', false);
+                    setStatus('#statusMessage3', "Error: " + (errorData.error || 'Unknown error occurred.'));
                     return;
                 }
 
                 const data = await response.json();
                 $('.loading-spinner').hide();
-                $('#statusMessage3').text(data.message);
+                $('#startScanButton').prop('disabled', false);
+                setStatus('#statusMessage3', data.message);
 
                 if (data.report_id) {
 
@@ -8725,7 +11376,8 @@ def dashboard():
                 }
             } catch (error) {
                 $('.loading-spinner').hide();
-                $('#statusMessage3').text("An error occurred during the scan.");
+                $('#startScanButton').prop('disabled', false);
+                setStatus('#statusMessage3', "An error occurred during the scan.");
                 console.error('Error:', error);
             }
         }
@@ -8749,7 +11401,7 @@ def dashboard():
             const newRow = `
                 <tr>
                     <td>${timestamp}</td>
-                    <td>
+                    <td class="text-right">
                         <button class="btn btn-info btn-sm" onclick="viewReport(${reportId})">
                             <i class="fas fa-eye"></i> View
                         </button>
@@ -8759,8 +11411,32 @@ def dashboard():
             $('table tbody').prepend(newRow);
         }
 
+        async function saveLanguagePreference(language_selection) {
+            try {
+                const response = await fetch('/set_language', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrf_token
+                    },
+                    body: JSON.stringify({ language_selection: language_selection })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setStatus('#statusMessage3', data.message || '');
+                    if (data.html_lang) document.documentElement.lang = data.html_lang;
+                    if (data.dir) document.documentElement.dir = data.dir;
+                }
+            } catch (error) {
+                console.warn('Language preference was not saved:', error);
+            }
+        }
+
         $(document).ready(function() {
             showSection('step1');
+            $('#language_selection').on('change', function() {
+                saveLanguagePreference($(this).val());
+            });
         });
     </script>
 </body>
@@ -8768,23 +11444,94 @@ def dashboard():
     """,
                                   reports=reports,
                                   csrf_token=csrf_token,
+                                  username=username,
                                   preferred_model=preferred_model,
+                                  preferred_language=preferred_language,
+                                  supported_languages=SUPPORTED_LANGUAGES,
+                                  language_label=language_label,
+                                  language_html_lang=language_html_lang,
+                                  language_text_direction=language_text_direction,
                                   grok_ready=bool(os.getenv('GROK_API_KEY')),
                                   llama_ready=llama_local_ready())
 
 
 def calculate_harm_level(result):
-    if re.search(r'\b(high|severe|critical|urgent|dangerous)\b', result,
-                 re.IGNORECASE):
+    text = str(result or "").lower()
+    high_terms = (
+        "high", "severe", "critical", "urgent", "dangerous",
+        "alto", "grave", "crítico", "critico", "urgente", "peligroso",
+        "élevé", "eleve", "critique", "dangereux",
+        "hoch", "kritisch", "dringend", "gefährlich", "gefahr",
+        "высок", "серьез", "критич", "сроч", "опас",
+        "alto", "crítico", "perigoso",
+        "tinggi", "kritis", "berbahaya",
+        "juu", "hatari", "dharura",
+        "高", "严重", "危険", "緊急", "危机", "खतरा", "उच्च", "गंभीर",
+        "عالي", "مرتفع", "خطير", "حرج", "عاجل",
+        "উচ্চ", "গুরুতর", "বিপজ্জনক", "জরুরি",
+        "بلند", "شدید", "خطرناک", "فوری",
+    )
+    medium_terms = (
+        "medium", "moderate", "caution", "warning",
+        "medio", "moderado", "precaución", "precaucion", "advertencia",
+        "moyen", "modéré", "modere", "prudence", "avertissement",
+        "mittel", "mäßig", "maessig", "vorsicht", "warnung",
+        "сред", "умерен", "осторож", "предупреж",
+        "médio", "medio", "moderado", "cuidado", "aviso",
+        "sedang", "waspada", "peringatan",
+        "wastani", "tahadhari", "onyo",
+        "中", "注意", "警告", "मध्यम", "सावधानी", "चेतावनी",
+        "متوسط", "تحذير", "حذر",
+        "মাঝারি", "সতর্কতা", "সাবধান",
+        "درمیانہ", "احتیاط", "انتباہ",
+    )
+    low_terms = (
+        "low", "minimal", "safe", "minor", "normal", "clear",
+        "bajo", "mínimo", "minimo", "seguro", "menor", "normal", "despejado",
+        "faible", "minimal", "sûr", "sur", "mineur", "normal", "clair",
+        "niedrig", "minimal", "sicher", "gering", "normal", "klar",
+        "низк", "миним", "безопас", "незнач", "нормаль",
+        "baixo", "mínimo", "seguro", "menor", "normal",
+        "rendah", "minimal", "aman", "normal",
+        "chini", "salama", "kawaida",
+        "低", "安全", "軽微", "正常", "कम", "सुरक्षित", "सामान्य",
+        "منخفض", "آمن", "طفيف", "طبيعي",
+        "কম", "নিরাপদ", "স্বাভাবিক",
+        "کم", "محفوظ", "معمولی", "عام",
+    )
+    if any(term in text for term in high_terms):
         return "High"
-    elif re.search(r'\b(medium|moderate|caution|warning)\b', result,
-                   re.IGNORECASE):
+    elif any(term in text for term in medium_terms):
         return "Medium"
-    elif re.search(r'\b(low|minimal|safe|minor|normal)\b', result,
-                   re.IGNORECASE):
+    elif any(term in text for term in low_terms):
         return "Low"
     return "Neutral"
 
+
+
+@app.route('/set_language', methods=['POST'])
+def set_language_route():
+    if 'username' not in session:
+        return jsonify({"error": "Login required"}), 401
+
+    user_id = get_user_id(session['username'])
+    if user_id is None:
+        return jsonify({"error": "User not found"}), 404
+
+    data = request.get_json(silent=True) or request.form or {}
+    language_selection = normalize_language_key(
+        data.get('language_selection') or data.get('language') or get_user_preferred_language(user_id)
+    )
+    set_user_preferred_language(user_id, language_selection)
+    ui_messages = get_ui_messages(language_selection)
+    return jsonify({
+        "message": ui_messages.get("saved", "Saved"),
+        "language": language_selection,
+        "label": language_label(language_selection),
+        "locale": language_locale(language_selection),
+        "html_lang": language_html_lang(language_selection),
+        "dir": language_text_direction(language_selection),
+    })
 
 @app.route('/start_scan', methods=['POST'])
 async def start_scan_route():
@@ -8809,6 +11556,7 @@ async def start_scan_route():
     vehicle_type = sanitize_input(data.get('vehicle_type'))
     destination = sanitize_input(data.get('destination'))
     model_selection = sanitize_input(data.get('model_selection'))
+    language_selection = normalize_language_key(data.get('language_selection') or data.get('language') or get_user_preferred_language(user_id))
 
     if not lat or not lon or not vehicle_type or not destination or not model_selection:
         return jsonify({"error": "Missing required data"}), 400
@@ -8820,8 +11568,9 @@ async def start_scan_route():
         return jsonify({"error": "Invalid latitude or longitude format."}), 400
 
     set_user_preferred_model(user_id, model_selection)
+    set_user_preferred_language(user_id, language_selection)
 
-    combined_input = f"Vehicle Type: {vehicle_type}\nDestination: {destination}"
+    combined_input = f"Vehicle Type: {vehicle_type}\nDestination: {destination}\nLanguage: {language_selection}"
     is_allowed, analysis = await phf_filter_input(combined_input)
     if not is_allowed:
         return jsonify({
@@ -8829,13 +11578,14 @@ async def start_scan_route():
             "details": analysis
         }), 400
 
-    result, cpu_usage, ram_usage, quantum_results, street_name, model_used = await scan_debris_for_route(
+    result, cpu_usage, ram_usage, quantum_results, street_name, model_used, language_audit = await scan_debris_for_route(
         lat_float,
         lon_float,
         vehicle_type,
         destination,
         user_id,
-        selected_model=model_selection
+        selected_model=model_selection,
+        language_key=language_selection,
     )
 
     harm_level = calculate_harm_level(result)
@@ -8844,14 +11594,19 @@ async def start_scan_route():
         lat_float, lon_float, street_name,
         vehicle_type, destination, result,
         cpu_usage, ram_usage, quantum_results,
-        user_id, harm_level, model_used
+        user_id, harm_level, model_used, language_selection,
+        language_audit=language_audit,
     )
 
+    ui_messages = get_ui_messages(language_selection)
+
     return jsonify({
-        "message": "Scan completed successfully",
+        "message": ui_messages.get("scan_completed", "Scan completed successfully"),
         "result": result,
         "harm_level": harm_level,
+        "language": language_selection,
         "model_used": model_used,
+        "language_audit": language_audit,
         "report_id": report_id
     })
 
