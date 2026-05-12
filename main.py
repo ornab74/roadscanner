@@ -561,7 +561,7 @@ def generate_very_strong_secret_key():
     raw = hash_secret_raw(chaotic,
                           os.urandom(16),
                           time_cost=4,
-                          memory_cost=256000,
+                          memory_cost=64000,
                           parallelism=2,
                           hash_len=48,
                           type=ArgonType.ID)
