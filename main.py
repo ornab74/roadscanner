@@ -61,23 +61,22 @@ except Exception:
     pass
 nh3: Any = _nh3_mod if _nh3_mod is not None else _Nh3Fallback()
 
-#_geonamescache_mod: Any = None
-#try:
-#    _geonamescache_mod = importlib.import_module("geonamescache")
-#except Exception:
-#    pass
-#geonamescache: Any = _geonamescache_mod
-
+_geonamescache_mod: Any = None
+try:
+    _geonamescache_mod = importlib.import_module("geonamescache")
+except Exception:
+    pass
+geonamescache: Any = _geonamescache_mod
 import importlib
 from typing import Any
 
-#Llama: Any = None
+Llama: Any = None
 
-#try:
-#    _llama_mod = importlib.import_module("llama_cpp")
-#    Llama = getattr(_llama_mod, "Llama", None)
-#except Exception:
-#    pass
+try:
+    _llama_mod = importlib.import_module("llama_cpp")
+    Llama = getattr(_llama_mod, "Llama", None)
+except Exception:
+    pass
 import random
 import re
 import base64
@@ -158,20 +157,27 @@ class SealedCache(TypedDict, total=False):
     kem_alg: str
     sig_alg: str
 
-# To this:
-CITIES = {} 
-US_STATES_DICT = {}
-COUNTRIES = {}
+if geonamescache is not None:
+    geonames = geonamescache.GeonamesCache()
+    CITIES = geonames.get_cities()
+    US_STATES_DICT = geonames.get_us_states()
+    COUNTRIES = geonames.get_countries()
+else:
+    geonames = None
+    CITIES = {}
+    US_STATES_DICT = {}
+    COUNTRIES = {}
 
-#US_STATES_BY_ABBREV = {}
-#for state_name, state_info in US_STATES_DICT.items():
-#    if isinstance(state_info, dict):
-#        abbrev = state_info.get("abbrev") or state_info.get("code")
-#        if abbrev:
-#            US_STATES_BY_ABBREV[abbrev] = state_name
+US_STATES_BY_ABBREV = {}
+for state_name, state_info in US_STATES_DICT.items():
+    if isinstance(state_info, dict):
+        abbrev = state_info.get("abbrev") or state_info.get("code")
+        if abbrev:
+            US_STATES_BY_ABBREV[abbrev] = state_name
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+STRICT_PQ2_ONLY = True
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.DEBUG)
 
@@ -350,8 +356,8 @@ def _derive_kek(passphrase: str, salt: bytes) -> bytes:
         passphrase.encode("utf-8"),
         salt,
         3,                     
-        64 * 1024,            
-        1,
+        512 * 1024,            
+        max(2, (os.cpu_count() or 2)//2), 
         32,
         ArgonType.ID
     )
@@ -555,8 +561,8 @@ def generate_very_strong_secret_key():
     raw = hash_secret_raw(chaotic,
                           os.urandom(16),
                           time_cost=4,
-                          memory_cost=64000,
-                          parallelism=1,
+                          memory_cost=256000,
+                          parallelism=2,
                           hash_len=48,
                           type=ArgonType.ID)
 
@@ -2698,7 +2704,7 @@ def _km_decrypt_pq_priv(self: "KeyManager") -> Optional[bytes]:
     salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(
         passphrase.encode(), salt,
-        3, 64 * 1024, max(2, (os.cpu_count() or 2) // 2),
+        3, 512 * 1024, max(2, (os.cpu_count() or 2) // 2),
         32, ArgonType.ID
     )
     aes = AESGCM(kek)
@@ -2723,7 +2729,7 @@ def _km_decrypt_sig_priv(self: "KeyManager") -> bytes:
     salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(
         passphrase.encode(), salt,
-        3, 64 * 1024, max(2, (os.cpu_count() or 2)//2),
+        3, 512 * 1024, max(2, (os.cpu_count() or 2)//2),
         32, ArgonType.ID
     )
     aes = AESGCM(kek)
@@ -2787,7 +2793,7 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
         salt = _b64get_required(ENV_SALT_B64)
         kek = hash_secret_raw(
             passphrase.encode(), salt,
-            3, 64 * 1024, max(2, (os.cpu_count() or 2)//2),
+            3, 512 * 1024, max(2, (os.cpu_count() or 2)//2),
             32, ArgonType.ID
         )
         aes = AESGCM(kek)
@@ -2952,7 +2958,7 @@ class AuditTrail:
             passphrase.encode(),
             salt,
             time_cost=3,
-            memory_cost=64 * 1024,
+            memory_cost=512 * 1024,
             parallelism=max(2, (os.cpu_count() or 2) // 2),
             hash_len=32,
             type=ArgonType.ID,
