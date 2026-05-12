@@ -763,7 +763,7 @@ RATE_LIMIT_COUNT = 13
 RATE_LIMIT_WINDOW = timedelta(minutes=15)
 
 config_lock = threading.Lock()
-DB_FILE = Path('secure_data.db')
+DB_FILE = Path('/var/data') / 'secure_data.db'
 EXPIRATION_HOURS = 65
 
 app.config.update(SESSION_COOKIE_SECURE=True,
@@ -3632,7 +3632,7 @@ def create_tables():
     run_blog_signature_cleanup_once()
     print("Database tables created and verified successfully.")
 
-BLOG_SIG_CLEANUP_MARKER = Path('.blog_sig_cleanup_v1.done')
+BLOG_SIG_CLEANUP_MARKER = Path('/var/data') / '.blog_sig_cleanup_v1.done'
 
 def run_blog_signature_cleanup_once() -> None:
     if BLOG_SIG_CLEANUP_MARKER.exists():
@@ -3814,7 +3814,7 @@ def sanitize_tags_csv(raw: str, max_tags: int = 50) -> str:
     return out[:500]
 
 BLOG_ENC_PREFIX = "BLG1."
-BLOG_REKEY_MARKER = Path('.blog_rekey_v2.done')
+BLOG_REKEY_MARKER = Path('/var/data') / '.blog_rekey_v2.done'
 
 
 def _blog_ctx(field: str, rid: Optional[int] = None) -> dict:
@@ -4966,7 +4966,7 @@ def admin_blog_api_delete():
 
 
 def _blog_backup_path() -> Path:
-    p = Path(os.getenv("BLOG_BACKUP_PATH", "blog_posts_backup.json"))
+    p = Path(os.getenv("BLOG_BACKUP_PATH", "/var/data/blog_posts_backup.json"))
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -6147,18 +6147,13 @@ async def run_openai_response_text(
 _LLAMA_MODEL = None
 _LLAMA_MODEL_LOCK = threading.Lock()
 
-def _llama_models_dir() -> Path:
-
-    default_root = Path(__file__).resolve().parent / "models"
-    
-    base = os.getenv("LLAMA_MODELS_DIR", str(default_root))
+def _llama_models_dir() -> "Path":
+    base = os.getenv("LLAMA_MODELS_DIR", "/var/data/models")
     p = Path(base)
-    
     try:
         p.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-        
     return p
 
 LLAMA_MODEL_REPO = os.getenv("LLAMA_MODEL_REPO", "https://huggingface.co/tensorblock/llama3-small-GGUF/resolve/main/")
