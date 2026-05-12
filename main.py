@@ -157,16 +157,10 @@ class SealedCache(TypedDict, total=False):
     kem_alg: str
     sig_alg: str
 
-if geonamescache is not None:
-    geonames = geonamescache.GeonamesCache()
-    CITIES = geonames.get_cities()
-    US_STATES_DICT = geonames.get_us_states()
-    COUNTRIES = geonames.get_countries()
-else:
-    geonames = None
-    CITIES = {}
-    US_STATES_DICT = {}
-    COUNTRIES = {}
+# To this:
+CITIES = {} 
+US_STATES_DICT = {}
+COUNTRIES = {}
 
 US_STATES_BY_ABBREV = {}
 for state_name, state_info in US_STATES_DICT.items():
