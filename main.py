@@ -356,7 +356,7 @@ def _derive_kek(passphrase: str, salt: bytes) -> bytes:
         passphrase.encode("utf-8"),
         salt,
         3,                     
-        512 * 1024,            
+        64 * 1024,            
         max(2, (os.cpu_count() or 2)//2), 
         32,
         ArgonType.ID
@@ -2704,7 +2704,7 @@ def _km_decrypt_pq_priv(self: "KeyManager") -> Optional[bytes]:
     salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(
         passphrase.encode(), salt,
-        3, 512 * 1024, max(2, (os.cpu_count() or 2) // 2),
+        3, 64 * 1024, max(2, (os.cpu_count() or 2) // 2),
         32, ArgonType.ID
     )
     aes = AESGCM(kek)
@@ -2729,7 +2729,7 @@ def _km_decrypt_sig_priv(self: "KeyManager") -> bytes:
     salt = _b64get_required(ENV_SALT_B64)
     kek = hash_secret_raw(
         passphrase.encode(), salt,
-        3, 512 * 1024, max(2, (os.cpu_count() or 2)//2),
+        3, 64 * 1024, max(2, (os.cpu_count() or 2)//2),
         32, ArgonType.ID
     )
     aes = AESGCM(kek)
@@ -2793,7 +2793,7 @@ def _km_load_or_create_signing(self: "KeyManager") -> None:
         salt = _b64get_required(ENV_SALT_B64)
         kek = hash_secret_raw(
             passphrase.encode(), salt,
-            3, 512 * 1024, max(2, (os.cpu_count() or 2)//2),
+            3, 64 * 1024, max(2, (os.cpu_count() or 2)//2),
             32, ArgonType.ID
         )
         aes = AESGCM(kek)
@@ -2958,7 +2958,7 @@ class AuditTrail:
             passphrase.encode(),
             salt,
             time_cost=3,
-            memory_cost=512 * 1024,
+            memory_cost=64 * 1024,
             parallelism=max(2, (os.cpu_count() or 2) // 2),
             hash_len=32,
             type=ArgonType.ID,
