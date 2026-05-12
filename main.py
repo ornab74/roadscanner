@@ -163,16 +163,15 @@ CITIES = {}
 US_STATES_DICT = {}
 COUNTRIES = {}
 
-US_STATES_BY_ABBREV = {}
-for state_name, state_info in US_STATES_DICT.items():
-    if isinstance(state_info, dict):
-        abbrev = state_info.get("abbrev") or state_info.get("code")
-        if abbrev:
-            US_STATES_BY_ABBREV[abbrev] = state_name
+#US_STATES_BY_ABBREV = {}
+#for state_name, state_info in US_STATES_DICT.items():
+#    if isinstance(state_info, dict):
+#        abbrev = state_info.get("abbrev") or state_info.get("code")
+#        if abbrev:
+#            US_STATES_BY_ABBREV[abbrev] = state_name
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-STRICT_PQ2_ONLY = True
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.DEBUG)
 
