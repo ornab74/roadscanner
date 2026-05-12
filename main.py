@@ -351,7 +351,7 @@ def _derive_kek(passphrase: str, salt: bytes) -> bytes:
         salt,
         3,                     
         64 * 1024,            
-        max(2, (os.cpu_count() or 2)//2), 
+        1,
         32,
         ArgonType.ID
     )
@@ -556,7 +556,7 @@ def generate_very_strong_secret_key():
                           os.urandom(16),
                           time_cost=4,
                           memory_cost=64000,
-                          parallelism=2,
+                          parallelism=1,
                           hash_len=48,
                           type=ArgonType.ID)
 
