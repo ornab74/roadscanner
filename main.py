@@ -61,22 +61,23 @@ except Exception:
     pass
 nh3: Any = _nh3_mod if _nh3_mod is not None else _Nh3Fallback()
 
-_geonamescache_mod: Any = None
-try:
-    _geonamescache_mod = importlib.import_module("geonamescache")
-except Exception:
-    pass
-geonamescache: Any = _geonamescache_mod
+#_geonamescache_mod: Any = None
+#try:
+#    _geonamescache_mod = importlib.import_module("geonamescache")
+#except Exception:
+#    pass
+#geonamescache: Any = _geonamescache_mod
+
 import importlib
 from typing import Any
 
-Llama: Any = None
+#Llama: Any = None
 
-try:
-    _llama_mod = importlib.import_module("llama_cpp")
-    Llama = getattr(_llama_mod, "Llama", None)
-except Exception:
-    pass
+#try:
+#    _llama_mod = importlib.import_module("llama_cpp")
+#    Llama = getattr(_llama_mod, "Llama", None)
+#except Exception:
+#    pass
 import random
 import re
 import base64
