@@ -120,6 +120,7 @@ from flask.sessions import SecureCookieSessionInterface
 from flask.json.tag import TaggedJSONSerializer
 from itsdangerous import URLSafeTimedSerializer, BadSignature, BadTimeSignature
 import zlib as _zlib
+from urllib.parse import urlencode
 
 zstd: Any = None
 _HAS_ZSTD = False
@@ -4254,6 +4255,8 @@ def blog_index_slash():
 
 @app.get("/blog")
 def blog_index():
+    current_language = get_request_language()
+    home_text = get_home_ui_text(current_language)
     posts = blog_list_published(limit=50, offset=0)
     seed = colorsync.sample()
     accent = seed.get("hex", "#49c2ff")
@@ -4270,7 +4273,7 @@ def blog_index():
     blog_schema = _blog_collection_schema(posts, page_url=blog_url)
     rendered = render_template_string("""
 <!doctype html>
-<html lang="en">
+<html lang="{{ language_html_lang(current_language) }}" dir="{{ language_text_direction(current_language) }}">
 <head>
   <meta charset="utf-8">
   <title>QRoadScan Blog | Traffic Risk, Road Hazards & Safer Driving</title>
@@ -4318,13 +4321,15 @@ def blog_index():
     .post h3 a:hover{ color: var(--accent); }
     .tag{ display:inline-block; padding:.2rem .5rem; border-radius:999px; background:#ffffff18; margin-right:.35rem; font-size:.8rem; }
     .meta{ color:#b8cfe4; font-size:.9rem; }
+    {{ language_switcher_css|safe }}
   </style>
 </head>
 <body>
+{{ language_switcher_html|safe }}
 <nav class="navbar navbar-dark px-3">
   <a class="navbar-brand brand" href="{{ url_for('home') }}">QRS</a>
   <div class="d-flex gap-2">
-    <a class="nav-link" href="{{ url_for('blog_index') }}">Blog</a>
+    <a class="nav-link" href="{{ url_for('blog_index') }}">{{ home_text.nav_blog }}</a>
     {% if session.get('is_admin') %}
       <a class="nav-link" href="{{ url_for('blog_admin') }}">Manage</a>
     {% endif %}
@@ -4358,6 +4363,12 @@ def blog_index():
     """,
         posts=posts,
         accent=accent,
+        current_language=current_language,
+        home_text=home_text,
+        language_html_lang=language_html_lang,
+        language_text_direction=language_text_direction,
+        language_switcher_css=language_switcher_css(),
+        language_switcher_html=render_language_switcher(current_language),
         blog_url=blog_url,
         sitemap_url=sitemap_url,
         feed_url=feed_url,
@@ -4373,6 +4384,7 @@ def blog_index():
     response = make_response(rendered)
     response.cache_control.public = True
     response.cache_control.max_age = 300
+    response.headers["Vary"] = "Cookie"
     return response
 
 @app.get("/blog/<slug>/")
@@ -4384,6 +4396,8 @@ def blog_view_slash(slug: str):
 
 @app.get("/blog/<slug>")
 def blog_view(slug: str):
+    current_language = get_request_language()
+    home_text = get_home_ui_text(current_language)
     allow_any = bool(session.get('is_admin'))
     post = blog_get_by_slug(slug, allow_any_status=allow_any)
     if not post:
@@ -4465,7 +4479,7 @@ def blog_view(slug: str):
     })
     rendered = render_template_string("""
 <!doctype html>
-<html lang="en">
+<html lang="{{ language_html_lang(current_language) }}" dir="{{ language_text_direction(current_language) }}">
 <head>
   <meta charset="utf-8">
   <title>{{ post['title'] }} - QRS Blog</title>
@@ -4518,13 +4532,15 @@ def blog_view(slug: str):
     .content pre{ background:#0d1423; border:1px solid #ffffff22; border-radius:8px; padding:12px; overflow:auto; }
     .content code{ color:#9fb6ff; }
     .tag{ display:inline-block; padding:.2rem .5rem; border-radius:999px; background:#ffffff18; margin-right:.35rem; font-size:.8rem; }
+    {{ language_switcher_css|safe }}
   </style>
 </head>
 <body>
+{{ language_switcher_html|safe }}
 <nav class="navbar navbar-dark px-3">
   <a class="navbar-brand brand" href="{{ url_for('home') }}">QRS</a>
   <div class="d-flex gap-2">
-    <a class="nav-link" href="{{ url_for('blog_index') }}">Blog</a>
+    <a class="nav-link" href="{{ url_for('blog_index') }}">{{ home_text.nav_blog }}</a>
     {% if session.get('is_admin') %}
       <a class="nav-link" href="{{ url_for('blog_admin') }}">Manage</a>
     {% endif %}
@@ -4567,6 +4583,12 @@ def blog_view(slug: str):
     """,
         post=post,
         accent=accent,
+        current_language=current_language,
+        home_text=home_text,
+        language_html_lang=language_html_lang,
+        language_text_direction=language_text_direction,
+        language_switcher_css=language_switcher_css(),
+        language_switcher_html=render_language_switcher(current_language),
         post_url=post_url,
         post_title=post_title,
         post_description=post_description,
@@ -4590,6 +4612,7 @@ def blog_view(slug: str):
     response.last_modified = _seo_datetime(post.get("updated_at") or post.get("created_at"))
     response.cache_control.public = post.get("status") == "published"
     response.cache_control.max_age = 300 if post.get("status") == "published" else 0
+    response.headers["Vary"] = "Cookie"
     if post.get("status") != "published":
         response.cache_control.private = True
         response.cache_control.no_store = True
@@ -8322,6 +8345,76 @@ def get_home_ui_text(language_key: Any) -> Dict[str, Any]:
     return merged
 
 
+def language_switcher_css() -> str:
+    return """
+    .qrs-language-switcher{
+      position:fixed;
+      top:10px;
+      left:10px;
+      z-index:2147483000;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      padding:6px;
+      border:1px solid rgba(255,255,255,.24);
+      border-radius:12px;
+      background:rgba(5,10,17,.82);
+      box-shadow:0 14px 34px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.06);
+      backdrop-filter:blur(14px) saturate(150%);
+    }
+    .qrs-language-switcher label{
+      margin:0;
+      color:#eaf5ff;
+      font-size:.74rem;
+      font-weight:900;
+      letter-spacing:.06em;
+      text-transform:uppercase;
+    }
+    .qrs-language-switcher select{
+      min-height:34px;
+      max-width:190px;
+      color:#eaf5ff;
+      background:#0b1220;
+      border:1px solid rgba(255,255,255,.22);
+      border-radius:9px;
+      padding:4px 8px;
+      font-size:.86rem;
+      font-weight:800;
+    }
+    @media(max-width: 768px){
+      .qrs-language-switcher{ top:6px; left:6px; padding:5px; }
+      .qrs-language-switcher label{ display:none; }
+      .qrs-language-switcher select{ max-width:138px; min-height:32px; font-size:.8rem; }
+    }
+    """
+
+
+def render_language_switcher(current_language: Any = None) -> str:
+    lang = normalize_language_key(current_language or session.get("preferred_language") or "en")
+    next_args = [
+        (key, value)
+        for key, value in request.args.items(multi=True)
+        if key not in {"language", "lang"}
+    ]
+    next_url = request.path
+    if next_args:
+        next_url = f"{next_url}?{urlencode(next_args)}"
+    options = []
+    for key, spec in SUPPORTED_LANGUAGES.items():
+        selected = " selected" if key == lang else ""
+        title = _html.escape(f"{spec.get('name', key)} / {spec.get('native', key)}")
+        options.append(f'<option value="{_html.escape(key)}"{selected}>{title}</option>')
+    return (
+        '<form class="qrs-language-switcher" action="/set_language" method="get">'
+        '<label for="qrsSiteLanguage">Language</label>'
+        f'<input type="hidden" name="next" value="{_html.escape(next_url, quote=True)}">'
+        '<select id="qrsSiteLanguage" name="language" aria-label="Website language" onchange="this.form.submit()">'
+        + "".join(options) +
+        '</select>'
+        '</form>'
+    )
+
+
 def get_hazard_reports(user_id):
     with sqlite3.connect(DB_FILE) as db:
         cursor = db.cursor()
@@ -10414,9 +10507,11 @@ def home():
     .blog-card a{ color:var(--ink); text-decoration:none; font-weight:900; }
     .blog-card a:hover{ text-decoration:underline; }
     .kicker{ letter-spacing:.14em; text-transform:uppercase; font-weight:900; font-size:.78rem; color: color-mix(in oklab, var(--accent) 80%, #cfeaff); }
+    {{ language_switcher_css|safe }}
   </style>
 </head>
 <body>
+  {{ language_switcher_html|safe }}
   <div class="nebula" aria-hidden="true"></div>
 
   <nav class="navbar navbar-expand-lg navbar-dark">
@@ -10822,6 +10917,8 @@ def home():
         home_text=home_text,
         language_html_lang=language_html_lang,
         language_text_direction=language_text_direction,
+        language_switcher_css=language_switcher_css(),
+        language_switcher_html=render_language_switcher(current_language),
         og_locale=language_locale(current_language).replace('-', '_'),
         posts=posts,
         home_url=home_url,
@@ -10840,6 +10937,8 @@ def home():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    current_language = get_request_language()
+    home_text = get_home_ui_text(current_language)
     error_message = ""
     form = LoginForm()
     if form.validate_on_submit():
@@ -10852,7 +10951,7 @@ def login():
             error_message = "Invalid username or password. Please try again."
     return render_template_string("""
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language_html_lang(current_language) }}" dir="{{ language_text_direction(current_language) }}">
 <head>
     <meta charset="UTF-8">
     <title>Login - QRS</title>
@@ -10909,9 +11008,11 @@ def login():
             .container { margin-top: 50px; }
             .brand { font-size: 2rem; }
         }
+        {{ language_switcher_css|safe }}
     </style>
 </head>
 <body>
+    {{ language_switcher_html|safe }}
     <nav class="navbar navbar-expand-lg navbar-dark">
         <a class="navbar-brand" href="{{ url_for('home') }}">QRS</a>
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" 
@@ -10922,8 +11023,8 @@ def login():
         <!-- Right side: ONLY Login / Register (no Dashboard, no dropdown) -->
         <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
             <ul class="navbar-nav">
-                <li class="nav-item"><a class="nav-link active" href="{{ url_for('login') }}">Login</a></li>
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">Register</a></li>
+                <li class="nav-item"><a class="nav-link active" href="{{ url_for('login') }}">{{ home_text.nav_login }}</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">{{ home_text.nav_register }}</a></li>
             </ul>
         </div>
     </nav>
@@ -10931,7 +11032,7 @@ def login():
     <div class="container">
         <div class="Spotd shadow">
             <div class="brand">QRS</div>
-            <h3 class="text-center">Login</h3>
+            <h3 class="text-center">{{ home_text.nav_login }}</h3>
             {% if error_message %}
             <p class="error-message text-center">{{ error_message }}</p>
             {% endif %}
@@ -10947,7 +11048,7 @@ def login():
                 </div>
                 {{ form.submit(class="btn btn-primary btn-block") }}
             </form>
-            <p class="mt-3 text-center">Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p>
+            <p class="mt-3 text-center">{{ account_prompt }} <a href="{{ url_for('register') }}">{{ home_text.nav_register }}</a></p>
         </div>
     </div>
 
@@ -10968,10 +11069,33 @@ def login():
 </html>
     """,
         form=form,
-        error_message=error_message)
+        error_message=error_message,
+        current_language=current_language,
+        home_text=home_text,
+        account_prompt={
+            "es": "¿No tienes cuenta?",
+            "fr": "Vous n’avez pas de compte ?",
+            "de": "Noch kein Konto?",
+            "pt": "Não tem uma conta?",
+            "zh": "还没有账户？",
+            "hi": "खाता नहीं है?",
+            "ar": "ليس لديك حساب؟",
+            "bn": "অ্যাকাউন্ট নেই?",
+            "ru": "Нет аккаунта?",
+            "ur": "اکاؤنٹ نہیں ہے؟",
+            "id": "Belum punya akun?",
+            "ja": "アカウントをお持ちでないですか？",
+            "sw": "Huna akaunti?",
+        }.get(current_language, "Don't have an account?"),
+        language_html_lang=language_html_lang,
+        language_text_direction=language_text_direction,
+        language_switcher_css=language_switcher_css(),
+        language_switcher_html=render_language_switcher(current_language))
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    current_language = get_request_language()
+    home_text = get_home_ui_text(current_language)
 
     registration_enabled = os.getenv('REGISTRATION_ENABLED', 'false').lower() == 'true'
 
@@ -10991,7 +11115,7 @@ def register():
 
     return render_template_string("""
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ language_html_lang(current_language) }}" dir="{{ language_text_direction(current_language) }}">
 <head>
     <meta charset="UTF-8">
     <title>Register - QRS</title>
@@ -11082,9 +11206,11 @@ def register():
         .pw-rule.ok .pw-icon{ border-color: rgba(102,255,102,.95); background: rgba(0,0,0,.08); }
         .pw-rule.ok .pw-icon::after{ content:"✓"; font-size:12px; line-height:1; color:#66ff66; }
         .pw-submit-disabled{ opacity:.75; filter: grayscale(.2); }
+        {{ language_switcher_css|safe }}
 </style>
 </head>
 <body>
+    {{ language_switcher_html|safe }}
 
     <nav class="navbar navbar-expand-lg navbar-dark">
         <a class="navbar-brand" href="{{ url_for('home') }}">QRS</a>
@@ -11095,8 +11221,8 @@ def register():
 
         <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
             <ul class="navbar-nav">
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">Login</a></li>
-                <li class="nav-item"><a class="nav-link active" href="{{ url_for('register') }}">Register</a></li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">{{ home_text.nav_login }}</a></li>
+                <li class="nav-item"><a class="nav-link active" href="{{ url_for('register') }}">{{ home_text.nav_register }}</a></li>
             </ul>
         </div>
     </nav>
@@ -11104,7 +11230,7 @@ def register():
     <div class="container">
         <div class="walkd shadow">
             <div class="brand">QRS</div>
-            <h3 class="text-center">Register</h3>
+            <h3 class="text-center">{{ home_text.nav_register }}</h3>
             {% if error_message %}
             <p class="error-message text-center">{{ error_message }}</p>
             {% endif %}
@@ -11195,7 +11321,16 @@ def register():
     </script>
 </body>
 </html>
-    """, form=form, error_message=error_message, registration_enabled=registration_enabled)
+    """,
+        form=form,
+        error_message=error_message,
+        registration_enabled=registration_enabled,
+        current_language=current_language,
+        home_text=home_text,
+        language_html_lang=language_html_lang,
+        language_text_direction=language_text_direction,
+        language_switcher_css=language_switcher_css(),
+        language_switcher_html=render_language_switcher(current_language))
 
 @app.route('/settings/user', methods=['GET', 'POST'])
 def user_settings():
@@ -11280,9 +11415,11 @@ def user_settings():
         .settings-stat strong{ display:block; margin-top:4px; color:var(--ink); }
         .prompt-preview{ min-height:220px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.86rem; white-space:pre-wrap; }
         @media (max-width:768px){ .sidebar{width:70px; padding:18px 10px;} .sidebar a{justify-content:center; padding:0;} .sidebar a span{display:none;} .content{margin-left:70px; padding:16px;} }
+        {{ language_switcher_css|safe }}
     </style>
 </head>
 <body>
+    {{ language_switcher_html|safe }}
     <div class="sidebar" aria-label="User settings navigation">
         <div class="navbar-brand">QRS</div>
         <a href="{{ url_for('dashboard') }}"><i class="fas fa-home" aria-hidden="true"></i> <span>Dashboard</span></a>
@@ -11447,6 +11584,8 @@ def user_settings():
         language_locale=language_locale,
         language_html_lang=language_html_lang,
         language_text_direction=language_text_direction,
+        language_switcher_css=language_switcher_css(),
+        language_switcher_html=render_language_switcher(current_language),
     )
 
 
@@ -12910,9 +13049,11 @@ def dashboard():
             .weather-grid{ grid-template-columns:1fr; }
             .weather-tile{ border-right:0; border-bottom:1px solid var(--line); }
         }
+        {{ language_switcher_css|safe }}
     </style>
 </head>
 <body>
+    {{ language_switcher_html|safe }}
 
     <div class="sidebar" aria-label="Dashboard navigation">
         <div class="navbar-brand">QRS</div>
@@ -13798,6 +13939,8 @@ def dashboard():
                                   language_label=language_label,
                                   language_html_lang=language_html_lang,
                                   language_text_direction=language_text_direction,
+                                  language_switcher_css=language_switcher_css(),
+                                  language_switcher_html=render_language_switcher(preferred_language),
                                   grok_ready=bool(os.getenv('GROK_API_KEY')),
                                   llama_ready=llama_local_ready())
 
@@ -13856,23 +13999,35 @@ def calculate_harm_level(result):
 
 
 
-@app.route('/set_language', methods=['POST'])
+@app.route('/set_language', methods=['GET', 'POST'])
 def set_language_route():
-    if 'username' not in session:
-        return jsonify({"error": "Login required"}), 401
-
-    user_id = get_user_id(session['username'])
-    if user_id is None:
-        return jsonify({"error": "User not found"}), 404
-
-    data = request.get_json(silent=True) or request.form or {}
-    language_selection = normalize_language_key(
-        data.get('language_selection') or data.get('language') or get_user_preferred_language(user_id)
+    data = (
+        (request.get_json(silent=True) or request.form or {})
+        if request.method == 'POST'
+        else request.args
     )
-    set_user_preferred_language(user_id, language_selection)
+    language_selection = normalize_language_key(
+        data.get('language_selection') or data.get('language') or session.get('preferred_language') or "en"
+    )
+
+    if 'username' in session:
+        user_id = get_user_id(session['username'])
+        if user_id is None:
+            if request.method == 'GET':
+                return redirect(url_for('login'))
+            return jsonify({"error": "User not found"}), 404
+        set_user_preferred_language(user_id, language_selection)
+
     session['preferred_language'] = language_selection
     session.modified = True
     ui_messages = get_ui_messages(language_selection)
+
+    if request.method == 'GET':
+        next_url = str(data.get("next") or request.referrer or url_for("home"))
+        if not next_url.startswith("/") or next_url.startswith("//"):
+            next_url = url_for("home")
+        return redirect(next_url)
+
     return jsonify({
         "message": ui_messages.get("saved", "Saved"),
         "language": language_selection,
