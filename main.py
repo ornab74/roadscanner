@@ -8345,11 +8345,40 @@ def get_home_ui_text(language_key: Any) -> Dict[str, Any]:
     return merged
 
 
+DASHBOARD_UI_TEXT: Dict[str, Dict[str, str]] = {
+    "en": {
+        "dashboard": "Dashboard", "user_settings": "User Settings", "admin_settings": "Admin Settings",
+        "logout": "Logout", "road_scanner": "Road Scanner", "delivery_scanner": "Delivery Scanner",
+        "reports": "Reports", "reports_body": "Review previous scans and compare route decisions over time.",
+        "total": "total", "date": "Date", "actions": "Actions", "view": "View",
+        "no_reports": "No reports yet. Run your first scan and the result will appear here.",
+        "start_scan": "Start Scan", "report_language": "Report Language",
+    },
+    "es": {"dashboard": "Panel", "user_settings": "Ajustes de usuario", "admin_settings": "Ajustes de admin", "logout": "Salir", "road_scanner": "Escáner vial", "delivery_scanner": "Escáner de entregas", "reports": "Informes", "reports_body": "Revisa escaneos anteriores y compara decisiones de ruta.", "total": "total", "date": "Fecha", "actions": "Acciones", "view": "Ver", "no_reports": "Aún no hay informes. Ejecuta tu primer escaneo y aparecerá aquí.", "start_scan": "Iniciar escaneo", "report_language": "Idioma del informe"},
+    "fr": {"dashboard": "Tableau de bord", "user_settings": "Paramètres utilisateur", "admin_settings": "Paramètres admin", "logout": "Déconnexion", "road_scanner": "Scanner routier", "delivery_scanner": "Scanner livraison", "reports": "Rapports", "reports_body": "Consultez les analyses précédentes et comparez les décisions d’itinéraire.", "total": "total", "date": "Date", "actions": "Actions", "view": "Voir", "no_reports": "Aucun rapport pour le moment.", "start_scan": "Démarrer l’analyse", "report_language": "Langue du rapport"},
+    "de": {"dashboard": "Dashboard", "user_settings": "Benutzereinstellungen", "admin_settings": "Admin-Einstellungen", "logout": "Abmelden", "road_scanner": "Straßenscanner", "delivery_scanner": "Liefer-Scanner", "reports": "Berichte", "reports_body": "Frühere Scans prüfen und Routenentscheidungen vergleichen.", "total": "gesamt", "date": "Datum", "actions": "Aktionen", "view": "Ansehen", "no_reports": "Noch keine Berichte.", "start_scan": "Scan starten", "report_language": "Berichtssprache"},
+    "pt": {"dashboard": "Painel", "user_settings": "Configurações do usuário", "admin_settings": "Configurações admin", "logout": "Sair", "road_scanner": "Scanner de estrada", "delivery_scanner": "Scanner de entregas", "reports": "Relatórios", "reports_body": "Revise escaneios anteriores e compare decisões de rota.", "total": "total", "date": "Data", "actions": "Ações", "view": "Ver", "no_reports": "Ainda não há relatórios.", "start_scan": "Iniciar scan", "report_language": "Idioma do relatório"},
+    "zh": {"dashboard": "仪表板", "user_settings": "用户设置", "admin_settings": "管理员设置", "logout": "退出", "road_scanner": "道路扫描", "delivery_scanner": "配送扫描", "reports": "报告", "reports_body": "查看以往扫描并比较路线决策。", "total": "总计", "date": "日期", "actions": "操作", "view": "查看", "no_reports": "还没有报告。", "start_scan": "开始扫描", "report_language": "报告语言"},
+    "ja": {"dashboard": "ダッシュボード", "user_settings": "ユーザー設定", "admin_settings": "管理設定", "logout": "ログアウト", "road_scanner": "道路スキャナー", "delivery_scanner": "配送スキャナー", "reports": "レポート", "reports_body": "過去のスキャンとルート判断を確認します。", "total": "合計", "date": "日付", "actions": "操作", "view": "表示", "no_reports": "レポートはまだありません。", "start_scan": "スキャン開始", "report_language": "レポート言語"},
+}
+
+
+def get_dashboard_ui_text(language_key: Any) -> Dict[str, str]:
+    key = normalize_language_key(language_key)
+    merged = dict(DASHBOARD_UI_TEXT["en"])
+    merged.update(DASHBOARD_UI_TEXT.get(key, {}))
+    messages = get_ui_messages(key)
+    for msg_key, dash_key in (("date", "date"), ("read_report", "view"), ("language", "report_language")):
+        if msg_key in messages and dash_key not in DASHBOARD_UI_TEXT.get(key, {}):
+            merged[dash_key] = messages[msg_key]
+    return merged
+
+
 def language_switcher_css() -> str:
     return """
     .qrs-language-switcher{
       position:fixed;
-      top:10px;
+      bottom:10px;
       left:10px;
       z-index:2147483000;
       display:flex;
@@ -8382,7 +8411,7 @@ def language_switcher_css() -> str:
       font-weight:800;
     }
     @media(max-width: 768px){
-      .qrs-language-switcher{ top:6px; left:6px; padding:5px; }
+      .qrs-language-switcher{ bottom:6px; left:6px; padding:5px; }
       .qrs-language-switcher label{ display:none; }
       .qrs-language-switcher select{ max-width:138px; min-height:32px; font-size:.8rem; }
     }
@@ -9379,6 +9408,15 @@ DELIVERY_MARKET_MODES = {
     "suburban": "Suburban mode",
 }
 DELIVERY_ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp"}
+DELIVERY_SUBSCAN_TYPES = {
+    "mission_brief": "Full mission brief",
+    "positioning": "Location positioning surface",
+    "shift_timing": "Shift timing simulation",
+    "route_safety": "Route safety calculation",
+    "bathrooms": "Clean bathrooms finder",
+    "gas": "Gas finder",
+    "food_water": "Clean food / water finder",
+}
 
 
 def _normalize_delivery_key(value: Any, allowed: Mapping[str, str], default: str) -> str:
@@ -9399,6 +9437,8 @@ def _normalize_delivery_key(value: Any, allowed: Mapping[str, str], default: str
         "suburbanmode": "suburban",
     }
     key = aliases.get(key, key)
+    if key in {"mission", "brief", "full_scan", "fullscan", "all"}:
+        key = "mission_brief"
     return key if key in allowed else default
 
 
@@ -9431,15 +9471,15 @@ def _detect_delivery_image_mime(data: bytes) -> Optional[str]:
     return None
 
 
-def _read_delivery_screenshot_upload() -> dict[str, Any]:
-    upload = request.files.get("offer_screenshot")
+def _read_delivery_image_upload(field_name: str, max_bytes: int = DELIVERY_SCREENSHOT_MAX_BYTES) -> dict[str, Any]:
+    upload = request.files.get(field_name)
     if not upload or not getattr(upload, "filename", ""):
         return {}
-    raw = upload.read(DELIVERY_SCREENSHOT_MAX_BYTES + 1)
+    raw = upload.read(max_bytes + 1)
     if not raw:
         return {}
-    if len(raw) > DELIVERY_SCREENSHOT_MAX_BYTES:
-        raise ValueError(f"Screenshot is too large. Limit is {DELIVERY_SCREENSHOT_MAX_BYTES / 1000000:.1f} MB.")
+    if len(raw) > max_bytes:
+        raise ValueError(f"Screenshot is too large. Limit is {max_bytes / 1000000:.1f} MB.")
     mime = _detect_delivery_image_mime(raw)
     if mime not in DELIVERY_ALLOWED_IMAGE_MIMES:
         raise ValueError("Screenshot must be a PNG, JPEG, or WebP image.")
@@ -9450,6 +9490,10 @@ def _read_delivery_screenshot_upload() -> dict[str, Any]:
         "size": len(raw),
         "b64": base64.b64encode(raw).decode("ascii"),
     }
+
+
+def _read_delivery_screenshot_upload() -> dict[str, Any]:
+    return _read_delivery_image_upload("offer_screenshot")
 
 
 def _delivery_weather_window(weather_summary: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -9801,6 +9845,344 @@ def _delivery_ai_report_text(analysis: Mapping[str, Any]) -> str:
         f"Hardness: {analysis.get('hardness')}/100. "
         f"Main factors: {reasons}."
     )
+
+
+def _delivery_subscan_rgb_surface(
+    lat: float,
+    lon: float,
+    platform: str,
+    shift: str,
+    mode: str,
+    vehicle_profile: Mapping[str, Any],
+    weather_summary: Mapping[str, Any],
+) -> tuple[float, float, float]:
+    abs_lat = abs(float(lat))
+    abs_lon = abs(float(lon))
+    city_pressure = {"city": 0.72, "mixed": 0.52, "suburban": 0.34}.get(mode, 0.52)
+    shift_pressure = {"morningshift": 0.38, "lunchshift": 0.55, "dayshift": 0.48, "nightshift": 0.76}.get(shift, 0.48)
+    platform_pressure = {"trucking": 0.68, "ups": 0.62, "fedex": 0.62, "walmart_spark": 0.54}.get(platform, 0.44)
+    vehicle_pressure = {"bicycle": 0.58, "scooter": 0.56, "motorcycle": 0.52, "tractor_trailer": 0.78, "truck": 0.56}.get(str(vehicle_profile.get("vehicle_type") or "car"), 0.42)
+    weather = _delivery_float(weather_summary.get("overall_score"), 0.0, 0.0, 100.0) / 100.0
+    geo_variance = ((abs_lat % 10.0) / 10.0) * 0.55 + ((abs_lon % 10.0) / 10.0) * 0.45
+    red = _clamp01(city_pressure * 0.28 + shift_pressure * 0.22 + platform_pressure * 0.16 + weather * 0.22 + vehicle_pressure * 0.12)
+    green = _clamp01((1.0 - weather) * 0.28 + (1.0 - shift_pressure) * 0.18 + (1.0 - vehicle_pressure) * 0.18 + geo_variance * 0.18 + 0.18)
+    blue = _clamp01(geo_variance * 0.24 + vehicle_pressure * 0.20 + city_pressure * 0.18 + platform_pressure * 0.16 + weather * 0.22)
+    return red, green, blue
+
+
+def delivery_positioning_surface(
+    lat: float,
+    lon: float,
+    platform: str,
+    shift: str,
+    mode: str,
+    vehicle_profile: Mapping[str, Any],
+    weather_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    rgb = _delivery_subscan_rgb_surface(lat, lon, platform, shift, mode, vehicle_profile, weather_summary)
+    backend = "deterministic-fallback"
+    try:
+        if qml is not None:
+            qml_mod: Any = qml
+            dev = qml_mod.device("default.qubit", wires=3)
+
+            @qml_mod.qnode(dev)
+            def circuit(r: float, g: float, b: float) -> Any:
+                qml_mod.RY(math.pi * r, wires=0)
+                qml_mod.RX(math.pi * g, wires=1)
+                qml_mod.RZ(math.pi * b, wires=2)
+                qml_mod.CNOT(wires=[0, 1])
+                qml_mod.CNOT(wires=[1, 2])
+                return qml_mod.probs(wires=[0, 1, 2])
+
+            probs = np.asarray(circuit(*rgb), dtype=float)
+            backend = "pennylane-default.qubit"
+        else:
+            probs, backend = _fallback_weather_entropy(rgb)
+            probs = np.asarray(probs, dtype=float)
+        probs = probs / (float(np.sum(probs)) or 1.0)
+        entropy = float(-(probs * np.log2(np.clip(probs, 1e-12, 1.0))).sum())
+        hotspot = int(np.argmax(probs))
+        return {
+            "title": "Location positioning surface",
+            "backend": backend,
+            "rgb": [round(x, 4) for x in rgb],
+            "entropy": round(entropy, 4),
+            "coherence": round(max(0.0, min(1.0, 1.0 - entropy / 3.0)), 4),
+            "peak_state": format(hotspot, "03b"),
+            "summary": "RGB route pressure surface blends market density, shift friction, vehicle profile, weather drag, and coordinate variance.",
+            "actions": [
+                "Stage near a cluster with two exit paths instead of one tight pickup lane.",
+                "Recheck weather drag before accepting long deadhead offers.",
+                "Favor curb-friendly pickup zones when the surface coherence drops.",
+            ],
+        }
+    except Exception as exc:
+        logger.debug("Delivery positioning surface failed: %s", exc)
+        return {"title": "Location positioning surface", "backend": "unavailable", "rgb": [round(x, 4) for x in rgb], "summary": "Positioning surface unavailable; use manual cluster checks."}
+
+
+def _delivery_simulated_resource_rows(kind: str, lat: float, lon: float, mode: str) -> list[dict[str, Any]]:
+    catalogs = {
+        "bathrooms": [
+            ("library / civic center", "clean public restroom odds", "verify open lobby and restroom access"),
+            ("large grocery store", "reliable stop with parking", "confirm no purchase/restroom code"),
+            ("hotel lobby near arterial", "clean fallback if courteous", "ask front desk before relying"),
+            ("coffee chain cluster", "quick stop, code possible", "check purchase/code policy"),
+            ("recreation center or park office", "public-access candidate", "verify seasonal hours"),
+        ],
+        "gas": [
+            ("highway-brand station", "fast pump and lighting", "verify current price and pump status"),
+            ("warehouse club gas", "budget signal", "verify membership and queue"),
+            ("grocery fuel center", "good suburban fallback", "check entry/exit turn friction"),
+            ("truck stop / travel plaza", "bathroom plus food stack", "verify route detour time"),
+            ("24-hour convenience fuel", "night-shift fallback", "verify lighting and safety"),
+        ],
+        "food_water": [
+            ("grocery prepared-food counter", "clean food and bottled water", "verify open hot bar / grab-go"),
+            ("library / recreation center refill", "public water candidate", "verify bottle fill and hours"),
+            ("cafe with sealed drinks", "quick clean hydration", "verify parking friction"),
+            ("pharmacy / market essentials", "water and basic food fallback", "verify open hours"),
+            ("park visitor center", "public fountain possibility", "verify potability and seasonality"),
+        ],
+    }
+    base = catalogs.get(kind, catalogs["food_water"])
+    lat_band = int(abs(lat * 10)) % 7
+    lon_band = int(abs(lon * 10)) % 7
+    rows = []
+    for idx, (place, signal, verify) in enumerate(base, 1):
+        fit = max(52, min(96, 82 - idx * 4 + lat_band + lon_band + (4 if mode == "city" and idx <= 2 else 0)))
+        rows.append({"rank": idx, "place": place, "area_signal": signal, "fit": fit, "verify": verify})
+    return rows
+
+
+def _delivery_subscan_metrics(
+    subscan_type: str,
+    platform: str,
+    shift: str,
+    mode: str,
+    lat: float,
+    lon: float,
+    vehicle_profile: Mapping[str, Any],
+    weather_summary: Mapping[str, Any],
+    surface: Mapping[str, Any],
+    has_map_screenshot: bool,
+) -> dict[str, Any]:
+    weather_score = int(_safe_number(weather_summary.get("overall_score"), 0.0) or 0)
+    coherence = float(_safe_number(surface.get("coherence"), 0.5) or 0.5)
+    shift_load = {"morningshift": 42, "lunchshift": 68, "dayshift": 52, "nightshift": 74}.get(shift, 52)
+    mode_friction = {"city": 70, "mixed": 54, "suburban": 42}.get(mode, 54)
+    vehicle_friction = {"bicycle": 58, "scooter": 54, "motorcycle": 50, "tractor_trailer": 78, "truck": 56}.get(str(vehicle_profile.get("vehicle_type") or "car"), 44)
+    screenshot_bonus = 8 if has_map_screenshot else 0
+    safety_pressure = min(100, int(weather_score * 0.42 + mode_friction * 0.24 + shift_load * 0.18 + vehicle_friction * 0.16))
+    timing_score = max(0, min(100, int(100 - abs(shift_load - 64) - weather_score * 0.18 + screenshot_bonus)))
+    staging_score = max(0, min(100, int(coherence * 38 + (100 - mode_friction) * 0.28 + (100 - weather_score) * 0.20 + screenshot_bonus)))
+    resource_score = max(0, min(100, int(72 - mode_friction * 0.18 - weather_score * 0.10 + (6 if mode != "city" else 0))))
+    mission_score = max(0, min(100, int(staging_score * 0.28 + timing_score * 0.26 + resource_score * 0.20 + (100 - safety_pressure) * 0.26)))
+    return {
+        "mission_score": mission_score,
+        "staging_score": staging_score,
+        "timing_score": timing_score,
+        "route_safety_pressure": safety_pressure,
+        "resource_confidence": resource_score,
+        "map_context": "screenshot cues included" if has_map_screenshot else "manual context only",
+        "recommended_order": [
+            "Check route safety pressure",
+            "Pick staging pocket",
+            "Run resource stop if shift exceeds 90 minutes",
+            "Accept only if payout covers deadhead and access friction",
+        ],
+    }
+
+
+def _delivery_advanced_markdown(
+    subscan_type: str,
+    context: Mapping[str, Any],
+    metrics: Mapping[str, Any],
+) -> str:
+    label = context.get("subscan_label") or DELIVERY_SUBSCAN_TYPES.get(subscan_type, subscan_type)
+    surface = context.get("surface") if isinstance(context.get("surface"), Mapping) else {}
+    resource_rows = context.get("resource_rows") if isinstance(context.get("resource_rows"), list) else []
+    lines = [
+        f"# {label}",
+        "",
+        f"**Mission score:** {metrics.get('mission_score')}/100 · **Map context:** {metrics.get('map_context')}",
+        f"**Surface:** RGB {surface.get('rgb', '--')} · coherence {surface.get('coherence', '--')} · backend {surface.get('backend', '--')}",
+        "",
+        "## Tactical cards",
+        f"- **Positioning:** staging {metrics.get('staging_score')}/100. Use two-exit staging and avoid boxed-in pickup lanes.",
+        f"- **Timing:** shift timing {metrics.get('timing_score')}/100. Compare current app heat with expected meal/parcel wave.",
+        f"- **Safety:** pressure {metrics.get('route_safety_pressure')}/100. Verify traffic/crime/live conditions before committing.",
+        f"- **Resources:** confidence {metrics.get('resource_confidence')}/100. Plan bathroom, fuel, and water before a long stack.",
+        "",
+        "## Driver sequence",
+    ]
+    for idx, item in enumerate(metrics.get("recommended_order", []), 1):
+        lines.append(f"{idx}. {item}")
+    if subscan_type in {"mission_brief", "bathrooms", "gas", "food_water"}:
+        rows = resource_rows or (
+            _delivery_simulated_resource_rows("bathrooms", float(context.get("latitude", 0)), float(context.get("longitude", 0)), str(context.get("market_mode") or "mixed"))[:2]
+            + _delivery_simulated_resource_rows("gas", float(context.get("latitude", 0)), float(context.get("longitude", 0)), str(context.get("market_mode") or "mixed"))[:2]
+            + _delivery_simulated_resource_rows("food_water", float(context.get("latitude", 0)), float(context.get("longitude", 0)), str(context.get("market_mode") or "mixed"))[:2]
+        )
+        lines.extend(["", "## Resource stack", "| Rank | Stop type | Signal | Fit | Verify |", "| ---: | --- | --- | ---: | --- |"])
+        for i, row in enumerate(rows[:8], 1):
+            lines.append(f"| {i} | {row.get('place')} | {row.get('area_signal')} | {row.get('fit')} | {row.get('verify')} |")
+    lines.extend([
+        "",
+        "## Verification",
+        "This is a simulation surface. Confirm live traffic, public safety, hours, prices, restroom access, food/water availability, and potability with official or live tools.",
+    ])
+    return "\n".join(lines)
+
+
+async def _run_openai_delivery_subscan(
+    subscan_type: str,
+    context: Mapping[str, Any],
+    map_screenshot: Mapping[str, Any],
+    language_key: str,
+) -> str:
+    if not os.getenv("OPENAI_API_KEY"):
+        return ""
+    type_label = DELIVERY_SUBSCAN_TYPES.get(subscan_type, subscan_type)
+    prompt = f"""
+You are QRoadScan Delivery Sub Scanner using a retrieval augmented prompt pattern inspired by BakeFind local resource simulation.
+Target module: {type_label}
+Model intent: GPT-5.5 reasoning-light route assistant for delivery drivers.
+
+Rules:
+- No live lookup claims. Do not say you checked current traffic, crime, prices, bathrooms, food inventory, or map busy state.
+- If a delivery-map screenshot is attached, use visible cues cautiously and call them screenshot cues, not live verification.
+- Return concise Markdown only.
+- Include: Signal cards, Ranked moves, Verify before relying.
+- For bathrooms, gas, food, and water, use simulated local-resource heuristics and verification steps.
+- For shift timing, estimate rush windows, deadhead risk, and screenshot busy-zone cues.
+- For safety, include traffic/crime as heuristic risk only and tell driver to verify with official/live tools.
+
+Context JSON:
+{json.dumps(context, ensure_ascii=True, separators=(",", ":"))}
+""".strip()
+    content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt}]
+    if map_screenshot:
+        content.append({"type": "input_image", "image_url": f"data:{map_screenshot.get('mime')};base64,{map_screenshot.get('b64')}"})
+    try:
+        return await run_openai_response_text(
+            [{"role": "user", "content": content}],
+            model=os.getenv("OPENAI_DELIVERY_SUBSCAN_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.5")),
+            max_output_tokens=900,
+            temperature=0.2,
+            reasoning_effort=os.getenv("OPENAI_DELIVERY_SUBSCAN_REASONING", "low"),
+        )
+    except Exception as exc:
+        logger.debug("OpenAI delivery subscan failed: %s", exc)
+        return ""
+
+
+async def build_delivery_subscan(
+    user_id: int,
+    form_data: Mapping[str, Any],
+    map_screenshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    subscan_type = _normalize_delivery_key(form_data.get("subscan_type"), DELIVERY_SUBSCAN_TYPES, "positioning")
+    platform = normalize_delivery_platform(form_data.get("platform"))
+    shift = normalize_delivery_shift(form_data.get("shift_profile"))
+    mode = normalize_delivery_market_mode(form_data.get("market_mode"))
+    lat = parse_safe_float(form_data.get("latitude") or form_data.get("lat") or "")
+    lon = parse_safe_float(form_data.get("longitude") or form_data.get("lon") or "")
+    validate_route_coordinates(lat, lon)
+    vehicle_profile = get_user_vehicle_profile(user_id)
+    weather_summary = await fetch_open_meteo_weather_scan(
+        lat,
+        lon,
+        language_key=get_user_preferred_language(user_id),
+        selected_model="offline",
+        include_narrative=False,
+    )
+    surface = delivery_positioning_surface(lat, lon, platform, shift, mode, vehicle_profile, weather_summary)
+    context = {
+        "subscan_type": subscan_type,
+        "subscan_label": DELIVERY_SUBSCAN_TYPES.get(subscan_type),
+        "platform": platform,
+        "shift": shift,
+        "market_mode": mode,
+        "latitude": round(lat, 6),
+        "longitude": round(lon, 6),
+        "vehicle_profile": vehicle_profile,
+        "weather": {
+            "overall_risk": weather_summary.get("overall_risk", "Unavailable"),
+            "overall_score": weather_summary.get("overall_score", 0),
+        },
+        "driver_notes": sanitize_input(form_data.get("driver_notes") or "")[:800],
+        "surface": surface,
+        "resource_rows": _delivery_simulated_resource_rows(subscan_type, lat, lon, mode) if subscan_type in {"bathrooms", "gas", "food_water"} else [],
+    }
+    if subscan_type == "mission_brief":
+        context["resource_rows"] = (
+            _delivery_simulated_resource_rows("bathrooms", lat, lon, mode)[:2]
+            + _delivery_simulated_resource_rows("gas", lat, lon, mode)[:2]
+            + _delivery_simulated_resource_rows("food_water", lat, lon, mode)[:2]
+        )
+    metrics = _delivery_subscan_metrics(
+        subscan_type,
+        platform,
+        shift,
+        mode,
+        lat,
+        lon,
+        vehicle_profile,
+        weather_summary,
+        surface,
+        bool(map_screenshot),
+    )
+    context["metrics"] = metrics
+    ai_markdown = await _run_openai_delivery_subscan(
+        subscan_type,
+        context,
+        map_screenshot,
+        get_user_preferred_language(user_id),
+    )
+    if not ai_markdown:
+        rows = context["resource_rows"]
+        if subscan_type == "mission_brief":
+            ai_markdown = _delivery_advanced_markdown(subscan_type, context, metrics)
+        elif subscan_type == "shift_timing":
+            ai_markdown = (
+                "# Shift timing simulation\n\n"
+                f"**Window:** {DELIVERY_SHIFT_PROFILES.get(shift, shift)} · **Mode:** {DELIVERY_MARKET_MODES.get(mode, mode)} · **Timing score:** {metrics.get('timing_score')}/100\n\n"
+                "## Signal cards\n"
+                "- **Best move:** Stage 10-20 minutes before the next meal, commute, or parcel wave.\n"
+                "- **Deadhead control:** Reject low-dollar long returns when weather drag is elevated.\n"
+                "- **Screenshot cue:** Treat busy-map color as advisory until verified inside the delivery app.\n\n"
+                "## Verify before relying\nUse the delivery app heat map, current order flow, and local traffic tools before committing."
+            )
+        elif subscan_type == "route_safety":
+            ai_markdown = (
+                "# Route safety calculation\n\n"
+                f"**Heuristic risk:** {weather_summary.get('overall_risk', 'Unknown')} weather · **Safety pressure:** {metrics.get('route_safety_pressure')}/100 · mode {mode}\n\n"
+                "## Ranked moves\n"
+                "1. Prefer lit arterial roads and simple turns during night or severe weather.\n"
+                "2. Avoid complex apartment drops when payout does not cover access friction.\n"
+                "3. Verify traffic and public safety conditions with live/official tools before departure.\n"
+            )
+        elif rows:
+            lines = [f"# Local scan - {DELIVERY_SUBSCAN_TYPES[subscan_type]}", "", "**Mode:** Simulation only · no live lookup", "", "## Ranked candidates", "| Rank | Place / resource type | Area signal | Fit | Best verification move |", "| ---: | --- | --- | ---: | --- |"]
+            for row in rows:
+                lines.append(f"| {row['rank']} | {row['place']} | {row['area_signal']} | {row['fit']} | {row['verify']} |")
+            lines.extend(["", "## Verify before going", "Check live maps, official hours, restroom access, fuel price, potability, and parking before relying on any stop."])
+            ai_markdown = "\n".join(lines)
+        else:
+            ai_markdown = "# Location positioning surface\n\n" + surface.get("summary", "Positioning surface ready.")
+    clean_md = sanitize_input(ai_markdown)[:9000]
+    return {
+        "type": subscan_type,
+        "label": DELIVERY_SUBSCAN_TYPES.get(subscan_type, subscan_type),
+        "surface": surface,
+        "metrics": metrics,
+        "markdown": clean_md,
+        "map_screenshot_used": bool(map_screenshot),
+        "model": "gpt-5.5" if os.getenv("OPENAI_API_KEY") else "deterministic-simulation",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
 
 
 def _encrypt_delivery_field(user_id: int, field: str, value: Any) -> str:
@@ -11917,13 +12299,19 @@ def view_report(report_id):
     )
     report_html_escaped = report_html.replace('\\', '\\\\')
     csrf_token = generate_csrf()
-    report_language = normalize_language_key(report.get('language', 'en'))
-    ui_messages = get_ui_messages(report_language)
-    speech_locale = language_locale(report_language)
+    stored_report_language = normalize_language_key(report.get('language', 'en'))
+    display_language = normalize_language_key(
+        request.args.get("language")
+        or session.get("preferred_language")
+        or get_user_preferred_language(user_id)
+        or stored_report_language
+    )
+    ui_messages = get_ui_messages(display_language)
+    speech_locale = language_locale(display_language)
 
     return render_template_string(r"""
 <!DOCTYPE html>
-<html lang="{{ language_html_lang(report_language) }}" dir="{{ language_text_direction(report_language) }}">
+<html lang="{{ language_html_lang(display_language) }}" dir="{{ language_text_direction(display_language) }}">
 <head>
     <meta charset="UTF-8">
     <title>{{ ui_messages.report_details if ui_messages.report_details is defined else "Report Details" }}</title>
@@ -12047,7 +12435,8 @@ def view_report(report_id):
             <p><span class="report-text-bold">{{ ui_messages.vehicle_type }}:</span> {{ report['vehicle_type'] }}</p>
             <p><span class="report-text-bold">{{ ui_messages.destination }}:</span> {{ report['destination'] }}</p>
             <p><span class="report-text-bold">{{ ui_messages.model_used }}:</span> {{ report['model_used'] }}</p>
-            <p><span class="report-text-bold">{{ ui_messages.language }}:</span> {{ language_label(report.get('language', 'en')) }}</p>
+            <p><span class="report-text-bold">{{ ui_messages.language }}:</span> {{ language_label(display_language) }}</p>
+            <p><span class="report-text-bold">Report language:</span> {{ language_label(stored_report_language) }}</p>
             {% set audit = report.get('language_audit') or {} %}
             {% if audit %}
             <p><span class="report-text-bold">Language QA:</span>
@@ -12064,7 +12453,7 @@ def view_report(report_id):
 </div>
 <script>
     const synth = ('speechSynthesis' in window) ? window.speechSynthesis : null;
-    const REPORT_LANGUAGE = {{ report_language | tojson }};
+    const REPORT_LANGUAGE = {{ display_language | tojson }};
     const SPEECH_LOCALE = {{ speech_locale | tojson }};
     const UI_MESSAGES = {{ ui_messages | tojson }};
     let utterances = [];
@@ -12296,7 +12685,7 @@ def view_report(report_id):
             {{ ui_messages.vehicle_type }}: {{ report['vehicle_type'] }}.
             {{ ui_messages.destination }}: {{ report['destination'] }}.
             {{ ui_messages.model_used }}: {{ report['model_used'] }}.
-            {{ ui_messages.language }}: {{ language_label(report.get('language', 'en')) }}.
+            {{ ui_messages.language }}: {{ language_label(display_language) }}.
         `;
         const combinedText = preprocessText(reportContent + ' ' + routeDetails);
         const sentences = splitIntoSentences(combinedText).filter(s => s.length > 1);
@@ -12391,7 +12780,9 @@ def view_report(report_id):
                                   language_label=language_label,
                                   language_html_lang=language_html_lang,
                                   language_text_direction=language_text_direction,
-                                  report_language=report_language,
+                                  report_language=display_language,
+                                  display_language=display_language,
+                                  stored_report_language=stored_report_language,
                                   speech_locale=speech_locale,
                                   ui_messages=ui_messages,
                                   wheel_color=wheel_color)
@@ -12407,6 +12798,7 @@ def dashboard():
     csrf_token = generate_csrf()
     preferred_model = get_user_preferred_model(user_id) or "openai"
     preferred_language = get_user_preferred_language(user_id)
+    dashboard_text = get_dashboard_ui_text(preferred_language)
     vehicle_profile = get_user_vehicle_profile(user_id)
 
     return render_template_string("""
@@ -12896,6 +13288,100 @@ def dashboard():
             gap:16px;
         }
         .delivery-wide{ grid-column:span 2; }
+        .delivery-lab{
+            display:grid;
+            grid-template-columns:minmax(0, 1.05fr) minmax(320px, .95fr);
+            gap:18px;
+            align-items:start;
+        }
+        .delivery-panel{
+            border:1px solid var(--line);
+            border-radius:18px;
+            background:rgba(5,10,17,.34);
+            padding:18px;
+        }
+        .delivery-panel h3{
+            margin:0 0 6px;
+            font-size:1.05rem;
+        }
+        .upload-drop{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            min-height:68px;
+            padding:14px;
+            border:1px dashed rgba(115,240,207,.44);
+            border-radius:16px;
+            background:linear-gradient(180deg, rgba(115,240,207,.10), rgba(73,194,255,.05));
+            cursor:pointer;
+        }
+        .upload-drop strong{ display:block; color:var(--ink); }
+        .upload-drop span{ display:block; color:var(--muted); font-size:.86rem; margin-top:3px; }
+        .upload-drop input{ position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; }
+        .upload-icon{
+            width:44px;
+            height:44px;
+            border-radius:14px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:#07121f;
+            background:linear-gradient(180deg, #ffffff, var(--accent-2));
+            flex:0 0 auto;
+        }
+        .subscan-grid{
+            display:grid;
+            grid-template-columns:repeat(2, minmax(0, 1fr));
+            gap:10px;
+            margin:12px 0;
+        }
+        .subscan-card{
+            min-height:86px;
+            text-align:left;
+            color:var(--ink);
+            border:1px solid var(--line);
+            border-radius:14px;
+            background:rgba(255,255,255,.055);
+            padding:12px;
+            cursor:pointer;
+        }
+        .subscan-card.active{
+            color:#07121f;
+            background:linear-gradient(180deg, #ffffff, var(--accent));
+            border-color:rgba(255,255,255,.38);
+        }
+        .subscan-card strong{ display:block; }
+        .subscan-card span{ display:block; margin-top:4px; font-size:.82rem; color:inherit; opacity:.78; }
+        .delivery-subscan-output{
+            min-height:220px;
+            border:1px solid var(--line);
+            border-radius:16px;
+            background:rgba(5,10,17,.42);
+            padding:16px;
+            color:var(--ink);
+            white-space:pre-wrap;
+        }
+        .surface-strip{
+            display:grid;
+            grid-template-columns:repeat(4, minmax(0, 1fr));
+            gap:8px;
+            margin:12px 0;
+        }
+        .mission-strip{
+            display:grid;
+            grid-template-columns:repeat(5, minmax(0, 1fr));
+            gap:8px;
+            margin:12px 0;
+        }
+        .surface-chip{
+            border:1px solid var(--line);
+            border-radius:12px;
+            padding:10px;
+            background:rgba(255,255,255,.055);
+        }
+        .surface-chip span{ display:block; color:var(--muted); font-size:.72rem; text-transform:uppercase; font-weight:900; }
+        .surface-chip strong{ display:block; color:var(--ink); margin-top:3px; }
         .delivery-result{
             margin-top:18px;
             border:1px solid var(--line);
@@ -13018,8 +13504,12 @@ def dashboard():
             .hero-meta{ justify-content:flex-start; }
             .stepper{ grid-template-columns:1fr; }
             .field-grid{ grid-template-columns:1fr; }
+            .delivery-lab{ grid-template-columns:1fr; }
             .delivery-grid{ grid-template-columns:1fr; }
             .delivery-wide{ grid-column:auto; }
+            .subscan-grid{ grid-template-columns:1fr; }
+            .mission-strip,
+            .surface-strip{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
             .delivery-kpis{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
             .weather-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
         }
@@ -13058,14 +13548,14 @@ def dashboard():
     <div class="sidebar" aria-label="Dashboard navigation">
         <div class="navbar-brand">QRS</div>
         <a href="#" class="nav-link active" onclick="showSection('step1'); return false;">
-            <i class="fas fa-home" aria-hidden="true"></i> <span>Dashboard</span>
+            <i class="fas fa-home" aria-hidden="true"></i> <span>{{ dashboard_text.dashboard }}</span>
         </a>
         <a href="{{ url_for('user_settings') }}">
-            <i class="fas fa-user-cog" aria-hidden="true"></i> <span>User Settings</span>
+            <i class="fas fa-user-cog" aria-hidden="true"></i> <span>{{ dashboard_text.user_settings }}</span>
         </a>
         {% if session.is_admin %}
         <a href="{{ url_for('settings') }}">
-            <i class="fas fa-cogs" aria-hidden="true"></i> <span>Admin Settings</span>
+            <i class="fas fa-cogs" aria-hidden="true"></i> <span>{{ dashboard_text.admin_settings }}</span>
         </a>
         <a href="{{ url_for('admin_blog_backup_page') }}">
             <i class="fas fa-database" aria-hidden="true"></i> <span>Blog Backup</span>
@@ -13075,7 +13565,7 @@ def dashboard():
         </a>
         {% endif %}
         <a href="{{ url_for('logout') }}">
-            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span>
+            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>{{ dashboard_text.logout }}</span>
         </a>
     </div>
 
@@ -13100,10 +13590,10 @@ def dashboard():
 
             <div class="dashboard-tabs" role="tablist" aria-label="Scanner workflows">
                 <button type="button" class="dashboard-tab active" id="roadWorkflowTab" onclick="showDashboardPanel('road')" role="tab" aria-selected="true">
-                    <i class="fas fa-road" aria-hidden="true"></i> Road Scanner
+                    <i class="fas fa-road" aria-hidden="true"></i> {{ dashboard_text.road_scanner }}
                 </button>
                 <button type="button" class="dashboard-tab" id="deliveryWorkflowTab" onclick="showDashboardPanel('delivery')" role="tab" aria-selected="false">
-                    <i class="fas fa-route" aria-hidden="true"></i> Delivery Scanner
+                    <i class="fas fa-route" aria-hidden="true"></i> {{ dashboard_text.delivery_scanner }}
                 </button>
             </div>
             <script>
@@ -13264,7 +13754,7 @@ def dashboard():
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="language_selection">Report Language</label>
+                                <label for="language_selection">{{ dashboard_text.report_language }}</label>
                                 <select class="form-control" id="language_selection" name="language_selection">
                                     {% for key, spec in supported_languages.items() %}
                                     <option value="{{ key }}" {% if preferred_language == key %}selected{% endif %}>{{ spec.name }} / {{ spec.native }}</option>
@@ -13276,7 +13766,7 @@ def dashboard():
                                     <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
                                 </button>
                                 <button type="button" class="btn btn-primary" id="startScanButton" onclick="startScan()">
-                                    <i class="fas fa-play" aria-hidden="true"></i> Start Scan
+                                    <i class="fas fa-play" aria-hidden="true"></i> {{ dashboard_text.start_scan }}
                                 </button>
                             </div>
                         </form>
@@ -13288,18 +13778,18 @@ def dashboard():
             <section id="reportsSection" class="reports-card" aria-labelledby="reportsTitle">
                 <div class="reports-head">
                     <div>
-                        <h2 id="reportsTitle">Reports</h2>
-                        <p>Review previous scans and compare route decisions over time.</p>
+                        <h2 id="reportsTitle">{{ dashboard_text.reports }}</h2>
+                        <p>{{ dashboard_text.reports_body }}</p>
                     </div>
-                    <span class="metric-pill"><strong>{{ reports|length }}</strong> total</span>
+                    <span class="metric-pill"><strong>{{ reports|length }}</strong> {{ dashboard_text.total }}</span>
                 </div>
                 {% if reports %}
                 <div class="table-wrap">
                     <table class="table table-dark table-hover">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th class="text-right">Actions</th>
+                                <th>{{ dashboard_text.date }}</th>
+                                <th class="text-right">{{ dashboard_text.actions }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -13308,7 +13798,7 @@ def dashboard():
                                 <td>{{ report['timestamp'] }}</td>
                                 <td class="text-right">
                                     <button class="btn btn-info btn-sm" onclick="viewReport({{ report['id'] }})">
-                                        <i class="fas fa-eye" aria-hidden="true"></i> View
+                                        <i class="fas fa-eye" aria-hidden="true"></i> {{ dashboard_text.view }}
                                     </button>
                                 </td>
                             </tr>
@@ -13318,7 +13808,7 @@ def dashboard():
                 </div>
                 {% else %}
                 <div class="empty-state">
-                    No reports yet. Run your first scan and the result will appear here.
+                    {{ dashboard_text.no_reports }}
                 </div>
                 {% endif %}
             </section>
@@ -13327,92 +13817,132 @@ def dashboard():
             <section id="deliveryDashboardPanel" class="workflow-card dashboard-panel" role="tabpanel" aria-labelledby="deliveryWorkflowTab">
                 <div class="section-head">
                     <div>
-                        <h2>Delivery Workflow Scanner</h2>
-                        <p>Fast offer scoring for gig delivery, package routes, and trucking with encrypted screenshot storage.</p>
+                        <h2>Delivery Route Scanner</h2>
+                        <p>Offer scoring plus sub scanners for positioning, shift timing, safety, bathrooms, gas, and clean food or water stops.</p>
                     </div>
-                    <div class="step-count">Fast mode</div>
+                    <div class="step-count">Route lab</div>
                 </div>
                 <form id="deliveryScanForm" enctype="multipart/form-data">
-                    <div class="delivery-grid">
-                        <div class="form-group">
-                            <label for="deliveryPlatform">Platform</label>
-                            <select class="form-control" id="deliveryPlatform" name="platform">
-                                {% for key, label in delivery_platforms.items() %}
-                                <option value="{{ key }}">{{ label }}</option>
-                                {% endfor %}
-                            </select>
+                    <div class="delivery-lab">
+                        <div class="delivery-panel">
+                            <h3>Offer inputs</h3>
+                            <p class="status-copy">Use manual numbers, an offer screenshot, or both. Screenshots are encrypted when a scan is saved.</p>
+                            <div class="delivery-grid">
+                                <div class="form-group">
+                                    <label for="deliveryPlatform">Platform</label>
+                                    <select class="form-control" id="deliveryPlatform" name="platform">
+                                        {% for key, label in delivery_platforms.items() %}
+                                        <option value="{{ key }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryShift">Profile</label>
+                                    <select class="form-control" id="deliveryShift" name="shift_profile">
+                                        {% for key, label in delivery_shift_profiles.items() %}
+                                        <option value="{{ key }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryMode">Market mode</label>
+                                    <select class="form-control" id="deliveryMode" name="market_mode">
+                                        {% for key, label in delivery_market_modes.items() %}
+                                        <option value="{{ key }}" {% if key == 'mixed' %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryLatitude">Latitude</label>
+                                    <input type="text" class="form-control" id="deliveryLatitude" name="latitude" inputmode="decimal" placeholder="40.7128" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryLongitude">Longitude</label>
+                                    <input type="text" class="form-control" id="deliveryLongitude" name="longitude" inputmode="decimal" placeholder="-74.0060" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryVehicleType">Vehicle</label>
+                                    <select class="form-control" id="deliveryVehicleType" name="vehicle_type">
+                                        {% for key, label in delivery_vehicle_types.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.vehicle_type == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryPowertrain">Powertrain</label>
+                                    <select class="form-control" id="deliveryPowertrain" name="powertrain">
+                                        {% for key, label in delivery_powertrains.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.powertrain == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryPowerClass">HP / cc / electric class</label>
+                                    <select class="form-control" id="deliveryPowerClass" name="power_class">
+                                        {% for key, label in delivery_power_classes.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.power_class == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryPayout">Payout</label>
+                                    <input type="number" step="0.01" min="0" class="form-control" id="deliveryPayout" name="payout" placeholder="12.50">
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryMiles">Miles</label>
+                                    <input type="number" step="0.1" min="0" class="form-control" id="deliveryMiles" name="miles" placeholder="4.8">
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryMinutes">Minutes</label>
+                                    <input type="number" step="1" min="0" class="form-control" id="deliveryMinutes" name="estimated_minutes" placeholder="22">
+                                </div>
+                                <div class="form-group">
+                                    <label for="deliveryPickupHint">Pickup names</label>
+                                    <input type="text" class="form-control" id="deliveryPickupHint" name="pickup_hint" placeholder="Restaurant, store, dock">
+                                </div>
+                                <div class="form-group delivery-wide">
+                                    <label for="deliveryDestinationHint">Dropoff hint</label>
+                                    <input type="text" class="form-control" id="deliveryDestinationHint" name="destination_hint" placeholder="Apartment, house, business, zone">
+                                </div>
+                            </div>
+                            <label class="upload-drop" for="deliveryScreenshot">
+                                <span>
+                                    <strong id="deliveryScreenshotLabel">Add offer screenshot</strong>
+                                    <span>PNG, JPEG, or WebP for payout, miles, pickup, and drop clues.</span>
+                                </span>
+                                <span class="upload-icon"><i class="fas fa-camera" aria-hidden="true"></i></span>
+                                <input type="file" id="deliveryScreenshot" name="offer_screenshot" accept="image/png,image/jpeg,image/webp">
+                            </label>
                         </div>
-                        <div class="form-group">
-                            <label for="deliveryShift">Profile</label>
-                            <select class="form-control" id="deliveryShift" name="shift_profile">
-                                {% for key, label in delivery_shift_profiles.items() %}
-                                <option value="{{ key }}">{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryMode">Market mode</label>
-                            <select class="form-control" id="deliveryMode" name="market_mode">
-                                {% for key, label in delivery_market_modes.items() %}
-                                <option value="{{ key }}" {% if key == 'mixed' %}selected{% endif %}>{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryLatitude">Latitude</label>
-                            <input type="text" class="form-control" id="deliveryLatitude" name="latitude" inputmode="decimal" placeholder="40.7128" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryLongitude">Longitude</label>
-                            <input type="text" class="form-control" id="deliveryLongitude" name="longitude" inputmode="decimal" placeholder="-74.0060" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryVehicleType">Vehicle</label>
-                            <select class="form-control" id="deliveryVehicleType" name="vehicle_type">
-                                {% for key, label in delivery_vehicle_types.items() %}
-                                <option value="{{ key }}" {% if vehicle_profile.vehicle_type == key %}selected{% endif %}>{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryPowertrain">Powertrain</label>
-                            <select class="form-control" id="deliveryPowertrain" name="powertrain">
-                                {% for key, label in delivery_powertrains.items() %}
-                                <option value="{{ key }}" {% if vehicle_profile.powertrain == key %}selected{% endif %}>{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryPowerClass">HP / cc / electric class</label>
-                            <select class="form-control" id="deliveryPowerClass" name="power_class">
-                                {% for key, label in delivery_power_classes.items() %}
-                                <option value="{{ key }}" {% if vehicle_profile.power_class == key %}selected{% endif %}>{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryPayout">Payout</label>
-                            <input type="number" step="0.01" min="0" class="form-control" id="deliveryPayout" name="payout" placeholder="12.50">
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryMiles">Miles</label>
-                            <input type="number" step="0.1" min="0" class="form-control" id="deliveryMiles" name="miles" placeholder="4.8">
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryMinutes">Minutes</label>
-                            <input type="number" step="1" min="0" class="form-control" id="deliveryMinutes" name="estimated_minutes" placeholder="22">
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryPickupHint">Pickup names</label>
-                            <input type="text" class="form-control" id="deliveryPickupHint" name="pickup_hint" placeholder="Restaurant, store, dock">
-                        </div>
-                        <div class="form-group delivery-wide">
-                            <label for="deliveryDestinationHint">Dropoff hint</label>
-                            <input type="text" class="form-control" id="deliveryDestinationHint" name="destination_hint" placeholder="Apartment, house, business, zone">
-                        </div>
-                        <div class="form-group">
-                            <label for="deliveryScreenshot">Offer screenshot</label>
-                            <input type="file" class="form-control" id="deliveryScreenshot" name="offer_screenshot" accept="image/png,image/jpeg,image/webp">
+                        <div class="delivery-panel">
+                            <h3>Sub scanners</h3>
+                            <p class="status-copy">Run focused surfaces for staging, shift timing, route safety, and driver resources. Map screenshots help but are treated as unverified screenshot cues.</p>
+                            <input type="hidden" id="deliverySubscanType" name="subscan_type" value="positioning">
+                            <div class="subscan-grid" role="group" aria-label="Delivery sub scanners">
+                                <button type="button" class="subscan-card" data-subscan="mission_brief"><strong>Mission Brief</strong><span>All surfaces fused</span></button>
+                                <button type="button" class="subscan-card active" data-subscan="positioning"><strong>Positioning</strong><span>Pennylane RGB surface</span></button>
+                                <button type="button" class="subscan-card" data-subscan="shift_timing"><strong>Shift Timing</strong><span>GPT-5.5 busy-map simulation</span></button>
+                                <button type="button" class="subscan-card" data-subscan="route_safety"><strong>Safety</strong><span>Traffic/crime heuristic</span></button>
+                                <button type="button" class="subscan-card" data-subscan="bathrooms"><strong>Bathrooms</strong><span>Clean stop finder</span></button>
+                                <button type="button" class="subscan-card" data-subscan="gas"><strong>Gas</strong><span>Fuel stop finder</span></button>
+                                <button type="button" class="subscan-card" data-subscan="food_water"><strong>Food / Water</strong><span>BakeFind-style resource scan</span></button>
+                            </div>
+                            <label class="upload-drop" for="deliveryMapScreenshot">
+                                <span>
+                                    <strong id="deliveryMapScreenshotLabel">Add delivery map screenshot</strong>
+                                    <span>Heat map, busy zones, route preview, or current market screen.</span>
+                                </span>
+                                <span class="upload-icon"><i class="fas fa-map-marked-alt" aria-hidden="true"></i></span>
+                                <input type="file" id="deliveryMapScreenshot" name="delivery_map_screenshot" accept="image/png,image/jpeg,image/webp">
+                            </label>
+                            <div class="form-group mt-3">
+                                <label for="deliveryDriverNotes">Driver notes</label>
+                                <textarea class="form-control" id="deliveryDriverNotes" name="driver_notes" rows="3" placeholder="Busy area, no-parking zone, safety concern, bathroom/gas/food constraints..."></textarea>
+                            </div>
+                            <button type="button" class="btn btn-outline-light" id="deliverySubscanButton" onclick="runDeliverySubscan()">
+                                <i class="fas fa-layer-group" aria-hidden="true"></i> Run Sub Scanner
+                            </button>
+                            <div class="surface-strip" id="deliverySurfaceStrip" aria-live="polite"></div>
                         </div>
                     </div>
                     <div class="action-row">
@@ -13425,6 +13955,9 @@ def dashboard():
                     </div>
                 </form>
                 <div id="deliveryStatus" class="status-message" aria-live="polite"></div>
+                <div id="deliverySubscanResult" class="delivery-subscan-output" aria-live="polite">
+                    Choose a sub scanner to surface route positioning, timing, safety, or clean driver-resource stops.
+                </div>
                 <div id="deliveryResult" class="delivery-result" aria-live="polite">
                     Delivery analysis will appear here.
                 </div>
@@ -13461,6 +13994,7 @@ def dashboard():
 
     <script>
         var csrf_token = {{ csrf_token | tojson }};
+        const DASHBOARD_TEXT = {{ dashboard_text | tojson }};
 
         $.ajaxSetup({
             beforeSend: function(xhr, settings) {
@@ -13752,6 +14286,98 @@ def dashboard():
             target.appendChild(storage);
         }
 
+        function selectedDeliverySubscan() {
+            return document.getElementById('deliverySubscanType').value || 'positioning';
+        }
+
+        function renderSurface(surface) {
+            const target = document.getElementById('deliverySurfaceStrip');
+            target.textContent = '';
+            if (!surface) return;
+            [
+                ['Backend', surface.backend || '--'],
+                ['Entropy', surface.entropy !== undefined ? surface.entropy : '--'],
+                ['Coherence', surface.coherence !== undefined ? surface.coherence : '--'],
+                ['Peak', surface.peak_state || '--']
+            ].forEach(function(pair) {
+                const chip = document.createElement('div');
+                chip.className = 'surface-chip';
+                const label = document.createElement('span');
+                label.textContent = pair[0];
+                const value = document.createElement('strong');
+                value.textContent = safeText(pair[1]);
+                chip.appendChild(label);
+                chip.appendChild(value);
+                target.appendChild(chip);
+            });
+        }
+
+        function renderMissionMetrics(metrics) {
+            const target = document.getElementById('deliverySurfaceStrip');
+            if (!metrics) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'mission-strip';
+            [
+                ['Mission', metrics.mission_score],
+                ['Staging', metrics.staging_score],
+                ['Timing', metrics.timing_score],
+                ['Safety pressure', metrics.route_safety_pressure],
+                ['Resources', metrics.resource_confidence]
+            ].forEach(function(pair) {
+                const chip = document.createElement('div');
+                chip.className = 'surface-chip';
+                const label = document.createElement('span');
+                label.textContent = pair[0];
+                const value = document.createElement('strong');
+                value.textContent = pair[1] === undefined || pair[1] === null ? '--' : `${pair[1]}/100`;
+                chip.appendChild(label);
+                chip.appendChild(value);
+                wrap.appendChild(chip);
+            });
+            target.appendChild(wrap);
+        }
+
+        function renderDeliverySubscan(subscan) {
+            const target = document.getElementById('deliverySubscanResult');
+            if (!subscan) {
+                target.textContent = 'No sub scanner result returned.';
+                return;
+            }
+            renderSurface(subscan.surface);
+            renderMissionMetrics(subscan.metrics);
+            const header = `${safeText(subscan.label || 'Sub scanner')} · ${safeText(subscan.model || 'simulation')} · ${safeText(subscan.latency_ms || '')}ms`;
+            target.textContent = `${header}\n\n${safeText(subscan.markdown || '')}`;
+        }
+
+        async function runDeliverySubscan() {
+            const lat = $('#deliveryLatitude').val();
+            const lon = $('#deliveryLongitude').val();
+            if (!lat || !lon) {
+                setStatus('#deliveryStatus', 'Enter delivery latitude and longitude before running a sub scanner.');
+                return;
+            }
+            const form = document.getElementById('deliveryScanForm');
+            const formData = new FormData(form);
+            formData.set('subscan_type', selectedDeliverySubscan());
+            $('#deliverySubscanButton').prop('disabled', true);
+            setStatus('#deliveryStatus', 'Running delivery sub scanner...');
+            try {
+                const response = await fetch('/api/delivery/subscan', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrf_token },
+                    body: formData
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Delivery sub scanner failed');
+                renderDeliverySubscan(data.subscan);
+                setStatus('#deliveryStatus', 'Sub scanner complete.');
+            } catch (error) {
+                setStatus('#deliveryStatus', error.message || 'Delivery sub scanner failed.');
+            } finally {
+                $('#deliverySubscanButton').prop('disabled', false);
+            }
+        }
+
         async function runDeliveryScan() {
             const lat = $('#deliveryLatitude').val();
             const lon = $('#deliveryLongitude').val();
@@ -13864,8 +14490,9 @@ def dashboard():
         }
 
         function viewReport(reportId) {
+            const language = $('#language_selection').val() || {{ preferred_language | tojson }};
             $.ajax({
-                url: '/view_report/' + reportId,
+                url: '/view_report/' + reportId + '?language=' + encodeURIComponent(language),
                 method: 'GET',
                 success: function(data) {
                     $('#reportContent').html(data); 
@@ -13884,7 +14511,7 @@ def dashboard():
                     <td>${timestamp}</td>
                     <td class="text-right">
                         <button class="btn btn-info btn-sm" onclick="viewReport(${reportId})">
-                            <i class="fas fa-eye"></i> View
+                            <i class="fas fa-eye"></i> ${DASHBOARD_TEXT.view || 'View'}
                         </button>
                     </td>
                 </tr>
@@ -13907,6 +14534,7 @@ def dashboard():
                     setStatus('#statusMessage3', data.message || '');
                     if (data.html_lang) document.documentElement.lang = data.html_lang;
                     if (data.dir) document.documentElement.dir = data.dir;
+                    window.location.href = "{{ url_for('dashboard') }}";
                 }
             } catch (error) {
                 console.warn('Language preference was not saved:', error);
@@ -13915,6 +14543,19 @@ def dashboard():
 
         $(document).ready(function() {
             showSection('step1');
+            $('.subscan-card').on('click', function() {
+                $('.subscan-card').removeClass('active');
+                $(this).addClass('active');
+                $('#deliverySubscanType').val($(this).data('subscan') || 'positioning');
+            });
+            $('#deliveryScreenshot').on('change', function() {
+                const file = this.files && this.files[0];
+                $('#deliveryScreenshotLabel').text(file ? file.name : 'Add offer screenshot');
+            });
+            $('#deliveryMapScreenshot').on('change', function() {
+                const file = this.files && this.files[0];
+                $('#deliveryMapScreenshotLabel').text(file ? file.name : 'Add delivery map screenshot');
+            });
             $('#language_selection').on('change', function() {
                 saveLanguagePreference($(this).val());
             });
@@ -13926,6 +14567,7 @@ def dashboard():
                                   reports=reports,
                                   csrf_token=csrf_token,
                                   username=username,
+                                  dashboard_text=dashboard_text,
                                   preferred_model=preferred_model,
                                   preferred_language=preferred_language,
                                   vehicle_profile=vehicle_profile,
@@ -14108,6 +14750,35 @@ async def api_delivery_scan():
     except Exception as exc:
         logger.error("Delivery scan failed: %s", exc, exc_info=True)
         return jsonify({"error": "Delivery scan failed. Please check inputs and try again."}), 500
+
+
+@app.route('/api/delivery/subscan', methods=['POST'])
+async def api_delivery_subscan():
+    if 'username' not in session:
+        return jsonify({"error": "Login required"}), 401
+
+    user_id = get_user_id(session['username'])
+    if user_id is None:
+        return jsonify({"error": "User not found"}), 404
+
+    if not session.get('is_admin', False):
+        if not check_rate_limit(user_id):
+            return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
+
+    try:
+        map_screenshot = _read_delivery_image_upload("delivery_map_screenshot")
+        data = request.form.to_dict(flat=True)
+        if not data and request.is_json:
+            data = request.get_json(silent=True) or {}
+        started = time.perf_counter()
+        subscan = await build_delivery_subscan(user_id, data, map_screenshot)
+        subscan["latency_ms"] = int((time.perf_counter() - started) * 1000)
+        return jsonify({"ok": True, "subscan": subscan})
+    except ValueError as exc:
+        return jsonify({"error": sanitize_input(str(exc))}), 400
+    except Exception as exc:
+        logger.error("Delivery subscan failed: %s", exc, exc_info=True)
+        return jsonify({"error": "Delivery subscan failed. Please check inputs and try again."}), 500
 
 
 @app.route('/start_scan', methods=['POST'])
