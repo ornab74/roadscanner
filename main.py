@@ -12965,6 +12965,25 @@ def dashboard():
                     <i class="fas fa-route" aria-hidden="true"></i> Delivery Scanner
                 </button>
             </div>
+            <script>
+                window.showDashboardPanel = function(panel) {
+                    var target = panel === 'delivery' ? 'delivery' : 'road';
+                    var roadPanel = document.getElementById('roadDashboardPanel');
+                    var deliveryPanel = document.getElementById('deliveryDashboardPanel');
+                    var roadTab = document.getElementById('roadWorkflowTab');
+                    var deliveryTab = document.getElementById('deliveryWorkflowTab');
+                    if (roadPanel) roadPanel.classList.toggle('active', target === 'road');
+                    if (deliveryPanel) deliveryPanel.classList.toggle('active', target === 'delivery');
+                    if (roadTab) {
+                        roadTab.classList.toggle('active', target === 'road');
+                        roadTab.setAttribute('aria-selected', target === 'road' ? 'true' : 'false');
+                    }
+                    if (deliveryTab) {
+                        deliveryTab.classList.toggle('active', target === 'delivery');
+                        deliveryTab.setAttribute('aria-selected', target === 'delivery' ? 'true' : 'false');
+                    }
+                };
+            </script>
 
             <div id="roadDashboardPanel" class="dashboard-panel active" role="tabpanel" aria-labelledby="roadWorkflowTab">
             <section class="workflow-card" aria-label="Road scan workflow">
