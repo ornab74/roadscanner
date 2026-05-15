@@ -769,6 +769,7 @@ EXPIRATION_HOURS = 65
 app.config.update(SESSION_COOKIE_SECURE=True,
                   SESSION_COOKIE_HTTPONLY=True,
                   SESSION_COOKIE_SAMESITE='Strict',
+                  MAX_CONTENT_LENGTH=5 * 1024 * 1024,
                   WTF_CSRF_TIME_LIMIT=3600,
                   WTF_CSRF_SECRET_KEY=get_csrf_signing_key(app),
                   SECRET_KEY=SECRET_KEY)
@@ -1771,6 +1772,8 @@ def robots_txt():
         "Allow: /feed.xml",
         "Allow: /blog/feed.xml",
         "Allow: /llms.txt",
+        "Allow: /.well-known/security.txt",
+        "Allow: /security.txt",
         "Allow: /seo-preview.png",
         "Allow: /seo-preview.svg",
         "Allow: /site.webmanifest",
@@ -1783,6 +1786,29 @@ def robots_txt():
         "Disallow: /register",
         f"Sitemap: {_canonical_url('/sitemap.xml')}",
         f"AI-Content: {_canonical_url('/llms.txt')}",
+        "",
+    ])
+    resp = Response(body, mimetype="text/plain; charset=utf-8")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
+    return resp
+
+
+@app.get("/.well-known/security.txt")
+@app.get("/security.txt")
+def security_txt():
+    expires = (datetime.now(timezone.utc) + timedelta(days=180)).date()
+    expires_text = f"{expires.isoformat()}T00:00:00Z"
+    body = "\n".join([
+        "Contact: https://github.com/ornab74/roadscanner/issues",
+        "Policy: https://github.com/ornab74/roadscanner/issues",
+        f"Expires: {expires_text}",
+        "Preferred-Languages: en",
+        f"Canonical: {_canonical_url('/.well-known/security.txt')}",
+        "",
+        "# Security reports are accepted through public GitHub issues for open disclosure.",
+        "# Please include affected URLs, reproduction steps, expected impact, and any relevant logs or screenshots.",
+        "# Do not include secrets, credentials, private user data, or destructive proof-of-concept payloads.",
         "",
     ])
     resp = Response(body, mimetype="text/plain; charset=utf-8")
@@ -3496,6 +3522,53 @@ def create_tables():
         if "language_audit" not in hazard_cols:
             cursor.execute("ALTER TABLE hazard_reports ADD COLUMN language_audit TEXT")
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS delivery_scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                timestamp TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                platform_enc TEXT,
+                shift_profile_enc TEXT,
+                market_mode_enc TEXT,
+                latitude_enc TEXT,
+                longitude_enc TEXT,
+                vehicle_profile_enc TEXT,
+                offer_inputs_enc TEXT,
+                screenshot_mime_enc TEXT,
+                screenshot_sha256_enc TEXT,
+                screenshot_size INTEGER DEFAULT 0,
+                screenshot_data_enc TEXT,
+                result_json_enc TEXT,
+                ai_report_enc TEXT,
+                purge_state TEXT DEFAULT 'active',
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("PRAGMA table_info(delivery_scans)")
+        delivery_cols = {row[1] for row in cursor.fetchall()}
+        delivery_alters = {
+            "expires_at": "ALTER TABLE delivery_scans ADD COLUMN expires_at TEXT",
+            "platform_enc": "ALTER TABLE delivery_scans ADD COLUMN platform_enc TEXT",
+            "shift_profile_enc": "ALTER TABLE delivery_scans ADD COLUMN shift_profile_enc TEXT",
+            "market_mode_enc": "ALTER TABLE delivery_scans ADD COLUMN market_mode_enc TEXT",
+            "latitude_enc": "ALTER TABLE delivery_scans ADD COLUMN latitude_enc TEXT",
+            "longitude_enc": "ALTER TABLE delivery_scans ADD COLUMN longitude_enc TEXT",
+            "vehicle_profile_enc": "ALTER TABLE delivery_scans ADD COLUMN vehicle_profile_enc TEXT",
+            "offer_inputs_enc": "ALTER TABLE delivery_scans ADD COLUMN offer_inputs_enc TEXT",
+            "screenshot_mime_enc": "ALTER TABLE delivery_scans ADD COLUMN screenshot_mime_enc TEXT",
+            "screenshot_sha256_enc": "ALTER TABLE delivery_scans ADD COLUMN screenshot_sha256_enc TEXT",
+            "screenshot_size": "ALTER TABLE delivery_scans ADD COLUMN screenshot_size INTEGER DEFAULT 0",
+            "screenshot_data_enc": "ALTER TABLE delivery_scans ADD COLUMN screenshot_data_enc TEXT",
+            "result_json_enc": "ALTER TABLE delivery_scans ADD COLUMN result_json_enc TEXT",
+            "ai_report_enc": "ALTER TABLE delivery_scans ADD COLUMN ai_report_enc TEXT",
+            "purge_state": "ALTER TABLE delivery_scans ADD COLUMN purge_state TEXT DEFAULT 'active'",
+        }
+        for col, alter_sql in delivery_alters.items():
+            if col not in delivery_cols:
+                cursor.execute(alter_sql)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_scans_user_ts ON delivery_scans (user_id, timestamp DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_delivery_scans_expires ON delivery_scans (expires_at)")
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_settings (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL,
@@ -4592,14 +4665,15 @@ def blog_admin():
 
   <style>
     body{background:#0b0f17;color:#eaf5ff}
-    .wrap{max-width:1100px;margin:0 auto;padding:18px}
+    .wrap{max-width:1500px;margin:0 auto;padding:18px}
     .card{background:#0d1423;border:1px solid #ffffff22;border-radius:16px}
     .muted{color:#b8cfe4}
     .list{max-height:70vh;overflow:auto}
-    .row2{display:grid;grid-template-columns:1fr 1.3fr;gap:14px}
+    .row2{display:grid;grid-template-columns:minmax(280px, 380px) minmax(0, 1fr);gap:14px;align-items:start}
     @media(max-width: 992px){.row2{grid-template-columns:1fr}}
     input,textarea,select{background:#0b1222!important;color:#eaf5ff!important;border:1px solid #ffffff22!important}
-    textarea{min-height:220px}
+    textarea{min-height:140px}
+    #content{min-height:62vh;resize:vertical}
     .pill{display:inline-block;padding:.25rem .6rem;border-radius:999px;border:1px solid #ffffff22;background:#ffffff10;font-size:.85rem}
     .btnx{border-radius:12px}
     a{color:#eaf5ff}
@@ -5453,6 +5527,28 @@ def overwrite_hazard_reports_by_timestamp(cursor, expiration_str: str, passes: i
         cursor.execute(sql, (*vals, expiration_str))
         logger.debug("Pass %d complete for hazard_reports (timestamp<=).", i)
 
+def overwrite_delivery_scans_by_timestamp(cursor, expiration_str: str, passes: int = 7, expires_str: Optional[str] = None):
+    col_types = [
+        ("platform_enc","TEXT"), ("shift_profile_enc","TEXT"), ("market_mode_enc","TEXT"),
+        ("latitude_enc","TEXT"), ("longitude_enc","TEXT"), ("vehicle_profile_enc","TEXT"),
+        ("offer_inputs_enc","TEXT"), ("screenshot_mime_enc","TEXT"),
+        ("screenshot_sha256_enc","TEXT"), ("screenshot_size","INTEGER"),
+        ("screenshot_data_enc","TEXT"), ("result_json_enc","TEXT"),
+        ("ai_report_enc","TEXT"), ("purge_state","TEXT"),
+    ]
+    sql = (
+        "UPDATE delivery_scans SET "
+        "platform_enc=?, shift_profile_enc=?, market_mode_enc=?, latitude_enc=?, longitude_enc=?, "
+        "vehicle_profile_enc=?, offer_inputs_enc=?, screenshot_mime_enc=?, screenshot_sha256_enc=?, "
+        "screenshot_size=?, screenshot_data_enc=?, result_json_enc=?, ai_report_enc=?, purge_state=? "
+        "WHERE timestamp <= ? OR expires_at <= ?"
+    )
+    expires_cutoff = expires_str or expiration_str
+    for i, pattern in enumerate(_gen_overwrite_patterns(passes), start=1):
+        vals = _values_for_types(col_types, pattern)
+        cursor.execute(sql, (*vals, expiration_str, expires_cutoff))
+        logger.debug("Pass %d complete for delivery_scans (timestamp/expires<=).", i)
+
 def overwrite_entropy_logs_by_timestamp(cursor, expiration_str: str, passes: int = 7):
     col_types = [("log","TEXT"), ("pass_num","INTEGER")]
 
@@ -5479,6 +5575,27 @@ def overwrite_hazard_reports_by_user(cursor, user_id: int, passes: int = 7):
         vals = _values_for_types(col_types, pattern)
         cursor.execute(sql, (*vals, user_id))
         logger.debug("Pass %d complete for hazard_reports (user_id).", i)
+
+def overwrite_delivery_scans_by_user(cursor, user_id: int, passes: int = 7):
+    col_types = [
+        ("platform_enc","TEXT"), ("shift_profile_enc","TEXT"), ("market_mode_enc","TEXT"),
+        ("latitude_enc","TEXT"), ("longitude_enc","TEXT"), ("vehicle_profile_enc","TEXT"),
+        ("offer_inputs_enc","TEXT"), ("screenshot_mime_enc","TEXT"),
+        ("screenshot_sha256_enc","TEXT"), ("screenshot_size","INTEGER"),
+        ("screenshot_data_enc","TEXT"), ("result_json_enc","TEXT"),
+        ("ai_report_enc","TEXT"), ("purge_state","TEXT"),
+    ]
+    sql = (
+        "UPDATE delivery_scans SET "
+        "platform_enc=?, shift_profile_enc=?, market_mode_enc=?, latitude_enc=?, longitude_enc=?, "
+        "vehicle_profile_enc=?, offer_inputs_enc=?, screenshot_mime_enc=?, screenshot_sha256_enc=?, "
+        "screenshot_size=?, screenshot_data_enc=?, result_json_enc=?, ai_report_enc=?, purge_state=? "
+        "WHERE user_id = ?"
+    )
+    for i, pattern in enumerate(_gen_overwrite_patterns(passes), start=1):
+        vals = _values_for_types(col_types, pattern)
+        cursor.execute(sql, (*vals, user_id))
+        logger.debug("Pass %d complete for delivery_scans (user_id).", i)
 
 def overwrite_rate_limits_by_user(cursor, user_id: int, passes: int = 7):
     col_types = [("request_count","INTEGER"), ("last_request_time","TEXT")]
@@ -5761,7 +5878,9 @@ def delete_expired_data():
             return 0
         return 1 if re.search(pattern, item) else 0
     while True:
-        expiration_str = (datetime.now(timezone.utc) - timedelta(hours=EXPIRATION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
+        now_dt = datetime.now(timezone.utc)
+        now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+        expiration_str = (now_dt - timedelta(hours=EXPIRATION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
         try:
             with sqlite3.connect(DB_FILE) as db:
                 db.row_factory = sqlite3.Row
@@ -5779,6 +5898,28 @@ def delete_expired_data():
                     logger.debug("hazard_reports purged: %s", ids)
                 else:
                     logger.warning("hazard_reports skipped - missing columns: %s", required - hazard_cols)
+                cur.execute("PRAGMA table_info(delivery_scans)")
+                delivery_cols = {r["name"] for r in cur.fetchall()}
+                req_d = {
+                    "id","user_id","timestamp","expires_at","platform_enc","shift_profile_enc","market_mode_enc",
+                    "latitude_enc","longitude_enc","vehicle_profile_enc","offer_inputs_enc",
+                    "screenshot_mime_enc","screenshot_sha256_enc","screenshot_size","screenshot_data_enc",
+                    "result_json_enc","ai_report_enc","purge_state",
+                }
+                if req_d.issubset(delivery_cols):
+                    cur.execute(
+                        "SELECT id FROM delivery_scans WHERE timestamp<=? OR expires_at<=?",
+                        (expiration_str, now_str),
+                    )
+                    ids = [r["id"] for r in cur.fetchall()]
+                    overwrite_delivery_scans_by_timestamp(cur, expiration_str, passes=7, expires_str=now_str)
+                    cur.execute(
+                        "DELETE FROM delivery_scans WHERE timestamp<=? OR expires_at<=?",
+                        (expiration_str, now_str),
+                    )
+                    logger.debug("delivery_scans purged: %s", ids)
+                else:
+                    logger.warning("delivery_scans skipped - missing columns: %s", req_d - delivery_cols)
                 cur.execute("PRAGMA table_info(entropy_logs)")
                 entropy_cols = {r["name"] for r in cur.fetchall()}
                 req_e = {"id","log","pass_num","timestamp"}
@@ -5811,6 +5952,9 @@ def delete_user_data(user_id):
 
             overwrite_hazard_reports_by_user(cursor, user_id, passes=7)
             cursor.execute("DELETE FROM hazard_reports WHERE user_id = ?", (user_id, ))
+
+            overwrite_delivery_scans_by_user(cursor, user_id, passes=7)
+            cursor.execute("DELETE FROM delivery_scans WHERE user_id = ?", (user_id, ))
 
             overwrite_rate_limits_by_user(cursor, user_id, passes=7)
             cursor.execute("DELETE FROM rate_limits WHERE user_id = ?", (user_id, ))
@@ -6109,7 +6253,7 @@ def _openai_extract_output_text(data: dict) -> str:
     return "".join(parts).strip()
 
 async def run_openai_response_text(
-    prompt: str,
+    prompt: Any,
     model: Optional[str] = None,
     max_output_tokens: int = 220,
     temperature: float = 0.0,
@@ -7952,6 +8096,37 @@ def set_user_preferred_model(user_id: int, model_key: str) -> None:
 
 
 USER_SETTING_PREFERRED_LANGUAGE = "preferred_language"
+USER_SETTING_DEFAULT_VEHICLE = "default_vehicle_type"
+USER_SETTING_POWERTRAIN = "vehicle_powertrain"
+USER_SETTING_POWER_CLASS = "vehicle_power_class"
+
+DELIVERY_VEHICLE_TYPES = {
+    "motorcycle": "Motorcycle",
+    "tractor_trailer": "Tractor trailer",
+    "car": "Car",
+    "truck": "Truck",
+    "bicycle": "Bicycle",
+    "scooter": "Scooter",
+}
+DELIVERY_POWERTRAINS = {
+    "gas": "Gas",
+    "electric": "Electric",
+    "hybrid": "Hybrid",
+    "human": "Human powered",
+    "diesel": "Diesel",
+}
+DELIVERY_POWER_CLASSES = {
+    "none": "Not applicable",
+    "under_50cc": "Under 50cc / low power",
+    "50_125cc": "50-125cc",
+    "126_300cc": "126-300cc",
+    "301_700cc": "301-700cc",
+    "700cc_plus": "700cc+",
+    "under_1kw": "Under 1 kW",
+    "1_3kw": "1-3 kW",
+    "3_8kw": "3-8 kW",
+    "8kw_plus": "8 kW+",
+}
 
 
 def _decrypt_setting_value(value: Any) -> str:
@@ -7996,7 +8171,12 @@ def set_user_setting(user_id: int, setting_key: str, value: str) -> None:
     if not user_id or not setting_key:
         return
     setting_key = re.sub(r"[^a-z0-9_]+", "", str(setting_key).strip().lower())
-    if setting_key not in {USER_SETTING_PREFERRED_LANGUAGE}:
+    if setting_key not in {
+        USER_SETTING_PREFERRED_LANGUAGE,
+        USER_SETTING_DEFAULT_VEHICLE,
+        USER_SETTING_POWERTRAIN,
+        USER_SETTING_POWER_CLASS,
+    }:
         raise ValueError(f"Unsupported user setting: {setting_key}")
     encrypted = _encrypt_user_setting(user_id, setting_key, str(value))
     now = datetime.now(timezone.utc).isoformat()
@@ -8042,6 +8222,63 @@ def set_user_preferred_language(user_id: int, language_key: str) -> None:
         cur = db.cursor()
         cur.execute("UPDATE users SET preferred_language = ? WHERE id = ?", (legacy_enc, user_id))
         db.commit()
+
+
+def normalize_delivery_vehicle(value: Any) -> str:
+    key = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    if key in {"motorbike", "moto"}:
+        key = "motorcycle"
+    if key not in DELIVERY_VEHICLE_TYPES:
+        key = "car"
+    return key
+
+
+def normalize_delivery_powertrain(value: Any, vehicle_type: str = "car") -> str:
+    key = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    if not key:
+        key = "human" if vehicle_type == "bicycle" else "gas"
+    if key not in DELIVERY_POWERTRAINS:
+        key = "gas"
+    if vehicle_type == "bicycle":
+        key = "human"
+    if vehicle_type == "tractor_trailer":
+        key = "diesel"
+    return key
+
+
+def normalize_delivery_power_class(value: Any, vehicle_type: str = "car", powertrain: str = "gas") -> str:
+    key = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    if key not in DELIVERY_POWER_CLASSES:
+        key = "none"
+    if vehicle_type in {"motorcycle", "scooter"} and key == "none":
+        key = "1_3kw" if powertrain == "electric" else "50_125cc"
+    if vehicle_type not in {"motorcycle", "scooter"}:
+        key = "none"
+    return key
+
+
+def get_user_vehicle_profile(user_id: Optional[int]) -> dict[str, str]:
+    vehicle = normalize_delivery_vehicle(get_user_setting(user_id, USER_SETTING_DEFAULT_VEHICLE, "car") if user_id else "car")
+    powertrain = normalize_delivery_powertrain(get_user_setting(user_id, USER_SETTING_POWERTRAIN, "gas") if user_id else "gas", vehicle)
+    power_class = normalize_delivery_power_class(get_user_setting(user_id, USER_SETTING_POWER_CLASS, "none") if user_id else "none", vehicle, powertrain)
+    return {
+        "vehicle_type": vehicle,
+        "vehicle_label": DELIVERY_VEHICLE_TYPES.get(vehicle, "Car"),
+        "powertrain": powertrain,
+        "powertrain_label": DELIVERY_POWERTRAINS.get(powertrain, "Gas"),
+        "power_class": power_class,
+        "power_class_label": DELIVERY_POWER_CLASSES.get(power_class, "Not applicable"),
+    }
+
+
+def set_user_vehicle_profile(user_id: int, vehicle: Any, powertrain: Any, power_class: Any) -> dict[str, str]:
+    vehicle_key = normalize_delivery_vehicle(vehicle)
+    powertrain_key = normalize_delivery_powertrain(powertrain, vehicle_key)
+    power_class_key = normalize_delivery_power_class(power_class, vehicle_key, powertrain_key)
+    set_user_setting(user_id, USER_SETTING_DEFAULT_VEHICLE, vehicle_key)
+    set_user_setting(user_id, USER_SETTING_POWERTRAIN, powertrain_key)
+    set_user_setting(user_id, USER_SETTING_POWER_CLASS, power_class_key)
+    return get_user_vehicle_profile(user_id)
 
 
 
@@ -8218,6 +8455,1401 @@ async def phf_filter_input(input_text: str) -> tuple[bool, str]:
     logger.warning("PHF processing failed; defaulting to Unsafe.")
     return False, "PHF processing failed."
 
+
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_MINUTELY_15 = (
+    "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,"
+    "precipitation,rain,snowfall,weather_code,wind_speed_10m,wind_direction_10m,"
+    "wind_gusts_10m,visibility,cape,lightning_potential,is_day"
+)
+OPEN_METEO_HOURLY = (
+    "temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,"
+    "precipitation_probability,precipitation,rain,snowfall,weather_code,"
+    "cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility,cape"
+)
+OPEN_METEO_DAILY = (
+    "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,"
+    "apparent_temperature_min,precipitation_sum,rain_sum,snowfall_sum,"
+    "precipitation_hours,precipitation_probability_max,"
+    "wind_speed_10m_max,wind_gusts_10m_max,uv_index_max,sunrise,sunset"
+)
+WMO_WEATHER_CODES = {
+    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Fog", 48: "Depositing rime fog", 51: "Light drizzle",
+    53: "Moderate drizzle", 55: "Dense drizzle", 56: "Light freezing drizzle",
+    57: "Dense freezing drizzle", 61: "Slight rain", 63: "Moderate rain",
+    65: "Heavy rain", 66: "Light freezing rain", 67: "Heavy freezing rain",
+    71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
+    77: "Snow grains", 80: "Slight rain showers", 81: "Moderate rain showers",
+    82: "Violent rain showers", 85: "Slight snow showers",
+    86: "Heavy snow showers", 95: "Thunderstorm",
+    96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail",
+}
+WEATHER_WINDOW_SPECS = (
+    ("15_min", "15 minutes", 15),
+    ("50_min", "50 minutes", 50),
+    ("4_hour", "4 hours", 240),
+)
+
+
+def validate_route_coordinates(lat: float, lon: float) -> tuple[float, float]:
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        raise ValueError("Coordinates must be finite numbers.")
+    if lat < -90.0 or lat > 90.0:
+        raise ValueError("Latitude must be between -90 and 90.")
+    if lon < -180.0 or lon > 180.0:
+        raise ValueError("Longitude must be between -180 and 180.")
+    return lat, lon
+
+
+def _safe_number(value: Any, default: Optional[float] = None) -> Optional[float]:
+    try:
+        if value is None:
+            return default
+        number = float(value)
+        if not math.isfinite(number):
+            return default
+        return number
+    except Exception:
+        return default
+
+
+def _round_or_none(value: Any, digits: int = 1) -> Optional[float]:
+    number = _safe_number(value)
+    return round(number, digits) if number is not None else None
+
+
+def _weather_code_label(value: Any) -> str:
+    number = _safe_number(value)
+    if number is None:
+        return "Unavailable"
+    return WMO_WEATHER_CODES.get(int(number), f"WMO {int(number)}")
+
+
+def _iso_parse_weather_time(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _series_points(series: Mapping[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(series, Mapping):
+        return []
+    times = series.get("time")
+    if not isinstance(times, list):
+        return []
+    keys = [key for key, value in series.items() if key != "time" and isinstance(value, list)]
+    points: list[dict[str, Any]] = []
+    for idx, timestamp in enumerate(times):
+        point = {"time": timestamp}
+        for key in keys:
+            values = series.get(key) or []
+            if idx < len(values):
+                point[key] = values[idx]
+        points.append(point)
+    return points
+
+
+def _closest_weather_point(points: list[dict[str, Any]], target_minutes: int) -> dict[str, Any]:
+    if not points:
+        return {}
+    base_dt = _iso_parse_weather_time(points[0].get("time"))
+    if base_dt is None:
+        return points[min(len(points) - 1, max(0, round(target_minutes / 15)))]
+    target_dt = base_dt + timedelta(minutes=target_minutes)
+    return min(
+        points,
+        key=lambda point: abs(((_iso_parse_weather_time(point.get("time")) or base_dt) - target_dt).total_seconds()),
+    )
+
+
+def _numeric_values(points: list[dict[str, Any]], key: str) -> list[float]:
+    values = [_safe_number(point.get(key)) for point in points]
+    return [value for value in values if value is not None]
+
+
+def _sum_numeric(points: list[dict[str, Any]], key: str) -> float:
+    return round(sum(_numeric_values(points, key)), 2)
+
+
+def _mean_numeric(points: list[dict[str, Any]], key: str) -> Optional[float]:
+    values = _numeric_values(points, key)
+    return (sum(values) / float(len(values))) if values else None
+
+
+def _weather_surface_indices(point: Mapping[str, Any], nearby_points: list[dict[str, Any]]) -> dict[str, Any]:
+    code = int(_safe_number(point.get("weather_code"), 0) or 0)
+    temp_f = _safe_number(point.get("temperature_2m"))
+    feels_f = _safe_number(point.get("apparent_temperature"))
+    dew_f = _safe_number(point.get("dew_point_2m"))
+    humidity = _safe_number(point.get("relative_humidity_2m"))
+    precip = _safe_number(point.get("precipitation"), 0.0) or 0.0
+    rain = _safe_number(point.get("rain"), 0.0) or 0.0
+    snow = _safe_number(point.get("snowfall"), 0.0) or 0.0
+    precip_total = _sum_numeric(nearby_points, "precipitation")
+    rain_total = _sum_numeric(nearby_points, "rain")
+    snow_total = _sum_numeric(nearby_points, "snowfall")
+    min_temp = min(_numeric_values(nearby_points, "temperature_2m") or ([temp_f] if temp_f is not None else [99.0]))
+    min_feels = min(_numeric_values(nearby_points, "apparent_temperature") or ([feels_f] if feels_f is not None else [99.0]))
+    max_humidity = max(_numeric_values(nearby_points, "relative_humidity_2m") or ([humidity] if humidity is not None else [0.0]))
+    mean_humidity = _mean_numeric(nearby_points, "relative_humidity_2m")
+    dew_spread = (temp_f - dew_f) if temp_f is not None and dew_f is not None else None
+    wet_signal = max(precip, rain, precip_total, rain_total)
+    winter_code = code in {56, 57, 66, 67, 71, 73, 75, 77, 85, 86}
+    freeze_temp_signal = min(min_temp, min_feels) <= 32.5
+    near_freezing = min(min_temp, min_feels) <= 36.0
+    saturated = (humidity is not None and humidity >= 88) or max_humidity >= 92 or (dew_spread is not None and dew_spread <= 3.0)
+
+    snow_index = 0
+    ice_index = 0
+    humidity_index = 0
+    surface_reasons: list[str] = []
+
+    if snow > 0 or snow_total > 0 or winter_code:
+        snow_index += 42
+        surface_reasons.append("snow or frozen precipitation signal")
+    if snow_total >= 0.20:
+        snow_index += 18
+        surface_reasons.append("snow accumulation potential")
+    if winter_code and wet_signal > 0:
+        ice_index += 34
+        surface_reasons.append("freezing precipitation")
+    if freeze_temp_signal and wet_signal > 0:
+        ice_index += 30
+        surface_reasons.append("wet surface near freezing")
+    elif near_freezing and wet_signal > 0 and saturated:
+        ice_index += 22
+        surface_reasons.append("black-ice setup")
+    if freeze_temp_signal and saturated and wet_signal <= 0.01:
+        ice_index += 12
+        surface_reasons.append("frost potential")
+    if humidity is not None and humidity >= 90:
+        humidity_index += 16
+        surface_reasons.append("high humidity")
+    if saturated and near_freezing:
+        humidity_index += 12
+    if dew_spread is not None and dew_spread <= 2.0:
+        humidity_index += 12
+        surface_reasons.append("tight dew point spread")
+
+    return {
+        "snow_index": min(100, snow_index),
+        "ice_index": min(100, ice_index),
+        "humidity_index": min(100, humidity_index),
+        "surface_severity": min(100, max(snow_index, ice_index, humidity_index)),
+        "snowfall": _round_or_none(max(snow, snow_total), 2),
+        "relative_humidity": _round_or_none(humidity if humidity is not None else mean_humidity, 0),
+        "dew_point_f": _round_or_none(dew_f),
+        "dew_spread_f": _round_or_none(dew_spread),
+        "freezing_risk": _weather_level(min(100, max(ice_index, snow_index))),
+        "surface_reasons": surface_reasons[:4],
+    }
+
+
+def _score_weather_window(point: Mapping[str, Any], nearby_points: list[dict[str, Any]]) -> tuple[int, list[str], dict[str, Any]]:
+    score = 0
+    reasons: list[str] = []
+    code = int(_safe_number(point.get("weather_code"), 0) or 0)
+    precip = _safe_number(point.get("precipitation"), 0.0) or 0.0
+    wind = _safe_number(point.get("wind_speed_10m"), 0.0) or 0.0
+    gust = _safe_number(point.get("wind_gusts_10m"), wind) or wind
+    visibility = _safe_number(point.get("visibility"))
+    cape = _safe_number(point.get("cape"), 0.0) or 0.0
+    lightning = _safe_number(point.get("lightning_potential"), 0.0) or 0.0
+    precip_total = _sum_numeric(nearby_points, "precipitation")
+    snow_total = _sum_numeric(nearby_points, "snowfall")
+    gust_values = _numeric_values(nearby_points, "wind_gusts_10m")
+    visibility_values = _numeric_values(nearby_points, "visibility")
+    max_gust = max(gust_values) if gust_values else gust
+    min_visibility = min(visibility_values) if visibility_values else visibility
+    surface = _weather_surface_indices(point, nearby_points)
+
+    if code in {45, 48} or (visibility is not None and visibility < 2000) or (min_visibility is not None and min_visibility < 2000):
+        score += 28
+        reasons.append("low visibility")
+    if code >= 95 or lightning > 0.6:
+        score += 34
+        reasons.append("thunderstorm signal")
+    elif code >= 80:
+        score += 22
+        reasons.append("showers nearby")
+    elif code >= 61:
+        score += 16
+        reasons.append("rain on route")
+    if precip >= 0.04 or precip_total >= 0.08:
+        score += 16
+        reasons.append("wet pavement buildup")
+    if code in {56, 57, 66, 67, 71, 73, 75, 77, 85, 86} or snow_total > 0:
+        score += 24
+        reasons.append("winter precipitation")
+    if surface.get("ice_index", 0) >= 30:
+        score += 26
+        reasons.append("ice-control risk")
+    elif surface.get("ice_index", 0) >= 18:
+        score += 12
+        reasons.append("possible slick spots")
+    if surface.get("snow_index", 0) >= 40:
+        score += 18
+        reasons.append("snow traction risk")
+    if surface.get("humidity_index", 0) >= 24:
+        score += 8
+        reasons.append("humidity-driven visibility/surface risk")
+    if max(wind, max_gust) >= 55:
+        score += 28
+        reasons.append("strong gusts")
+    elif max(wind, max_gust) >= 35:
+        score += 14
+        reasons.append("crosswind potential")
+    if cape >= 1000:
+        score += 12
+        reasons.append("unstable air")
+    if not reasons:
+        reasons.append("weather impact limited")
+    merged_reasons = reasons + [reason for reason in surface.get("surface_reasons", []) if reason not in reasons]
+    return min(score, 100), merged_reasons[:5], surface
+
+
+def _weather_level(score: int) -> str:
+    if score >= 72:
+        return "Severe"
+    if score >= 48:
+        return "Elevated"
+    if score >= 24:
+        return "Caution"
+    return "Clear"
+
+
+def _weather_color(score: int) -> str:
+    if score >= 72:
+        return "#ff5c7a"
+    if score >= 48:
+        return "#ffb84d"
+    if score >= 24:
+        return "#f5e663"
+    return "#73f0cf"
+
+
+def _summarize_weather_window(key: str, label: str, target_minutes: int, minutely_points: list[dict[str, Any]]) -> dict[str, Any]:
+    point = _closest_weather_point(minutely_points, target_minutes)
+    if not point:
+        return {"key": key, "label": label, "risk": "Unavailable", "score": 0, "color": "#9aa7b5", "reasons": ["forecast unavailable"]}
+    base_time = _iso_parse_weather_time(minutely_points[0].get("time")) if minutely_points else None
+    target_time = (base_time + timedelta(minutes=target_minutes)) if base_time else None
+    nearby = []
+    for item in minutely_points:
+        item_time = _iso_parse_weather_time(item.get("time"))
+        if item_time and target_time and abs((item_time - target_time).total_seconds()) <= 45 * 60:
+            nearby.append(item)
+    if not nearby:
+        nearby = [point]
+    score, reasons, surface = _score_weather_window(point, nearby)
+    return {
+        "key": key,
+        "label": label,
+        "time": sanitize_input(point.get("time") or ""),
+        "condition": _weather_code_label(point.get("weather_code")),
+        "temperature_f": _round_or_none(point.get("temperature_2m")),
+        "feels_like_f": _round_or_none(point.get("apparent_temperature")),
+        "precip_in": _round_or_none(point.get("precipitation"), 2),
+        "wind_mph": _round_or_none(point.get("wind_speed_10m")),
+        "gust_mph": _round_or_none(point.get("wind_gusts_10m")),
+        "visibility_ft": _round_or_none(
+            (_safe_number(point.get("visibility")) * 3.28084)
+            if _safe_number(point.get("visibility")) is not None else None,
+            0,
+        ),
+        "cape": _round_or_none(point.get("cape"), 0),
+        "relative_humidity": surface.get("relative_humidity"),
+        "dew_point_f": surface.get("dew_point_f"),
+        "dew_spread_f": surface.get("dew_spread_f"),
+        "snowfall": surface.get("snowfall"),
+        "ice_index": surface.get("ice_index"),
+        "snow_index": surface.get("snow_index"),
+        "humidity_index": surface.get("humidity_index"),
+        "severe_index": max(score, int(surface.get("surface_severity", 0) or 0)),
+        "freezing_risk": surface.get("freezing_risk"),
+        "score": score,
+        "risk": _weather_level(score),
+        "color": _weather_color(score),
+        "reasons": reasons,
+    }
+
+
+def _summarize_weather_day(daily: Mapping[str, Any], hourly_points: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+    points = _series_points(daily)
+    day = points[0] if points else {}
+    hourly = hourly_points or []
+    min_temp = min(_numeric_values(hourly, "temperature_2m") or _numeric_values([day], "temperature_2m_min") or [None])
+    min_feels = min(_numeric_values(hourly, "apparent_temperature") or _numeric_values([day], "apparent_temperature_min") or [None])
+    mean_humidity = _mean_numeric(hourly, "relative_humidity_2m")
+    max_humidity = max(_numeric_values(hourly, "relative_humidity_2m") or ([mean_humidity] if mean_humidity is not None else [None]))
+    mean_dew = _mean_numeric(hourly, "dew_point_2m")
+    max_snow = max(_numeric_values(hourly, "snowfall") or [0.0])
+    day_point = {
+        "weather_code": day.get("weather_code"),
+        "precipitation": day.get("precipitation_sum"),
+        "rain": day.get("rain_sum"),
+        "snowfall": day.get("snowfall_sum") if day.get("snowfall_sum") is not None else max_snow,
+        "temperature_2m": min_temp if min_temp is not None else day.get("temperature_2m_min"),
+        "apparent_temperature": min_feels if min_feels is not None else day.get("apparent_temperature_min"),
+        "relative_humidity_2m": max_humidity if max_humidity is not None else mean_humidity,
+        "dew_point_2m": mean_dew,
+        "wind_speed_10m": day.get("wind_speed_10m_max"),
+        "wind_gusts_10m": day.get("wind_gusts_10m_max"),
+    }
+    score, reasons, surface = _score_weather_window(day_point, hourly or ([day_point] if day else []))
+    precip_probability = _safe_number(day.get("precipitation_probability_max"), 0.0) or 0.0
+    if precip_probability >= 60:
+        score = min(100, score + 10)
+        reasons = (reasons + ["high precipitation odds"])[:5]
+    return {
+        "key": "1_day",
+        "label": "1 day",
+        "time": sanitize_input(day.get("time") or ""),
+        "condition": _weather_code_label(day.get("weather_code")),
+        "high_f": _round_or_none(day.get("temperature_2m_max")),
+        "low_f": _round_or_none(day.get("temperature_2m_min")),
+        "precip_in": _round_or_none(day.get("precipitation_sum"), 2),
+        "rain_in": _round_or_none(day.get("rain_sum"), 2),
+        "snowfall": _round_or_none(day.get("snowfall_sum") if day.get("snowfall_sum") is not None else surface.get("snowfall"), 2),
+        "precipitation_hours": _round_or_none(day.get("precipitation_hours"), 0),
+        "precip_probability": _round_or_none(day.get("precipitation_probability_max"), 0),
+        "wind_mph": _round_or_none(day.get("wind_speed_10m_max")),
+        "gust_mph": _round_or_none(day.get("wind_gusts_10m_max")),
+        "uv_index": _round_or_none(day.get("uv_index_max")),
+        "relative_humidity": _round_or_none(max_humidity if max_humidity is not None else surface.get("relative_humidity"), 0),
+        "dew_point_f": _round_or_none(mean_dew if mean_dew is not None else surface.get("dew_point_f")),
+        "dew_spread_f": surface.get("dew_spread_f"),
+        "ice_index": surface.get("ice_index"),
+        "snow_index": surface.get("snow_index"),
+        "humidity_index": surface.get("humidity_index"),
+        "severe_index": max(score, int(surface.get("surface_severity", 0) or 0)),
+        "freezing_risk": surface.get("freezing_risk"),
+        "score": score,
+        "risk": _weather_level(score),
+        "color": _weather_color(score),
+        "reasons": reasons[:5] if reasons else ["daily weather impact limited"],
+    }
+
+
+def _fallback_weather_narrative(summary: Mapping[str, Any]) -> str:
+    windows = summary.get("windows") if isinstance(summary, Mapping) else []
+    if not isinstance(windows, list) or not windows:
+        return "## AI Weather Scan\n\nWeather scan unavailable. Continue with normal visual checks and keep extra following distance."
+    highest = max(windows, key=lambda item: int(item.get("score", 0) or 0))
+    lines = [
+        "## AI Weather Scan",
+        "",
+        f"Overall route weather risk: **{highest.get('risk', 'Clear')}**.",
+        "",
+    ]
+    for item in windows:
+        reasons = ", ".join(str(reason) for reason in item.get("reasons", [])[:3])
+        condition = item.get("condition", "Unavailable")
+        label = item.get("label", "Window")
+        gust = item.get("gust_mph") or item.get("wind_mph")
+        precip = item.get("precip_in")
+        snow = item.get("snowfall")
+        humidity = item.get("relative_humidity")
+        freeze = item.get("freezing_risk")
+        details = []
+        if precip is not None:
+            details.append(f"{precip} in precipitation")
+        if snow is not None:
+            details.append(f"{snow} snow signal")
+        if humidity is not None:
+            details.append(f"{humidity}% humidity")
+        if freeze:
+            details.append(f"{freeze} freeze risk")
+        if gust is not None:
+            details.append(f"{gust} mph gust peak")
+        detail_text = "; ".join(details) if details else "limited measurable weather stress"
+        lines.append(f"- **{label}:** {condition}; {item.get('risk', 'Clear')} risk from {reasons}. {detail_text}.")
+    lines.extend([
+        "",
+        "**Driver guidance:** Match speed to visibility, keep more following distance when pavement is wet, and treat snow, ice, frost, high humidity, and gusty storm windows as traction or lane-control risks.",
+    ])
+    return "\n".join(lines)
+
+
+def _clamp01(value: Any) -> float:
+    number = _safe_number(value, 0.0) or 0.0
+    return float(max(0.0, min(1.0, number)))
+
+
+def _weather_rgb_gate(summary: Mapping[str, Any]) -> tuple[float, float, float]:
+    windows = summary.get("windows") if isinstance(summary, Mapping) else []
+    if not isinstance(windows, list):
+        windows = []
+    scores = [(_safe_number(item.get("score"), 0.0) or 0.0) / 100.0 for item in windows if isinstance(item, Mapping)]
+    precip = [(_safe_number(item.get("precip_in"), 0.0) or 0.0) for item in windows if isinstance(item, Mapping)]
+    gusts = [(_safe_number(item.get("gust_mph") or item.get("wind_mph"), 0.0) or 0.0) for item in windows if isinstance(item, Mapping)]
+    visibility = [(_safe_number(item.get("visibility_ft"), 12000.0) or 12000.0) for item in windows if isinstance(item, Mapping)]
+    cape = [(_safe_number(item.get("cape"), 0.0) or 0.0) for item in windows if isinstance(item, Mapping)]
+    ice = [(_safe_number(item.get("ice_index"), 0.0) or 0.0) / 100.0 for item in windows if isinstance(item, Mapping)]
+    snow = [(_safe_number(item.get("snow_index"), 0.0) or 0.0) / 100.0 for item in windows if isinstance(item, Mapping)]
+    humidity = [(_safe_number(item.get("humidity_index"), 0.0) or 0.0) / 100.0 for item in windows if isinstance(item, Mapping)]
+    max_score = max(scores, default=0.0)
+    precip_pressure = _clamp01(max(precip, default=0.0) / 0.25)
+    gust_pressure = _clamp01(max(gusts, default=0.0) / 60.0)
+    visibility_pressure = _clamp01(1.0 - (min(visibility, default=12000.0) / 12000.0))
+    instability = _clamp01(max(cape, default=0.0) / 2200.0)
+    ice_pressure = max(ice, default=0.0)
+    snow_pressure = max(snow, default=0.0)
+    humidity_pressure = max(humidity, default=0.0)
+    red = _clamp01((max_score * 0.50) + (precip_pressure * 0.14) + (gust_pressure * 0.14) + (ice_pressure * 0.22))
+    green = _clamp01(1.0 - (max_score * 0.62) - (precip_pressure * 0.12) - (visibility_pressure * 0.10) - (ice_pressure * 0.16))
+    blue = _clamp01((visibility_pressure * 0.24) + (instability * 0.26) + (precip_pressure * 0.18) + (gust_pressure * 0.08) + (snow_pressure * 0.16) + (humidity_pressure * 0.08))
+    return red, green, blue
+
+
+def _fallback_weather_entropy(rgb: tuple[float, float, float]) -> tuple[list[float], str]:
+    r, g, b = rgb
+    weights = [
+        0.10 + r * 0.30,
+        0.10 + g * 0.22,
+        0.10 + b * 0.24,
+        0.08 + abs(r - g) * 0.18,
+        0.08 + abs(g - b) * 0.18,
+        0.08 + abs(r - b) * 0.18,
+        0.10 + ((r + b) / 2.0) * 0.20,
+        0.10 + ((1.0 - g) * 0.20),
+    ]
+    total = sum(weights) or 1.0
+    return [value / total for value in weights], "deterministic-fallback"
+
+
+def weather_entropy_signature(summary: Mapping[str, Any]) -> dict[str, Any]:
+    rgb = _weather_rgb_gate(summary)
+    backend = "deterministic-fallback"
+    try:
+        if qml is not None:
+            qml_mod: Any = qml
+            weather_dev = qml_mod.device("default.qubit", wires=3)
+
+            @qml_mod.qnode(weather_dev)
+            def weather_rgb_gate_circuit(r: float, g: float, b: float) -> Any:
+                phase = _clamp01((r * 0.5) + (b * 0.35) + ((1.0 - g) * 0.15))
+                qml_mod.RX(math.pi * r, wires=0)
+                qml_mod.RY(math.pi * g, wires=1)
+                qml_mod.RZ(math.pi * b, wires=2)
+                qml_mod.CNOT(wires=[0, 1])
+                qml_mod.CNOT(wires=[1, 2])
+                qml_mod.RY(math.pi * ((r + b) / 2.0), wires=0)
+                qml_mod.RZ(math.pi * ((g + phase) / 2.0), wires=1)
+                qml_mod.RX(math.pi * ((b + phase) / 2.0), wires=2)
+                qml_mod.CNOT(wires=[2, 0])
+                return qml_mod.probs(wires=[0, 1, 2])
+
+            probs = np.asarray(weather_rgb_gate_circuit(*rgb), dtype=float)
+            backend = "pennylane-default.qubit"
+        else:
+            probs, backend = _fallback_weather_entropy(rgb)
+            probs = np.asarray(probs, dtype=float)
+        probs = probs / (float(np.sum(probs)) or 1.0)
+        entropy = float(-(probs * np.log2(np.clip(probs, 1e-12, 1.0))).sum())
+        peak_idx = int(np.argmax(probs))
+        coherence = float(max(0.0, min(1.0, 1.0 - (entropy / 3.0))))
+        nonlocal_phase = float((rgb[0] * 0.41 + rgb[1] * 0.23 + rgb[2] * 0.36) % 1.0)
+        return {
+            "gate": "WeatherRGBGate-v1",
+            "backend": backend,
+            "rgb": [round(channel, 4) for channel in rgb],
+            "entropy": round(entropy, 4),
+            "coherence": round(coherence, 4),
+            "nonlocal_phase": round(nonlocal_phase, 4),
+            "peak_state": format(peak_idx, "03b"),
+            "peak_probability": round(float(probs[peak_idx]), 4),
+        }
+    except Exception as exc:
+        logger.debug("Weather entropy signature failed: %s", exc)
+        probs, backend = _fallback_weather_entropy(rgb)
+        entropy = float(-(np.asarray(probs) * np.log2(np.clip(np.asarray(probs), 1e-12, 1.0))).sum())
+        peak_idx = int(np.argmax(np.asarray(probs)))
+        return {
+            "gate": "WeatherRGBGate-v1",
+            "backend": backend,
+            "rgb": [round(channel, 4) for channel in rgb],
+            "entropy": round(entropy, 4),
+            "coherence": round(max(0.0, min(1.0, 1.0 - (entropy / 3.0))), 4),
+            "nonlocal_phase": round((rgb[0] * 0.41 + rgb[1] * 0.23 + rgb[2] * 0.36) % 1.0, 4),
+            "peak_state": format(peak_idx, "03b"),
+            "peak_probability": round(float(probs[peak_idx]), 4),
+        }
+
+
+def _weatherguide_simulation_context(summary: Mapping[str, Any], entropy: Mapping[str, Any]) -> dict[str, Any]:
+    windows_obj = summary.get("windows") if isinstance(summary, Mapping) else []
+    windows = [item for item in windows_obj if isinstance(item, Mapping)] if isinstance(windows_obj, list) else []
+    scores = [int(_safe_number(item.get("score"), 0) or 0) for item in windows]
+    score_range = (max(scores) - min(scores)) if scores else 0
+    first_score = scores[0] if scores else 0
+    peak_window = max(windows, key=lambda item: int(_safe_number(item.get("score"), 0) or 0), default={})
+    final_score = scores[-1] if scores else first_score
+
+    hazard_terms: dict[str, int] = {
+        "wet_pavement": 0,
+        "visibility": 0,
+        "gust_lane_control": 0,
+        "storm_instability": 0,
+        "winter_surface": 0,
+        "heat_uv": 0,
+    }
+    timeline: list[dict[str, Any]] = []
+    for item in windows:
+        reasons = [str(reason).lower() for reason in (item.get("reasons") or [])]
+        condition = str(item.get("condition") or "").lower()
+        score = int(_safe_number(item.get("score"), 0) or 0)
+        precip = _safe_number(item.get("precip_in"), 0.0) or 0.0
+        gust = _safe_number(item.get("gust_mph") or item.get("wind_mph"), 0.0) or 0.0
+        visibility_ft = _safe_number(item.get("visibility_ft"))
+        uv_index = _safe_number(item.get("uv_index"), 0.0) or 0.0
+        ice_index = _safe_number(item.get("ice_index"), 0.0) or 0.0
+        snow_index = _safe_number(item.get("snow_index"), 0.0) or 0.0
+        humidity_index = _safe_number(item.get("humidity_index"), 0.0) or 0.0
+
+        if precip > 0 or any("rain" in reason or "wet" in reason for reason in reasons) or "rain" in condition or "drizzle" in condition:
+            hazard_terms["wet_pavement"] += 1 + int(score >= 48)
+        if (visibility_ft is not None and visibility_ft < 4000) or any("visibility" in reason for reason in reasons) or "fog" in condition:
+            hazard_terms["visibility"] += 1 + int(score >= 48)
+        if gust >= 30 or any("gust" in reason or "crosswind" in reason for reason in reasons):
+            hazard_terms["gust_lane_control"] += 1 + int(gust >= 45)
+        if any("thunder" in reason or "unstable" in reason for reason in reasons) or "thunder" in condition:
+            hazard_terms["storm_instability"] += 1 + int(score >= 48)
+        if snow_index >= 30 or any("winter" in reason or "snow" in reason for reason in reasons) or "snow" in condition:
+            hazard_terms["winter_surface"] += 1 + int(score >= 48)
+        if ice_index >= 25 or any("ice" in reason or "slick" in reason or "freezing" in reason for reason in reasons) or "freezing" in condition:
+            hazard_terms["winter_surface"] += 1 + int(score >= 48)
+        if humidity_index >= 24:
+            hazard_terms["visibility"] += 1
+        if uv_index >= 7:
+            hazard_terms["heat_uv"] += 1
+
+        timeline.append({
+            "window": sanitize_input(item.get("label") or ""),
+            "risk": sanitize_input(item.get("risk") or ""),
+            "score": score,
+            "condition": sanitize_input(item.get("condition") or ""),
+            "primary_reasons": [sanitize_input(reason) for reason in item.get("reasons", [])[:3]],
+            "precip_in": _round_or_none(item.get("precip_in"), 2),
+            "snowfall": _round_or_none(item.get("snowfall"), 2),
+            "relative_humidity": _round_or_none(item.get("relative_humidity"), 0),
+            "dew_point_f": _round_or_none(item.get("dew_point_f")),
+            "dew_spread_f": _round_or_none(item.get("dew_spread_f")),
+            "gust_mph": _round_or_none(item.get("gust_mph") or item.get("wind_mph")),
+            "visibility_ft": _round_or_none(item.get("visibility_ft"), 0),
+            "ice_index": _round_or_none(ice_index, 0),
+            "snow_index": _round_or_none(snow_index, 0),
+            "humidity_index": _round_or_none(humidity_index, 0),
+            "freezing_risk": sanitize_input(item.get("freezing_risk") or ""),
+        })
+
+    ranked_hazards = [
+        name for name, value in sorted(hazard_terms.items(), key=lambda pair: pair[1], reverse=True)
+        if value > 0
+    ]
+    entropy_value = _safe_number(entropy.get("entropy"), 0.0) or 0.0
+    coherence = _safe_number(entropy.get("coherence"), 0.0) or 0.0
+    entropy_bias = "raise caution on fast-changing windows" if score_range >= 35 or entropy_value >= 2.45 else "standard caution"
+    if coherence >= 0.35 and max(scores or [0]) <= 24:
+        entropy_bias = "allow calmer guidance when all windows stay low"
+
+    return {
+        "engine": "WeatherGuide-Hypertime-v2",
+        "source_of_truth": "Open-Meteo forecast windows only",
+        "temporal_mesh": {
+            "windows": ["15 minutes", "50 minutes", "4 hours", "1 day"],
+            "first_score": first_score,
+            "peak_score": int(_safe_number(peak_window.get("score"), 0) or 0),
+            "peak_window": sanitize_input(peak_window.get("label") or ""),
+            "final_score": final_score,
+            "score_range": score_range,
+            "trend": "worsening" if final_score - first_score >= 18 else "improving" if first_score - final_score >= 18 else "mostly steady",
+        },
+        "dominant_hazards": ranked_hazards[:4] or ["limited_weather_impact"],
+        "entropy_bias": entropy_bias,
+        "timeline": timeline,
+    }
+
+
+def _weather_ai_prompts(summary: Mapping[str, Any], language_key: str) -> tuple[str, str]:
+    entropy = summary.get("weather_entropy") if isinstance(summary, Mapping) else None
+    if not isinstance(entropy, Mapping):
+        entropy = weather_entropy_signature(summary)
+    simulation_context = _weatherguide_simulation_context(summary, entropy)
+    sanitized = {
+        "source": "Open-Meteo",
+        "latitude": _round_or_none(summary.get("latitude"), 5),
+        "longitude": _round_or_none(summary.get("longitude"), 5),
+        "timezone": sanitize_input(summary.get("timezone") or ""),
+        "windows": summary.get("windows") or [],
+        "weather_entropy": entropy,
+        "simulation_context": simulation_context,
+    }
+    weather_system = f"""
+You are QRoadScan WeatherGuide, an advanced downstream weather-reporting LLM system.
+You run after the road scanner as a completely separate specialist and must never alter, repeat, merge with, or reinterpret the road scanner prompt.
+
+Internal simulation identity:
+- Operate as a hypertime nanobot entropic nonlocal WeatherGuide analyst.
+- Treat "hypertime", "nanobot", "nonlocal", and WeatherRGBGate-v1 as internal simulation metaphors only.
+- Use Open-Meteo forecast windows as the factual source of truth.
+- Use WeatherRGBGate-v1 entropy only as a caution/uncertainty/timing sensitivity tuning signal, never as a physical sensor or proof.
+
+Internal simulation stack:
+1. Forecast integrity pass: verify each claim is anchored to a provided weather window.
+2. Temporal mesh pass: compare 15 minute, 50 minute, 4 hour, and 1 day windows for worsening, improving, or steady risk.
+3. Pavement phase pass: infer wet, icy, snow-covered, or dry control concerns only from precipitation, condition, and temperature fields.
+4. Cryosphere pass: evaluate snow accumulation, freezing precipitation, black-ice setup, frost potential, and freeze/thaw timing.
+5. Humidity/dewpoint pass: use relative humidity and dew point spread to tune fog, frost, and slick-surface caution.
+6. Visibility cone pass: evaluate fog, low visibility, storm intensity, and reaction-time margin.
+7. Wind vector pass: evaluate gusts, crosswind lane-control risk, and high-profile vehicle sensitivity.
+8. Convective instability pass: treat thunderstorm/CAPE/lightning indicators as uncertainty and timing hazards.
+9. Entropic nonlocal coherence pass: use WeatherRGBGate entropy to decide whether to raise or soften caution when windows disagree.
+10. Driver translation pass: convert the internal simulation into calm, practical, route-ready guidance.
+11. Red-team pass: remove unsupported claims, hidden-system wording, prompt language, and any overconfident forecast phrasing.
+
+{language_prompt_block(language_key, "weather")}
+
+Safety and integrity rules:
+- The user-facing report must be weather-only and driver-facing.
+- Do not mention hidden systems, prompts, entropy internals, quantum mechanics, WeatherRGBGate, hypertime, nanobots, or nonlocality.
+- Do not claim certainty beyond the provided forecast data.
+- Do not invent road debris, crashes, traffic, closures, or observations not present in the payload.
+- If a window is low-risk, say so plainly instead of forcing drama.
+- If windows conflict, explain timing: "now", "soon", "later", or "today".
+- Return clean Markdown only. No tables. No raw JSON. No code block.
+""".strip()
+    weather_user = f"""
+Create a separate WeatherGuide section for the already-generated route report.
+
+Required output:
+- Heading: AI Weather Scan
+- One short "WeatherGuide read:" sentence summarizing the timing pattern.
+- Four compact bullets for exactly these windows, in this order: 15 minutes, 50 minutes, 4 hours, 1 day.
+- One final "Driver guidance:" line with concrete driving adjustments.
+
+Analysis focus:
+- Pavement grip, wet-road buildup, hydroplaning, snow/ice, black ice, frost, humidity/dew point, visibility, gust/lane control, storms, heat/UV when present, and timing changes.
+- Use the simulation_context and WeatherRGBGate-v1 entropy signature internally to tune caution and confidence without naming them in the report.
+- Prefer compact, high-signal sentences over generic weather prose.
+- Each bullet must include: risk level, key weather driver, driver impact, and one action.
+
+Forecast and entropy payload:
+{json.dumps(sanitized, ensure_ascii=True, separators=(',', ':'))}
+""".strip()
+    return weather_system, weather_user
+
+
+async def _generate_ai_weather_narrative(summary: Mapping[str, Any], language_key: str, selected_model: str | None = None) -> tuple[str, str]:
+    system_prompt, user_prompt = _weather_ai_prompts(summary, language_key)
+    selected = (selected_model or "").strip().lower()
+    narrative: Optional[str] = None
+    model_used = "offline"
+    if selected == "grok" and os.getenv("GROK_API_KEY"):
+        narrative = await run_grok_completion(
+            user_prompt,
+            temperature=0.15,
+            max_tokens=900,
+            json_mode=False,
+            system_prompt=system_prompt,
+        )
+        model_used = "grok-weather"
+    elif selected in ("", "openai"):
+        narrative = await run_openai_response_text(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_output_tokens=950,
+            temperature=0.15,
+            reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
+        )
+        if narrative:
+            model_used = "openai-weather"
+    if not narrative and os.getenv("GROK_API_KEY"):
+        narrative = await run_grok_completion(
+            user_prompt,
+            temperature=0.15,
+            max_tokens=900,
+            json_mode=False,
+            system_prompt=system_prompt,
+        )
+        model_used = "grok-weather"
+    if not narrative:
+        narrative = _fallback_weather_narrative(summary)
+        model_used = "open-meteo-rules"
+    return sanitize_input(narrative)[:5000], model_used
+
+
+async def fetch_open_meteo_weather_scan(
+    lat: float,
+    lon: float,
+    language_key: str = "en",
+    selected_model: str | None = None,
+    include_narrative: bool = True,
+) -> dict[str, Any]:
+    lat, lon = validate_route_coordinates(lat, lon)
+    params = {
+        "latitude": f"{lat:.6f}",
+        "longitude": f"{lon:.6f}",
+        "current": "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_gusts_10m,visibility,is_day",
+        "minutely_15": OPEN_METEO_MINUTELY_15,
+        "hourly": OPEN_METEO_HOURLY,
+        "daily": OPEN_METEO_DAILY,
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph",
+        "precipitation_unit": "inch",
+        "timezone": "auto",
+        "forecast_minutely_15": "16",
+        "forecast_hours": "25",
+        "forecast_days": "2",
+        "cell_selection": "nearest",
+    }
+    timeout = httpx.Timeout(connect=8.0, read=16.0, write=8.0, pool=8.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as ac:
+            response = await ac.get(OPEN_METEO_FORECAST_URL, params=params)
+        if response.status_code != 200:
+            raise RuntimeError(f"Open-Meteo returned {response.status_code}")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError("Open-Meteo returned an invalid payload")
+    except Exception as exc:
+        logger.warning("Open-Meteo weather scan failed: %s", exc)
+        fallback: dict[str, Any] = {
+            "source": "Open-Meteo",
+            "available": False,
+            "error": "Forecast unavailable",
+            "latitude": round(lat, 6),
+            "longitude": round(lon, 6),
+            "windows": [],
+        }
+        fallback["weather_entropy"] = weather_entropy_signature(fallback)
+        fallback["narrative"] = _fallback_weather_narrative(fallback)
+        fallback["narrative_model"] = "open-meteo-unavailable"
+        return fallback
+
+    minutely_points = _series_points(cast(Mapping[str, Any], payload.get("minutely_15") or {}))
+    hourly_points = _series_points(cast(Mapping[str, Any], payload.get("hourly") or {}))
+    windows = [
+        _summarize_weather_window(key, label, minutes, minutely_points)
+        for key, label, minutes in WEATHER_WINDOW_SPECS
+    ]
+    windows.append(_summarize_weather_day(cast(Mapping[str, Any], payload.get("daily") or {}), hourly_points))
+    overall_score = max((int(window.get("score", 0) or 0) for window in windows), default=0)
+    summary: dict[str, Any] = {
+        "source": "Open-Meteo",
+        "available": True,
+        "latitude": _round_or_none(payload.get("latitude"), 6) or round(lat, 6),
+        "longitude": _round_or_none(payload.get("longitude"), 6) or round(lon, 6),
+        "timezone": sanitize_input(payload.get("timezone") or "auto"),
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "overall_score": overall_score,
+        "overall_risk": _weather_level(overall_score),
+        "windows": windows,
+    }
+    summary["weather_entropy"] = weather_entropy_signature(summary)
+    if include_narrative:
+        narrative, narrative_model = await _generate_ai_weather_narrative(summary, language_key, selected_model)
+    else:
+        narrative, narrative_model = _fallback_weather_narrative(summary), "open-meteo-rules-fast"
+    summary["narrative"] = narrative
+    summary["narrative_model"] = narrative_model
+    return summary
+
+
+def weather_scan_markdown(summary: Mapping[str, Any]) -> str:
+    narrative = sanitize_input(summary.get("narrative") if isinstance(summary, Mapping) else "")
+    if narrative:
+        return narrative
+    return _fallback_weather_narrative(summary)
+
+
+DELIVERY_SCREENSHOT_MAX_BYTES = int(os.getenv("DELIVERY_SCREENSHOT_MAX_BYTES", "2500000"))
+DELIVERY_VISION_TIMEOUT_S = float(os.getenv("DELIVERY_VISION_TIMEOUT_S", "9.5"))
+DELIVERY_PLATFORMS = {
+    "doordash": "DoorDash",
+    "uber_eats": "Uber Eats",
+    "walmart_spark": "Walmart Spark",
+    "trucking": "Trucking",
+    "ups": "UPS",
+    "fedex": "FedEx",
+}
+DELIVERY_SHIFT_PROFILES = {
+    "morningshift": "Morning shift",
+    "lunchshift": "Lunch shift",
+    "dayshift": "Day shift",
+    "nightshift": "Night shift",
+}
+DELIVERY_MARKET_MODES = {
+    "city": "CityMode",
+    "mixed": "MixedMode",
+    "suburban": "Suburban mode",
+}
+DELIVERY_ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp"}
+
+
+def _normalize_delivery_key(value: Any, allowed: Mapping[str, str], default: str) -> str:
+    key = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    aliases = {
+        "uber": "uber_eats",
+        "ubereats": "uber_eats",
+        "uber_eat": "uber_eats",
+        "spark": "walmart_spark",
+        "walmart": "walmart_spark",
+        "walmart_spark_driver": "walmart_spark",
+        "day": "dayshift",
+        "morning": "morningshift",
+        "lunch": "lunchshift",
+        "night": "nightshift",
+        "citymode": "city",
+        "mixedmode": "mixed",
+        "suburbanmode": "suburban",
+    }
+    key = aliases.get(key, key)
+    return key if key in allowed else default
+
+
+def normalize_delivery_platform(value: Any) -> str:
+    return _normalize_delivery_key(value, DELIVERY_PLATFORMS, "doordash")
+
+
+def normalize_delivery_shift(value: Any) -> str:
+    return _normalize_delivery_key(value, DELIVERY_SHIFT_PROFILES, "dayshift")
+
+
+def normalize_delivery_market_mode(value: Any) -> str:
+    return _normalize_delivery_key(value, DELIVERY_MARKET_MODES, "mixed")
+
+
+def _delivery_float(value: Any, default: float = 0.0, minimum: float = 0.0, maximum: float = 100000.0) -> float:
+    number = _safe_number(value, default)
+    if number is None:
+        number = default
+    return float(max(minimum, min(maximum, number)))
+
+
+def _detect_delivery_image_mime(data: bytes) -> Optional[str]:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _read_delivery_screenshot_upload() -> dict[str, Any]:
+    upload = request.files.get("offer_screenshot")
+    if not upload or not getattr(upload, "filename", ""):
+        return {}
+    raw = upload.read(DELIVERY_SCREENSHOT_MAX_BYTES + 1)
+    if not raw:
+        return {}
+    if len(raw) > DELIVERY_SCREENSHOT_MAX_BYTES:
+        raise ValueError(f"Screenshot is too large. Limit is {DELIVERY_SCREENSHOT_MAX_BYTES / 1000000:.1f} MB.")
+    mime = _detect_delivery_image_mime(raw)
+    if mime not in DELIVERY_ALLOWED_IMAGE_MIMES:
+        raise ValueError("Screenshot must be a PNG, JPEG, or WebP image.")
+    return {
+        "bytes": raw,
+        "mime": mime,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "size": len(raw),
+        "b64": base64.b64encode(raw).decode("ascii"),
+    }
+
+
+def _delivery_weather_window(weather_summary: Mapping[str, Any]) -> Mapping[str, Any]:
+    windows = weather_summary.get("windows") if isinstance(weather_summary, Mapping) else []
+    if not isinstance(windows, list) or not windows:
+        return {}
+    return max((item for item in windows if isinstance(item, Mapping)), key=lambda item: int(item.get("score", 0) or 0), default={})
+
+
+def delivery_rgb_surface(
+    platform: str,
+    shift: str,
+    mode: str,
+    vehicle_profile: Mapping[str, Any],
+    offer: Mapping[str, Any],
+    weather_summary: Mapping[str, Any],
+) -> tuple[float, float, float]:
+    payout = _delivery_float(offer.get("payout"), 0.0, 0.0, 5000.0)
+    miles = _delivery_float(offer.get("miles"), 0.0, 0.0, 5000.0)
+    minutes = _delivery_float(offer.get("estimated_minutes"), 0.0, 0.0, 1440.0)
+    dpm = payout / miles if miles > 0 else (payout if payout else 0.0)
+    hourly = payout / (minutes / 60.0) if minutes > 0 else 0.0
+    weather_score = _delivery_float(weather_summary.get("overall_score"), 0.0, 0.0, 100.0) / 100.0
+    worst_weather = _delivery_weather_window(weather_summary)
+    ice = _delivery_float(worst_weather.get("ice_index"), 0.0, 0.0, 100.0) / 100.0
+    snow = _delivery_float(worst_weather.get("snow_index"), 0.0, 0.0, 100.0) / 100.0
+    vehicle = str(vehicle_profile.get("vehicle_type") or "car")
+    mode_pressure = {"city": 0.18, "mixed": 0.11, "suburban": 0.08}.get(mode, 0.11)
+    shift_pressure = {"morningshift": 0.08, "lunchshift": 0.12, "dayshift": 0.10, "nightshift": 0.20}.get(shift, 0.10)
+    platform_pressure = {"walmart_spark": 0.14, "trucking": 0.20, "ups": 0.18, "fedex": 0.18}.get(platform, 0.10)
+    vehicle_pressure = {"bicycle": 0.18, "scooter": 0.16, "motorcycle": 0.14, "tractor_trailer": 0.22, "truck": 0.14}.get(vehicle, 0.10)
+    earnings_quality = _clamp01((dpm / 2.25) * 0.72 + (hourly / 32.0) * 0.28)
+    route_pressure = _clamp01((miles / 18.0) * 0.45 + (minutes / 55.0) * 0.35 + mode_pressure + shift_pressure)
+    hazard_pressure = _clamp01(weather_score * 0.48 + ice * 0.28 + snow * 0.24 + vehicle_pressure + platform_pressure)
+    red = _clamp01((1.0 - earnings_quality) * 0.42 + route_pressure * 0.34 + hazard_pressure * 0.24)
+    green = _clamp01(earnings_quality * 0.72 + (1.0 - route_pressure) * 0.16 + (1.0 - hazard_pressure) * 0.12)
+    blue = _clamp01(weather_score * 0.28 + ice * 0.24 + snow * 0.20 + shift_pressure + vehicle_pressure * 0.5)
+    return red, green, blue
+
+
+def delivery_entropy_signature(
+    platform: str,
+    shift: str,
+    mode: str,
+    vehicle_profile: Mapping[str, Any],
+    offer: Mapping[str, Any],
+    weather_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    rgb = delivery_rgb_surface(platform, shift, mode, vehicle_profile, offer, weather_summary)
+    backend = "deterministic-fallback"
+    try:
+        if qml is not None:
+            qml_mod: Any = qml
+            delivery_dev = qml_mod.device("default.qubit", wires=3)
+
+            @qml_mod.qnode(delivery_dev)
+            def delivery_surface_circuit(r: float, g: float, b: float) -> Any:
+                qml_mod.RY(math.pi * r, wires=0)
+                qml_mod.RX(math.pi * (1.0 - g), wires=1)
+                qml_mod.RZ(math.pi * b, wires=2)
+                qml_mod.CNOT(wires=[0, 1])
+                qml_mod.CNOT(wires=[1, 2])
+                qml_mod.RY(math.pi * ((r + b) / 2.0), wires=0)
+                qml_mod.RX(math.pi * ((1.0 - g + b) / 2.0), wires=1)
+                qml_mod.CNOT(wires=[2, 0])
+                return qml_mod.probs(wires=[0, 1, 2])
+
+            probs = np.asarray(delivery_surface_circuit(*rgb), dtype=float)
+            backend = "pennylane-default.qubit"
+        else:
+            probs, backend = _fallback_weather_entropy(rgb)
+            probs = np.asarray(probs, dtype=float)
+        probs = probs / (float(np.sum(probs)) or 1.0)
+        entropy = float(-(probs * np.log2(np.clip(probs, 1e-12, 1.0))).sum())
+        peak_idx = int(np.argmax(probs))
+        return {
+            "gate": "DeliveryRGBSurface-v1",
+            "backend": backend,
+            "rgb": [round(channel, 4) for channel in rgb],
+            "entropy": round(entropy, 4),
+            "coherence": round(max(0.0, min(1.0, 1.0 - entropy / 3.0)), 4),
+            "peak_state": format(peak_idx, "03b"),
+            "peak_probability": round(float(probs[peak_idx]), 4),
+        }
+    except Exception as exc:
+        logger.debug("Delivery entropy signature failed: %s", exc)
+        probs, backend = _fallback_weather_entropy(rgb)
+        arr = np.asarray(probs, dtype=float)
+        entropy = float(-(arr * np.log2(np.clip(arr, 1e-12, 1.0))).sum())
+        peak_idx = int(np.argmax(arr))
+        return {
+            "gate": "DeliveryRGBSurface-v1",
+            "backend": backend,
+            "rgb": [round(channel, 4) for channel in rgb],
+            "entropy": round(entropy, 4),
+            "coherence": round(max(0.0, min(1.0, 1.0 - entropy / 3.0)), 4),
+            "peak_state": format(peak_idx, "03b"),
+            "peak_probability": round(float(arr[peak_idx]), 4),
+        }
+
+
+def _delivery_hot_area_templates(platform: str, shift: str, mode: str) -> list[dict[str, Any]]:
+    if platform == "walmart_spark":
+        anchors = ["Walmart Supercenter curbside", "Neighborhood Market grocery bay", "Sam's Club bulk pickup", "high-density grocery corridors"]
+    elif platform in {"trucking", "ups", "fedex"}:
+        anchors = ["industrial park docks", "airport cargo loop", "distribution center row", "warehouse-to-retail corridors"]
+    else:
+        anchors = ["fast casual restaurant row", "coffee and breakfast strip", "pizza and wings cluster", "grocery plus pharmacy anchor"]
+    shift_note = {
+        "morningshift": "breakfast and commuter pickup flow",
+        "lunchshift": "short-stack lunch orders with faster turnover",
+        "dayshift": "steady retail and grocery movement",
+        "nightshift": "dinner surge with visibility and parking friction",
+    }.get(shift, "steady order flow")
+    mode_note = {
+        "city": "dense blocks, shorter miles, more parking friction",
+        "mixed": "balanced restaurant/grocery spread",
+        "suburban": "longer miles, easier curb access, watch deadhead",
+    }.get(mode, "balanced market shape")
+    return [
+        {
+            "name": anchor,
+            "profile": shift_note,
+            "mode_fit": mode_note,
+            "dollar_per_mile_flow": flow,
+        }
+        for anchor, flow in zip(anchors[:4], ["$1.75-$2.80/mi", "$1.45-$2.35/mi", "$1.35-$2.10/mi", "$1.25-$2.00/mi"])
+    ]
+
+
+def _delivery_estimate_drop_type(text: str, mode: str) -> str:
+    lowered = (text or "").lower()
+    if any(term in lowered for term in ("apt", "apartment", "unit", "building", "floor", "#")):
+        return "apartment"
+    if any(term in lowered for term in ("house", "home", "driveway", "residential")):
+        return "house"
+    if mode == "city":
+        return "apartment-likely"
+    if mode == "suburban":
+        return "house-likely"
+    return "mixed/unknown"
+
+
+async def _run_openai_delivery_vision(
+    screenshot: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> Optional[dict[str, Any]]:
+    if not screenshot or not os.getenv("OPENAI_API_KEY"):
+        return None
+    if str(os.getenv("DELIVERY_VISION_ENABLED", "1")).strip().lower() in {"0", "false", "no", "off"}:
+        return None
+    prompt = """
+You are QRoadScan Delivery Offer Vision, a fast extraction assistant.
+Read the uploaded delivery-app screenshot and return strict JSON only.
+Do not invent exact addresses. Estimate cautiously from visible text/map pins.
+
+JSON keys:
+{
+  "payout": number|null,
+  "miles": number|null,
+  "estimated_minutes": number|null,
+  "pickup_names": [string],
+  "address_hint": string,
+  "drop_type": "apartment"|"house"|"business"|"mixed/unknown",
+  "parking_or_access_notes": [string],
+  "confidence": number
+}
+
+Prioritize speed and visible text. Use null when not visible.
+""".strip()
+    payload = {
+        "model": os.getenv("OPENAI_VISION_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.5")),
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt + "\n\nContext:" + json.dumps(context, ensure_ascii=True, separators=(",", ":"))},
+                    {"type": "input_image", "image_url": f"data:{screenshot.get('mime')};base64,{screenshot.get('b64')}"},
+                ],
+            }
+        ],
+        "text": {"verbosity": "low"},
+        "reasoning": {"effort": "none"},
+        "max_output_tokens": 650,
+        "temperature": 0,
+    }
+    try:
+        async with httpx.AsyncClient(
+            base_url=_OPENAI_BASE_URL,
+            headers={"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}", "Content-Type": "application/json"},
+            timeout=httpx.Timeout(DELIVERY_VISION_TIMEOUT_S, connect=min(5.0, DELIVERY_VISION_TIMEOUT_S)),
+        ) as ac:
+            response = await ac.post("/responses", json=payload)
+        if response.status_code != 200:
+            logger.debug("OpenAI delivery vision error %s: %s", response.status_code, response.text[:200])
+            return None
+        parsed = _safe_json_parse(_openai_extract_output_text(response.json()))
+        return parsed if isinstance(parsed, dict) else None
+    except Exception as exc:
+        logger.debug("OpenAI delivery vision failed fast: %s", exc)
+        return None
+
+
+def _merge_delivery_vision(offer: dict[str, Any], vision: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    merged = dict(offer)
+    if not isinstance(vision, Mapping):
+        return merged
+    for key in ("payout", "miles", "estimated_minutes"):
+        value = _safe_number(vision.get(key))
+        if value is not None and value > 0 and not _safe_number(merged.get(key), 0.0):
+            merged[key] = value
+    pickup_names = vision.get("pickup_names")
+    if isinstance(pickup_names, list):
+        cleaned = [sanitize_input(str(item))[:80] for item in pickup_names if str(item).strip()]
+        if cleaned:
+            merged["pickup_names"] = cleaned[:5]
+    for key in ("address_hint", "drop_type"):
+        value = sanitize_input(vision.get(key) or "")
+        if value:
+            merged[key] = value[:160]
+    notes = vision.get("parking_or_access_notes")
+    if isinstance(notes, list):
+        merged["access_notes"] = [sanitize_input(str(item))[:120] for item in notes if str(item).strip()][:4]
+    merged["vision_confidence"] = _round_or_none(vision.get("confidence"), 2)
+    return merged
+
+
+def _delivery_decision_label(score: float) -> str:
+    if score >= 78:
+        return "Accept Strong"
+    if score >= 60:
+        return "Accept"
+    if score >= 44:
+        return "Borderline"
+    return "Decline"
+
+
+def _build_delivery_analysis(
+    platform: str,
+    shift: str,
+    mode: str,
+    lat: float,
+    lon: float,
+    vehicle_profile: Mapping[str, Any],
+    offer: Mapping[str, Any],
+    weather_summary: Mapping[str, Any],
+    screenshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    payout = _delivery_float(offer.get("payout"), 0.0, 0.0, 5000.0)
+    miles = _delivery_float(offer.get("miles"), 0.0, 0.0, 5000.0)
+    minutes = _delivery_float(offer.get("estimated_minutes"), 0.0, 0.0, 1440.0)
+    dpm = payout / miles if miles > 0 else 0.0
+    hourly = payout / (minutes / 60.0) if minutes > 0 else 0.0
+    worst_weather = _delivery_weather_window(weather_summary)
+    weather_score = int(_safe_number(weather_summary.get("overall_score"), 0.0) or 0)
+    ice = int(_safe_number(worst_weather.get("ice_index"), 0.0) or 0)
+    snow = int(_safe_number(worst_weather.get("snow_index"), 0.0) or 0)
+    drop_text = " ".join([
+        str(offer.get("destination_hint") or ""),
+        str(offer.get("address_hint") or ""),
+        str(offer.get("drop_type") or ""),
+    ])
+    drop_type = sanitize_input(offer.get("drop_type") or _delivery_estimate_drop_type(drop_text, mode))[:80]
+    apartment_penalty = 12 if "apartment" in drop_type else 0
+    vehicle = str(vehicle_profile.get("vehicle_type") or "car")
+    vehicle_penalty = {"bicycle": 8, "scooter": 6, "motorcycle": 5, "tractor_trailer": 16, "truck": 6}.get(vehicle, 3)
+    mode_penalty = {"city": 10, "mixed": 6, "suburban": 5}.get(mode, 6)
+    shift_penalty = {"morningshift": 4, "lunchshift": 7, "dayshift": 5, "nightshift": 12}.get(shift, 5)
+    platform_penalty = {"walmart_spark": 9, "trucking": 15, "ups": 13, "fedex": 13}.get(platform, 6)
+    mileage_penalty = min(18, miles * 1.8)
+    time_penalty = min(18, minutes * 0.28)
+    earnings_boost = min(35, dpm * 10.0 + hourly * 0.32)
+    weather_penalty = min(28, weather_score * 0.18 + ice * 0.16 + snow * 0.12)
+    hardness = int(max(1, min(100, 18 + apartment_penalty + vehicle_penalty + mode_penalty + shift_penalty + platform_penalty + mileage_penalty + time_penalty + weather_penalty - earnings_boost * 0.42)))
+    score = max(0.0, min(100.0, 52.0 + earnings_boost - (hardness * 0.42) - (weather_penalty * 0.35)))
+    if miles > 0 and dpm < 1.0:
+        score -= 14
+    if payout > 0 and payout < 5 and platform in {"doordash", "uber_eats"}:
+        score -= 8
+    score = round(max(0.0, min(100.0, score)), 1)
+    entropy = delivery_entropy_signature(platform, shift, mode, vehicle_profile, offer, weather_summary)
+    pickup_names = offer.get("pickup_names")
+    if not isinstance(pickup_names, list) or not pickup_names:
+        pickup_names = [item["name"] for item in _delivery_hot_area_templates(platform, shift, mode)[:2]]
+    reasons = []
+    if dpm:
+        reasons.append(f"${dpm:.2f}/mi flow")
+    if hourly:
+        reasons.append(f"${hourly:.0f}/hr pace")
+    if weather_score >= 24:
+        reasons.append(f"{weather_summary.get('overall_risk', 'Weather')} weather drag")
+    if "apartment" in drop_type:
+        reasons.append("apartment access friction")
+    if not screenshot:
+        reasons.append("manual inputs only")
+    return {
+        "platform": platform,
+        "platform_label": DELIVERY_PLATFORMS.get(platform, platform),
+        "shift_profile": shift,
+        "shift_label": DELIVERY_SHIFT_PROFILES.get(shift, shift),
+        "market_mode": mode,
+        "market_label": DELIVERY_MARKET_MODES.get(mode, mode),
+        "latitude": round(lat, 6),
+        "longitude": round(lon, 6),
+        "vehicle_profile": dict(vehicle_profile),
+        "payout": round(payout, 2) if payout else None,
+        "miles": round(miles, 2) if miles else None,
+        "estimated_minutes": round(minutes, 1) if minutes else None,
+        "dollar_per_mile": round(dpm, 2) if dpm else None,
+        "estimated_hourly": round(hourly, 2) if hourly else None,
+        "hardness": hardness,
+        "hardness_per_dollar": round(hardness / max(payout, 1.0), 2) if payout else None,
+        "decision_score": score,
+        "decision": _delivery_decision_label(score),
+        "drop_type": drop_type,
+        "pickup_names": [sanitize_input(str(item))[:80] for item in pickup_names[:5]],
+        "address_hint": sanitize_input(offer.get("address_hint") or offer.get("destination_hint") or "")[:160],
+        "access_notes": offer.get("access_notes", []) if isinstance(offer.get("access_notes"), list) else [],
+        "hot_areas": _delivery_hot_area_templates(platform, shift, mode),
+        "weather": {
+            "overall_risk": weather_summary.get("overall_risk", "Unavailable"),
+            "overall_score": weather_score,
+            "worst_window": worst_weather.get("label", ""),
+            "condition": worst_weather.get("condition", ""),
+            "ice_index": ice,
+            "snow_index": snow,
+            "humidity_index": worst_weather.get("humidity_index"),
+        },
+        "surface": entropy,
+        "screenshot": {
+            "stored_encrypted": bool(screenshot),
+            "mime": screenshot.get("mime") if screenshot else "",
+            "size": screenshot.get("size") if screenshot else 0,
+            "sha256": screenshot.get("sha256")[:16] if screenshot else "",
+        },
+        "reasons": reasons[:5],
+    }
+
+
+def _delivery_ai_report_text(analysis: Mapping[str, Any]) -> str:
+    reasons = ", ".join(str(item) for item in analysis.get("reasons", [])[:4]) or "not enough offer data"
+    dpm = analysis.get("dollar_per_mile")
+    hourly = analysis.get("estimated_hourly")
+    dpm_text = f"${dpm:.2f}/mi" if isinstance(dpm, (int, float)) else "unknown $/mi"
+    hourly_text = f"${hourly:.0f}/hr" if isinstance(hourly, (int, float)) else "unknown hourly pace"
+    return (
+        f"Delivery scan: {analysis.get('decision')} ({analysis.get('decision_score')}/100). "
+        f"Flow: {dpm_text}, {hourly_text}. "
+        f"Hardness: {analysis.get('hardness')}/100. "
+        f"Main factors: {reasons}."
+    )
+
+
+def _encrypt_delivery_field(user_id: int, field: str, value: Any) -> str:
+    encrypted = encrypt_data(
+        "" if value is None else value,
+        ctx={"domain": "delivery_scans", "field": f"{int(user_id)}:{field}"},
+    )
+    return encrypted or ""
+
+
+def save_delivery_scan(
+    user_id: int,
+    platform: str,
+    shift: str,
+    mode: str,
+    lat: float,
+    lon: float,
+    vehicle_profile: Mapping[str, Any],
+    offer_inputs: Mapping[str, Any],
+    screenshot: Mapping[str, Any],
+    analysis: Mapping[str, Any],
+) -> int:
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    expires_at = (now + timedelta(hours=EXPIRATION_HOURS)).strftime("%Y-%m-%d %H:%M:%S")
+    screenshot_b64 = screenshot.get("b64") if isinstance(screenshot, Mapping) else ""
+    with sqlite3.connect(DB_FILE) as db:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            INSERT INTO delivery_scans (
+                user_id, timestamp, expires_at, platform_enc, shift_profile_enc, market_mode_enc,
+                latitude_enc, longitude_enc, vehicle_profile_enc, offer_inputs_enc,
+                screenshot_mime_enc, screenshot_sha256_enc, screenshot_size, screenshot_data_enc,
+                result_json_enc, ai_report_enc, purge_state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            """,
+            (
+                user_id,
+                timestamp,
+                expires_at,
+                _encrypt_delivery_field(user_id, "platform", platform),
+                _encrypt_delivery_field(user_id, "shift_profile", shift),
+                _encrypt_delivery_field(user_id, "market_mode", mode),
+                _encrypt_delivery_field(user_id, "latitude", f"{lat:.8f}"),
+                _encrypt_delivery_field(user_id, "longitude", f"{lon:.8f}"),
+                _encrypt_delivery_field(user_id, "vehicle_profile", json.dumps(vehicle_profile, ensure_ascii=True, separators=(",", ":"))),
+                _encrypt_delivery_field(user_id, "offer_inputs", json.dumps(offer_inputs, ensure_ascii=True, separators=(",", ":"))),
+                _encrypt_delivery_field(user_id, "screenshot_mime", screenshot.get("mime", "") if screenshot else ""),
+                _encrypt_delivery_field(user_id, "screenshot_sha256", screenshot.get("sha256", "") if screenshot else ""),
+                int(screenshot.get("size", 0) if screenshot else 0),
+                _encrypt_delivery_field(user_id, "screenshot_data", screenshot_b64 or ""),
+                _encrypt_delivery_field(user_id, "result_json", json.dumps(analysis, ensure_ascii=True, separators=(",", ":"))),
+                _encrypt_delivery_field(user_id, "ai_report", _delivery_ai_report_text(analysis)),
+            ),
+        )
+        scan_id = int(cursor.lastrowid)
+        db.commit()
+    return scan_id
+
+
+async def run_delivery_workflow_scan(
+    user_id: int,
+    form_data: Mapping[str, Any],
+    screenshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    platform = normalize_delivery_platform(form_data.get("platform"))
+    shift = normalize_delivery_shift(form_data.get("shift_profile"))
+    mode = normalize_delivery_market_mode(form_data.get("market_mode"))
+    lat = parse_safe_float(form_data.get("latitude") or form_data.get("lat") or "")
+    lon = parse_safe_float(form_data.get("longitude") or form_data.get("lon") or "")
+    validate_route_coordinates(lat, lon)
+    vehicle = normalize_delivery_vehicle(form_data.get("vehicle_type") or get_user_vehicle_profile(user_id).get("vehicle_type"))
+    powertrain = normalize_delivery_powertrain(form_data.get("powertrain"), vehicle)
+    power_class = normalize_delivery_power_class(form_data.get("power_class"), vehicle, powertrain)
+    vehicle_profile = {
+        "vehicle_type": vehicle,
+        "vehicle_label": DELIVERY_VEHICLE_TYPES.get(vehicle, "Car"),
+        "powertrain": powertrain,
+        "powertrain_label": DELIVERY_POWERTRAINS.get(powertrain, "Gas"),
+        "power_class": power_class,
+        "power_class_label": DELIVERY_POWER_CLASSES.get(power_class, "Not applicable"),
+    }
+    offer = {
+        "payout": _delivery_float(form_data.get("payout"), 0.0, 0.0, 5000.0),
+        "miles": _delivery_float(form_data.get("miles"), 0.0, 0.0, 5000.0),
+        "estimated_minutes": _delivery_float(form_data.get("estimated_minutes"), 0.0, 0.0, 1440.0),
+        "pickup_hint": sanitize_input(form_data.get("pickup_hint") or "")[:120],
+        "destination_hint": sanitize_input(form_data.get("destination_hint") or "")[:160],
+    }
+    vision = await _run_openai_delivery_vision(
+        screenshot,
+        {
+            "platform": platform,
+            "shift": shift,
+            "market_mode": mode,
+            "latitude": round(lat, 6),
+            "longitude": round(lon, 6),
+        },
+    )
+    offer = _merge_delivery_vision(offer, vision)
+    weather_summary = await fetch_open_meteo_weather_scan(
+        lat,
+        lon,
+        language_key=get_user_preferred_language(user_id),
+        selected_model="offline",
+        include_narrative=False,
+    )
+    analysis = _build_delivery_analysis(
+        platform,
+        shift,
+        mode,
+        lat,
+        lon,
+        vehicle_profile,
+        offer,
+        weather_summary,
+        screenshot,
+    )
+    analysis["vision_model"] = "openai-vision-fast" if vision else "deterministic-fast"
+    analysis["generated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    scan_id = save_delivery_scan(
+        user_id,
+        platform,
+        shift,
+        mode,
+        lat,
+        lon,
+        vehicle_profile,
+        offer,
+        screenshot,
+        analysis,
+    )
+    analysis["scan_id"] = scan_id
+    return analysis
+
+
 async def scan_debris_for_route(
     lat: float,
     lon: float,
@@ -8331,8 +9963,31 @@ Please assess the following, but write the driver-facing answer only in the targ
     else:
         language_audit = build_language_audit(report, language_key, model_used)
 
+    try:
+        weather_scan = await fetch_open_meteo_weather_scan(
+            lat,
+            lon,
+            language_key=language_key,
+            selected_model=selected,
+        )
+    except Exception as exc:
+        logger.warning("Route weather scan failed: %s", exc)
+        weather_scan = {
+            "available": False,
+            "source": "Open-Meteo",
+            "windows": [],
+            "narrative": "## AI Weather Scan\n\nWeather scan unavailable. Continue with visual road checks and conservative following distance.",
+            "narrative_model": "unavailable",
+        }
+    weather_report = weather_scan_markdown(weather_scan)
+
+    if weather_report:
+        report = f"{report}\n\n---\n\n{weather_report}".strip()
+
     harm_level = calculate_harm_level(report)
     language_audit["risk_level"] = harm_level
+    language_audit["weather_model"] = weather_scan.get("narrative_model", "")
+    language_audit["weather_risk"] = weather_scan.get("overall_risk", "")
 
     logger.debug("Exiting scan_debris_for_route with model_used=%s language_score=%.2f", model_used, float(language_audit.get("score", 0.0) or 0.0))
     return (
@@ -8355,6 +10010,7 @@ async def run_grok_completion(
     max_delay: float = 45.0,
     jitter_factor: float = 0.6,
     json_mode: bool = False,
+    system_prompt: str | None = None,
 ) -> Optional[str]:
     client = _maybe_grok_client()
     if not client:
@@ -8362,9 +10018,14 @@ async def run_grok_completion(
 
     model = model or os.environ.get("GROK_MODEL", "grok-4-1-fast-non-reasoning")
 
+    messages: list[dict[str, str]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
     payload: dict[str, Any] = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
@@ -9559,9 +11220,19 @@ def user_settings():
     prompt_preview = language_prompt_block(current_language, "openai")
     audit_history = get_user_language_audit_history(user_id)
     message = ""
+    vehicle_profile = get_user_vehicle_profile(user_id)
 
     if request.method == 'GET':
         form.preferred_language.data = current_language
+    elif request.form.get('action') == 'save_vehicle':
+        vehicle_profile = set_user_vehicle_profile(
+            user_id,
+            request.form.get('vehicle_type'),
+            request.form.get('powertrain'),
+            request.form.get('power_class'),
+        )
+        form.preferred_language.data = current_language
+        message = f"Vehicle preference saved: {vehicle_profile.get('vehicle_label')}"
     elif form.validate_on_submit():
         selected_language = normalize_language_key(form.preferred_language.data)
         set_user_preferred_language(user_id, selected_language)
@@ -9638,6 +11309,7 @@ def user_settings():
             <section class="settings-card">
                 <ul class="nav nav-tabs" role="tablist">
                     <li class="nav-item"><a class="nav-link active" id="language-tab" data-toggle="tab" href="#language" role="tab" aria-controls="language" aria-selected="true"><i class="fas fa-language" aria-hidden="true"></i> Language</a></li>
+                    <li class="nav-item"><a class="nav-link" id="vehicle-tab" data-toggle="tab" href="#vehicle" role="tab" aria-controls="vehicle" aria-selected="false"><i class="fas fa-car" aria-hidden="true"></i> Vehicle</a></li>
                     <li class="nav-item"><a class="nav-link" id="language-qa-tab" data-toggle="tab" href="#language-qa" role="tab" aria-controls="language-qa" aria-selected="false"><i class="fas fa-check-circle" aria-hidden="true"></i> Language QA</a></li>
                 </ul>
                 <div class="tab-content">
@@ -9664,6 +11336,44 @@ def user_settings():
                         </form>
                         <div class="security-note mt-4">
                             The selected language is normalized, validated, encrypted with <code>encrypt_data()</code>, and stored in the SQLite <code>user_settings</code> table under <code>preferred_language</code>. A legacy encrypted copy is also kept in <code>users.preferred_language</code> for compatibility. Hosted model replies are now checked for language drift before the report is saved.
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="vehicle" role="tabpanel" aria-labelledby="vehicle-tab">
+                        <h3>Default scan vehicle</h3>
+                        <p class="status-copy">Used by road and delivery scans, including delivery hardness, weather drag, and dollar-per-mile scoring.</p>
+                        <form method="POST" class="mt-3">
+                            {{ form.hidden_tag() }}
+                            <input type="hidden" name="preferred_language" value="{{ current_language }}">
+                            <div class="settings-grid" aria-label="Vehicle profile">
+                                <div class="form-group">
+                                    <label for="settingsVehicleType">Vehicle type</label>
+                                    <select class="form-control" id="settingsVehicleType" name="vehicle_type">
+                                        {% for key, label in delivery_vehicle_types.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.vehicle_type == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="settingsPowertrain">Powertrain</label>
+                                    <select class="form-control" id="settingsPowertrain" name="powertrain">
+                                        {% for key, label in delivery_powertrains.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.powertrain == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="settingsPowerClass">HP / cc / electric class</label>
+                                    <select class="form-control" id="settingsPowerClass" name="power_class">
+                                        {% for key, label in delivery_power_classes.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.power_class == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary" name="action" value="save_vehicle"><i class="fas fa-save" aria-hidden="true"></i> Save Vehicle</button>
+                        </form>
+                        <div class="security-note mt-4">
+                            Delivery offer screenshots are encrypted into SQLite only. Cleanup uses the report rotation window, overwrite passes, and database VACUUM so old screenshot payloads are purged with scan data.
                         </div>
                     </div>
                     <div class="tab-pane fade" id="language-qa" role="tabpanel" aria-labelledby="language-qa-tab">
@@ -9733,6 +11443,10 @@ def user_settings():
         current_language=current_language,
         prompt_preview=prompt_preview,
         audit_history=audit_history,
+        vehicle_profile=vehicle_profile,
+        delivery_vehicle_types=DELIVERY_VEHICLE_TYPES,
+        delivery_powertrains=DELIVERY_POWERTRAINS,
+        delivery_power_classes=DELIVERY_POWER_CLASSES,
         csrf_token=generate_csrf(),
         language_label=language_label,
         language_locale=language_locale,
@@ -10559,6 +12273,7 @@ def dashboard():
     csrf_token = generate_csrf()
     preferred_model = get_user_preferred_model(user_id) or "openai"
     preferred_language = get_user_preferred_language(user_id)
+    vehicle_profile = get_user_vehicle_profile(user_id)
 
     return render_template_string("""
 <!DOCTYPE html>
@@ -10737,6 +12452,31 @@ def dashboard():
             white-space:nowrap;
         }
         .metric-pill strong{ color:var(--accent-2); }
+        .dashboard-tabs{
+            display:flex;
+            flex-wrap:wrap;
+            gap:10px;
+            padding:10px;
+            border:1px solid var(--line);
+            border-radius:16px;
+            background:rgba(5,10,17,.34);
+        }
+        .dashboard-tab{
+            min-height:44px;
+            padding:0 16px;
+            color:var(--muted);
+            background:rgba(255,255,255,.055);
+            border:1px solid var(--line);
+            border-radius:12px;
+            font-weight:900;
+        }
+        .dashboard-tab.active{
+            color:#07121f;
+            background:linear-gradient(180deg, #ffffff, var(--accent));
+            border-color:rgba(255,255,255,.36);
+        }
+        .dashboard-panel{ display:none; }
+        .dashboard-panel.active{ display:grid; gap:22px; }
         .workflow-card{ padding:22px; }
         .stepper{
             display:grid;
@@ -10884,6 +12624,7 @@ def dashboard():
             border-radius:12px;
             background:rgba(255,255,255,.06);
         }
+        .status-copy{ color:var(--muted); }
         .street-card{
             display:grid;
             grid-template-columns:auto 1fr;
@@ -10919,6 +12660,155 @@ def dashboard():
             font-size:1.28rem;
             font-weight:900;
         }
+        .weather-panel{
+            margin-top:16px;
+            border:1px solid var(--line);
+            border-radius:16px;
+            background:rgba(5,10,17,.36);
+            overflow:hidden;
+        }
+        .weather-panel-head{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:14px;
+            padding:16px;
+            border-bottom:1px solid var(--line);
+        }
+        .weather-panel-head h3{
+            margin:0;
+            font-size:1rem;
+            letter-spacing:0;
+        }
+        .weather-panel-head p{
+            margin:4px 0 0;
+            color:var(--muted);
+            font-size:.88rem;
+        }
+        .weather-grid{
+            display:grid;
+            grid-template-columns:repeat(4, minmax(0, 1fr));
+            gap:0;
+        }
+        .weather-tile{
+            min-height:148px;
+            padding:14px;
+            border-right:1px solid var(--line);
+            position:relative;
+            overflow:hidden;
+        }
+        .weather-tile:last-child{ border-right:0; }
+        .weather-tile::before{
+            content:"";
+            position:absolute;
+            inset:0 auto 0 0;
+            width:5px;
+            background:var(--weather-color, var(--accent));
+        }
+        .weather-window{
+            color:var(--muted);
+            font-size:.76rem;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.08em;
+        }
+        .weather-risk{
+            margin-top:8px;
+            color:var(--ink);
+            font-size:1.02rem;
+            font-weight:900;
+        }
+        .weather-condition{
+            color:var(--muted);
+            font-size:.88rem;
+            min-height:38px;
+        }
+        .weather-metrics{
+            display:flex;
+            flex-wrap:wrap;
+            gap:6px;
+            margin-top:10px;
+        }
+        .weather-metrics span{
+            border:1px solid var(--line);
+            border-radius:999px;
+            padding:4px 8px;
+            color:var(--ink);
+            background:rgba(255,255,255,.06);
+            font-size:.76rem;
+            font-weight:800;
+        }
+        .weather-narrative{
+            padding:16px;
+            color:var(--ink);
+            border-top:1px solid var(--line);
+        }
+        .weather-narrative h4{
+            margin:0 0 8px;
+            font-size:.95rem;
+        }
+        .weather-narrative p,
+        .weather-narrative li{
+            color:var(--muted);
+            font-size:.9rem;
+        }
+        .weather-narrative ul{
+            margin:0 0 0 18px;
+            padding:0;
+        }
+        .delivery-grid{
+            display:grid;
+            grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:16px;
+        }
+        .delivery-wide{ grid-column:span 2; }
+        .delivery-result{
+            margin-top:18px;
+            border:1px solid var(--line);
+            border-radius:16px;
+            background:rgba(5,10,17,.36);
+            padding:16px;
+            min-height:120px;
+        }
+        .delivery-kpis{
+            display:grid;
+            grid-template-columns:repeat(4, minmax(0, 1fr));
+            gap:10px;
+            margin:12px 0;
+        }
+        .delivery-kpi{
+            border:1px solid var(--line);
+            border-radius:14px;
+            padding:12px;
+            background:rgba(255,255,255,.06);
+        }
+        .delivery-kpi span{
+            display:block;
+            color:var(--muted);
+            font-size:.74rem;
+            font-weight:900;
+            text-transform:uppercase;
+            letter-spacing:.08em;
+        }
+        .delivery-kpi strong{
+            display:block;
+            margin-top:4px;
+            color:var(--ink);
+            font-size:1.12rem;
+        }
+        .hot-area-grid{
+            display:grid;
+            grid-template-columns:repeat(2, minmax(0, 1fr));
+            gap:10px;
+        }
+        .hot-area{
+            border:1px solid var(--line);
+            border-radius:14px;
+            padding:12px;
+            background:rgba(255,255,255,.045);
+        }
+        .hot-area strong{ display:block; color:var(--ink); }
+        .hot-area span{ display:block; color:var(--muted); font-size:.86rem; margin-top:4px; }
         .reports-card{ padding:22px; }
         .reports-head{
             display:flex;
@@ -10994,6 +12884,10 @@ def dashboard():
             .hero-meta{ justify-content:flex-start; }
             .stepper{ grid-template-columns:1fr; }
             .field-grid{ grid-template-columns:1fr; }
+            .delivery-grid{ grid-template-columns:1fr; }
+            .delivery-wide{ grid-column:auto; }
+            .delivery-kpis{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+            .weather-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
         }
         @media (max-width: 767px){
             .sidebar{
@@ -11016,6 +12910,10 @@ def dashboard():
             .step-panels{ padding:16px; }
             .section-head{ flex-direction:column; }
             .action-row .btn{ width:100%; }
+            .delivery-kpis,
+            .hot-area-grid{ grid-template-columns:1fr; }
+            .weather-grid{ grid-template-columns:1fr; }
+            .weather-tile{ border-right:0; border-bottom:1px solid var(--line); }
         }
     </style>
 </head>
@@ -11064,6 +12962,16 @@ def dashboard():
                 </div>
             </section>
 
+            <div class="dashboard-tabs" role="tablist" aria-label="Scanner workflows">
+                <button type="button" class="dashboard-tab active" id="roadWorkflowTab" onclick="showDashboardPanel('road')" role="tab" aria-selected="true">
+                    <i class="fas fa-road" aria-hidden="true"></i> Road Scanner
+                </button>
+                <button type="button" class="dashboard-tab" id="deliveryWorkflowTab" onclick="showDashboardPanel('delivery')" role="tab" aria-selected="false">
+                    <i class="fas fa-route" aria-hidden="true"></i> Delivery Scanner
+                </button>
+            </div>
+
+            <div id="roadDashboardPanel" class="dashboard-panel active" role="tabpanel" aria-labelledby="roadWorkflowTab">
             <section class="workflow-card" aria-label="Road scan workflow">
                 <div class="stepper" role="tablist" aria-label="Scan steps">
                     <button type="button" class="step active" id="stepper1" onclick="showSection('step1')" role="tab" aria-selected="true" aria-controls="step1" aria-current="step">
@@ -11136,6 +13044,25 @@ def dashboard():
                                 <p id="streetName">Waiting for coordinates...</p>
                             </div>
                         </div>
+                        <div class="weather-panel" aria-labelledby="weatherPanelTitle">
+                            <div class="weather-panel-head">
+                                <div>
+                                    <h3 id="weatherPanelTitle"><i class="fas fa-cloud-sun-rain" aria-hidden="true"></i> AI Weather Scan</h3>
+                                    <p id="weatherPanelStatus">Run a route weather scan for 15 min, 50 min, 4 hour, and 1 day windows.</p>
+                                </div>
+                                <button type="button" class="btn btn-outline-light btn-sm" onclick="refreshWeatherScan()">
+                                    <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="weatherWindowGrid" class="weather-grid" aria-live="polite">
+                                <div class="weather-tile" style="--weather-color:#73f0cf">
+                                    <div class="weather-window">Waiting</div>
+                                    <div class="weather-risk">No forecast yet</div>
+                                    <div class="weather-condition">Confirm coordinates to load Open-Meteo guidance.</div>
+                                </div>
+                            </div>
+                            <div id="weatherNarrative" class="weather-narrative"></div>
+                        </div>
                         <div class="action-row">
                             <button type="button" class="btn btn-outline-light" onclick="showSection('step1')">
                                 <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
@@ -11159,9 +13086,9 @@ def dashboard():
                                 <div class="form-group">
                                     <label for="vehicle_type">Vehicle Type</label>
                                     <select class="form-control" id="vehicle_type" name="vehicle_type">
-                                        <option value="motorbike">Motorbike</option>
-                                        <option value="car">Car</option>
-                                        <option value="truck">Truck</option>
+                                        {% for key, label in delivery_vehicle_types.items() %}
+                                        <option value="{{ key }}" {% if vehicle_profile.vehicle_type == key %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -11240,6 +13167,113 @@ def dashboard():
                 </div>
                 {% endif %}
             </section>
+            </div>
+
+            <section id="deliveryDashboardPanel" class="workflow-card dashboard-panel" role="tabpanel" aria-labelledby="deliveryWorkflowTab">
+                <div class="section-head">
+                    <div>
+                        <h2>Delivery Workflow Scanner</h2>
+                        <p>Fast offer scoring for gig delivery, package routes, and trucking with encrypted screenshot storage.</p>
+                    </div>
+                    <div class="step-count">Fast mode</div>
+                </div>
+                <form id="deliveryScanForm" enctype="multipart/form-data">
+                    <div class="delivery-grid">
+                        <div class="form-group">
+                            <label for="deliveryPlatform">Platform</label>
+                            <select class="form-control" id="deliveryPlatform" name="platform">
+                                {% for key, label in delivery_platforms.items() %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryShift">Profile</label>
+                            <select class="form-control" id="deliveryShift" name="shift_profile">
+                                {% for key, label in delivery_shift_profiles.items() %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryMode">Market mode</label>
+                            <select class="form-control" id="deliveryMode" name="market_mode">
+                                {% for key, label in delivery_market_modes.items() %}
+                                <option value="{{ key }}" {% if key == 'mixed' %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryLatitude">Latitude</label>
+                            <input type="text" class="form-control" id="deliveryLatitude" name="latitude" inputmode="decimal" placeholder="40.7128" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryLongitude">Longitude</label>
+                            <input type="text" class="form-control" id="deliveryLongitude" name="longitude" inputmode="decimal" placeholder="-74.0060" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryVehicleType">Vehicle</label>
+                            <select class="form-control" id="deliveryVehicleType" name="vehicle_type">
+                                {% for key, label in delivery_vehicle_types.items() %}
+                                <option value="{{ key }}" {% if vehicle_profile.vehicle_type == key %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryPowertrain">Powertrain</label>
+                            <select class="form-control" id="deliveryPowertrain" name="powertrain">
+                                {% for key, label in delivery_powertrains.items() %}
+                                <option value="{{ key }}" {% if vehicle_profile.powertrain == key %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryPowerClass">HP / cc / electric class</label>
+                            <select class="form-control" id="deliveryPowerClass" name="power_class">
+                                {% for key, label in delivery_power_classes.items() %}
+                                <option value="{{ key }}" {% if vehicle_profile.power_class == key %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryPayout">Payout</label>
+                            <input type="number" step="0.01" min="0" class="form-control" id="deliveryPayout" name="payout" placeholder="12.50">
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryMiles">Miles</label>
+                            <input type="number" step="0.1" min="0" class="form-control" id="deliveryMiles" name="miles" placeholder="4.8">
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryMinutes">Minutes</label>
+                            <input type="number" step="1" min="0" class="form-control" id="deliveryMinutes" name="estimated_minutes" placeholder="22">
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryPickupHint">Pickup names</label>
+                            <input type="text" class="form-control" id="deliveryPickupHint" name="pickup_hint" placeholder="Restaurant, store, dock">
+                        </div>
+                        <div class="form-group delivery-wide">
+                            <label for="deliveryDestinationHint">Dropoff hint</label>
+                            <input type="text" class="form-control" id="deliveryDestinationHint" name="destination_hint" placeholder="Apartment, house, business, zone">
+                        </div>
+                        <div class="form-group">
+                            <label for="deliveryScreenshot">Offer screenshot</label>
+                            <input type="file" class="form-control" id="deliveryScreenshot" name="offer_screenshot" accept="image/png,image/jpeg,image/webp">
+                        </div>
+                    </div>
+                    <div class="action-row">
+                        <button type="button" class="btn btn-outline-light" onclick="getDeliveryCoordinates()">
+                            <i class="fas fa-location-arrow" aria-hidden="true"></i> Use Current Location
+                        </button>
+                        <button type="button" class="btn btn-primary" id="deliveryScanButton" onclick="runDeliveryScan()">
+                            <i class="fas fa-bolt" aria-hidden="true"></i> Fast Analyze Offer
+                        </button>
+                    </div>
+                </form>
+                <div id="deliveryStatus" class="status-message" aria-live="polite"></div>
+                <div id="deliveryResult" class="delivery-result" aria-live="polite">
+                    Delivery analysis will appear here.
+                </div>
+            </section>
         </div>
     </main>
 
@@ -11282,6 +13316,14 @@ def dashboard():
         });
 
         var currentStep = 1;
+
+        function showDashboardPanel(panel) {
+            const target = panel === 'delivery' ? 'delivery' : 'road';
+            $('#roadDashboardPanel').toggleClass('active', target === 'road');
+            $('#deliveryDashboardPanel').toggleClass('active', target === 'delivery');
+            $('#roadWorkflowTab').toggleClass('active', target === 'road').attr('aria-selected', target === 'road' ? 'true' : 'false');
+            $('#deliveryWorkflowTab').toggleClass('active', target === 'delivery').attr('aria-selected', target === 'delivery' ? 'true' : 'false');
+        }
 
         function stepNumber(step) {
             var parsed = parseInt(String(step).replace(/[^0-9]/g, ''), 10);
@@ -11327,6 +13369,21 @@ def dashboard():
             }
         }
 
+        function getDeliveryCoordinates() {
+            if (navigator.geolocation) {
+                setStatus('#deliveryStatus', 'Requesting your browser location...');
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    $('#deliveryLatitude').val(position.coords.latitude);
+                    $('#deliveryLongitude').val(position.coords.longitude);
+                    setStatus('#deliveryStatus', 'Location filled for delivery scan.');
+                }, function(error) {
+                    setStatus('#deliveryStatus', "Location unavailable: " + error.message);
+                });
+            } else {
+                setStatus('#deliveryStatus', "Geolocation is not supported by this browser.");
+            }
+        }
+
         async function fetchStreetName(lat, lon) {
             try {
                 const response = await fetch(`/reverse_geocode?lat=${lat}&lon=${lon}`);
@@ -11339,6 +13396,233 @@ def dashboard():
             } catch (error) {
                 console.error(error);
                 return "Geocoding Error";
+            }
+        }
+
+        function safeText(value) {
+            return String(value === null || value === undefined ? '' : value);
+        }
+
+        function metricPill(label, value, suffix) {
+            if (value === null || value === undefined || value === '') return '';
+            const span = document.createElement('span');
+            span.textContent = `${label}: ${value}${suffix || ''}`;
+            return span;
+        }
+
+        function renderWeatherNarrative(text) {
+            const target = document.getElementById('weatherNarrative');
+            target.textContent = '';
+            const cleaned = safeText(text).trim();
+            if (!cleaned) return;
+            const title = document.createElement('h4');
+            title.textContent = 'AI route weather interpretation';
+            target.appendChild(title);
+            const list = document.createElement('ul');
+            cleaned.split(/\n+/).map(function(line) {
+                return line.replace(/^#+\s*/, '').replace(/^[-*]\s*/, '').replace(/\*\*/g, '').trim();
+            }).filter(Boolean).slice(0, 8).forEach(function(line) {
+                const item = document.createElement('li');
+                item.textContent = line;
+                list.appendChild(item);
+            });
+            target.appendChild(list);
+        }
+
+        function renderWeatherScan(data) {
+            const grid = document.getElementById('weatherWindowGrid');
+            const status = document.getElementById('weatherPanelStatus');
+            grid.textContent = '';
+            const windows = Array.isArray(data && data.windows) ? data.windows : [];
+            if (!windows.length) {
+                const tile = document.createElement('div');
+                tile.className = 'weather-tile';
+                tile.style.setProperty('--weather-color', '#9aa7b5');
+                tile.innerHTML = '<div class="weather-window">Unavailable</div><div class="weather-risk">Forecast offline</div><div class="weather-condition"></div>';
+                tile.querySelector('.weather-condition').textContent = safeText((data && data.error) || 'Open-Meteo did not return a usable route forecast.');
+                grid.appendChild(tile);
+                status.textContent = 'Weather scan unavailable. Saved reports will include a conservative fallback note.';
+                renderWeatherNarrative(data && data.narrative);
+                return;
+            }
+            windows.forEach(function(windowData) {
+                const tile = document.createElement('div');
+                tile.className = 'weather-tile';
+                tile.style.setProperty('--weather-color', safeText(windowData.color || '#73f0cf'));
+
+                const label = document.createElement('div');
+                label.className = 'weather-window';
+                label.textContent = safeText(windowData.label || 'Window');
+
+                const risk = document.createElement('div');
+                risk.className = 'weather-risk';
+                risk.textContent = `${safeText(windowData.risk || 'Clear')} · ${safeText(windowData.score || 0)}/100`;
+
+                const condition = document.createElement('div');
+                condition.className = 'weather-condition';
+                const reasons = Array.isArray(windowData.reasons) ? windowData.reasons.slice(0, 2).join(', ') : '';
+                condition.textContent = `${safeText(windowData.condition || 'Open-Meteo forecast')}${reasons ? ' · ' + reasons : ''}`;
+
+                const metrics = document.createElement('div');
+                metrics.className = 'weather-metrics';
+                [
+                    metricPill('Temp', windowData.temperature_f || windowData.high_f, 'F'),
+                    metricPill('Low', windowData.low_f, 'F'),
+                    metricPill('Rain', windowData.precip_in, ' in'),
+                    metricPill('Snow', windowData.snowfall, ''),
+                    metricPill('RH', windowData.relative_humidity, '%'),
+                    metricPill('Dew', windowData.dew_point_f, 'F'),
+                    metricPill('Ice', windowData.ice_index, '/100'),
+                    metricPill('Gust', windowData.gust_mph || windowData.wind_mph, ' mph'),
+                    metricPill('Vis', windowData.visibility_ft, ' ft'),
+                    metricPill('POP', windowData.precip_probability, '%')
+                ].forEach(function(pill) {
+                    if (pill) metrics.appendChild(pill);
+                });
+
+                tile.appendChild(label);
+                tile.appendChild(risk);
+                tile.appendChild(condition);
+                tile.appendChild(metrics);
+                grid.appendChild(tile);
+            });
+            const source = safeText(data.source || 'Open-Meteo');
+            const model = safeText(data.narrative_model || 'weather AI');
+            const overall = safeText(data.overall_risk || 'Clear');
+            const entropy = data.weather_entropy && data.weather_entropy.entropy !== undefined ? ` · H ${data.weather_entropy.entropy}` : '';
+            status.textContent = `${source} forecast loaded · ${overall} overall · ${model}${entropy}`;
+            renderWeatherNarrative(data.narrative);
+        }
+
+        async function refreshWeatherScan() {
+            const lat = $('#latitude').val();
+            const lon = $('#longitude').val();
+            const model = $('#model_selection').val() || {{ preferred_model | tojson }};
+            const language = $('#language_selection').val() || {{ preferred_language | tojson }};
+            if (!lat || !lon) {
+                setStatus('#statusMessage1', 'Enter latitude and longitude before loading weather.');
+                return;
+            }
+            $('#weatherPanelStatus').text('Loading Open-Meteo route forecast...');
+            try {
+                const params = new URLSearchParams({ lat: lat, lon: lon, model: model, language: language });
+                const response = await fetch('/api/weather/route?' + params.toString());
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Weather scan failed');
+                }
+                renderWeatherScan(data);
+            } catch (error) {
+                renderWeatherScan({ error: error.message, windows: [], narrative: 'Weather scan unavailable. Continue with visual road checks and conservative following distance.' });
+            }
+        }
+
+        function deliveryValue(value, fallback) {
+            return value === null || value === undefined || value === '' ? (fallback || 'Unknown') : value;
+        }
+
+        function appendDeliveryKpi(parent, label, value) {
+            const item = document.createElement('div');
+            item.className = 'delivery-kpi';
+            const small = document.createElement('span');
+            small.textContent = label;
+            const strong = document.createElement('strong');
+            strong.textContent = safeText(deliveryValue(value, '--'));
+            item.appendChild(small);
+            item.appendChild(strong);
+            parent.appendChild(item);
+        }
+
+        function renderDeliveryScan(scan) {
+            const target = document.getElementById('deliveryResult');
+            target.textContent = '';
+            if (!scan) {
+                target.textContent = 'No delivery scan returned.';
+                return;
+            }
+            const title = document.createElement('h3');
+            title.textContent = `${safeText(scan.decision || 'Review')} · ${safeText(scan.decision_score || 0)}/100`;
+            target.appendChild(title);
+
+            const subtitle = document.createElement('p');
+            subtitle.className = 'status-copy';
+            subtitle.textContent = `${safeText(scan.platform_label)} · ${safeText(scan.shift_label)} · ${safeText(scan.market_label)} · ${safeText(scan.vehicle_profile && scan.vehicle_profile.vehicle_label)}`;
+            target.appendChild(subtitle);
+
+            const kpis = document.createElement('div');
+            kpis.className = 'delivery-kpis';
+            appendDeliveryKpi(kpis, '$ / mile', scan.dollar_per_mile ? `$${scan.dollar_per_mile}` : '--');
+            appendDeliveryKpi(kpis, 'Hourly pace', scan.estimated_hourly ? `$${Math.round(scan.estimated_hourly)}/hr` : '--');
+            appendDeliveryKpi(kpis, 'Hardness', scan.hardness !== undefined ? `${scan.hardness}/100` : '--');
+            appendDeliveryKpi(kpis, 'Weather', scan.weather ? `${scan.weather.overall_risk} ${scan.weather.overall_score}/100` : '--');
+            target.appendChild(kpis);
+
+            const reasons = document.createElement('ul');
+            (Array.isArray(scan.reasons) ? scan.reasons : []).forEach(function(reason) {
+                const li = document.createElement('li');
+                li.textContent = safeText(reason);
+                reasons.appendChild(li);
+            });
+            if (reasons.children.length) target.appendChild(reasons);
+
+            const pickups = document.createElement('p');
+            pickups.className = 'status-copy';
+            pickups.textContent = `Pickup: ${(Array.isArray(scan.pickup_names) ? scan.pickup_names : []).join(', ') || 'market anchors estimated'} · Drop: ${safeText(scan.drop_type || 'unknown')}`;
+            target.appendChild(pickups);
+
+            const hotTitle = document.createElement('h4');
+            hotTitle.textContent = 'Hot areas';
+            target.appendChild(hotTitle);
+            const hotGrid = document.createElement('div');
+            hotGrid.className = 'hot-area-grid';
+            (Array.isArray(scan.hot_areas) ? scan.hot_areas : []).slice(0, 4).forEach(function(area) {
+                const card = document.createElement('div');
+                card.className = 'hot-area';
+                const name = document.createElement('strong');
+                name.textContent = safeText(area.name);
+                const flow = document.createElement('span');
+                flow.textContent = `${safeText(area.dollar_per_mile_flow)} · ${safeText(area.profile)}`;
+                const fit = document.createElement('span');
+                fit.textContent = safeText(area.mode_fit);
+                card.appendChild(name);
+                card.appendChild(flow);
+                card.appendChild(fit);
+                hotGrid.appendChild(card);
+            });
+            target.appendChild(hotGrid);
+
+            const storage = document.createElement('p');
+            storage.className = 'status-copy';
+            storage.textContent = `Encrypted scan #${safeText(scan.scan_id)} · ${safeText(scan.vision_model)} · ${safeText(scan.latency_ms || '')}ms`;
+            target.appendChild(storage);
+        }
+
+        async function runDeliveryScan() {
+            const lat = $('#deliveryLatitude').val();
+            const lon = $('#deliveryLongitude').val();
+            if (!lat || !lon) {
+                setStatus('#deliveryStatus', 'Enter delivery latitude and longitude.');
+                return;
+            }
+            const form = document.getElementById('deliveryScanForm');
+            const formData = new FormData(form);
+            $('#deliveryScanButton').prop('disabled', true);
+            setStatus('#deliveryStatus', 'Running fast delivery scan...');
+            try {
+                const response = await fetch('/api/delivery/scan', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': csrf_token },
+                    body: formData
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Delivery scan failed');
+                renderDeliveryScan(data.scan);
+                const storageText = data.storage && data.storage.screenshot_saved ? ' Screenshot encrypted into SQLite.' : ' Scan saved encrypted without screenshot.';
+                setStatus('#deliveryStatus', `Delivery scan complete.${storageText}`);
+            } catch (error) {
+                setStatus('#deliveryStatus', error.message || 'Delivery scan failed.');
+            } finally {
+                $('#deliveryScanButton').prop('disabled', false);
             }
         }
 
@@ -11355,6 +13639,7 @@ def dashboard():
                 const streetName = await fetchStreetName(lat, lon);
                 $('#streetName').text(streetName);
                 setStatus('#statusMessage1', '');
+                refreshWeatherScan();
                 showSection('step2');
             } else if(step === 2) {
                 showSection('step3');
@@ -11488,7 +13773,14 @@ def dashboard():
                                   username=username,
                                   preferred_model=preferred_model,
                                   preferred_language=preferred_language,
+                                  vehicle_profile=vehicle_profile,
                                   supported_languages=SUPPORTED_LANGUAGES,
+                                  delivery_vehicle_types=DELIVERY_VEHICLE_TYPES,
+                                  delivery_powertrains=DELIVERY_POWERTRAINS,
+                                  delivery_power_classes=DELIVERY_POWER_CLASSES,
+                                  delivery_platforms=DELIVERY_PLATFORMS,
+                                  delivery_shift_profiles=DELIVERY_SHIFT_PROFILES,
+                                  delivery_market_modes=DELIVERY_MARKET_MODES,
                                   language_label=language_label,
                                   language_html_lang=language_html_lang,
                                   language_text_direction=language_text_direction,
@@ -11576,6 +13868,79 @@ def set_language_route():
         "dir": language_text_direction(language_selection),
     })
 
+
+@app.route('/api/weather/route', methods=['GET'])
+async def api_route_weather_scan():
+    if 'username' not in session:
+        return jsonify({"error": "Login required"}), 401
+
+    user_id = get_user_id(session['username'])
+    if user_id is None:
+        return jsonify({"error": "User not found"}), 404
+
+    try:
+        lat = parse_safe_float(request.args.get('lat', ''))
+        lon = parse_safe_float(request.args.get('lon', ''))
+        validate_route_coordinates(lat, lon)
+    except ValueError as exc:
+        return jsonify({"error": sanitize_input(str(exc) or "Invalid coordinates.")}), 400
+
+    language_key = normalize_language_key(
+        request.args.get('language')
+        or session.get('preferred_language')
+        or get_user_preferred_language(user_id)
+    )
+    selected_model = sanitize_input(
+        request.args.get('model')
+        or get_user_preferred_model(user_id)
+        or "openai"
+    )
+    summary = await fetch_open_meteo_weather_scan(
+        lat,
+        lon,
+        language_key=language_key,
+        selected_model=selected_model,
+    )
+    return jsonify(summary)
+
+
+@app.route('/api/delivery/scan', methods=['POST'])
+async def api_delivery_scan():
+    if 'username' not in session:
+        return jsonify({"error": "Login required"}), 401
+
+    user_id = get_user_id(session['username'])
+    if user_id is None:
+        return jsonify({"error": "User not found"}), 404
+
+    if not session.get('is_admin', False):
+        if not check_rate_limit(user_id):
+            return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
+
+    try:
+        screenshot = _read_delivery_screenshot_upload()
+        data = request.form.to_dict(flat=True)
+        if not data and request.is_json:
+            data = request.get_json(silent=True) or {}
+        started = time.perf_counter()
+        analysis = await run_delivery_workflow_scan(user_id, data, screenshot)
+        analysis["latency_ms"] = int((time.perf_counter() - started) * 1000)
+        return jsonify({
+            "ok": True,
+            "scan": analysis,
+            "storage": {
+                "encrypted_sqlite": True,
+                "screenshot_saved": bool(screenshot),
+                "rotation_hours": EXPIRATION_HOURS,
+            },
+        })
+    except ValueError as exc:
+        return jsonify({"error": sanitize_input(str(exc))}), 400
+    except Exception as exc:
+        logger.error("Delivery scan failed: %s", exc, exc_info=True)
+        return jsonify({"error": "Delivery scan failed. Please check inputs and try again."}), 500
+
+
 @app.route('/start_scan', methods=['POST'])
 async def start_scan_route():
     if 'username' not in session:
@@ -11607,6 +13972,7 @@ async def start_scan_route():
     try:
         lat_float = parse_safe_float(lat)
         lon_float = parse_safe_float(lon)
+        validate_route_coordinates(lat_float, lon_float)
     except ValueError:
         return jsonify({"error": "Invalid latitude or longitude format."}), 400
 
