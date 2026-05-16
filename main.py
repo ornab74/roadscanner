@@ -14349,7 +14349,7 @@ def dashboard():
             target.textContent = `${header}\n\n${safeText(subscan.markdown || '')}`;
         }
 
-        async function runDeliverySubscan() {
+        async async function runDeliverySubscan() {
             const lat = $('#deliveryLatitude').val();
             const lon = $('#deliveryLongitude').val();
             if (!lat || !lon) {
@@ -14885,3 +14885,4 @@ async def reverse_geocode_route():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000, debug=False)
+
