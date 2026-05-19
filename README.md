@@ -1908,6 +1908,3 @@ sudo bash <(curl -Ss https://get.netdata.cloud/kickstart.sh)
 
 ## <a name="security"></a>7. Security Model + Hardening Commandments + Threat Model
 
-**Threat model table + mitigation for every vector.**
-
---- 
