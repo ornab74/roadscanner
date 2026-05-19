@@ -38,3 +38,5 @@ sealed_store/
 env.oqs
 
 *.log
+
+roadscanner.env
