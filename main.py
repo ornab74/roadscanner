@@ -4596,10 +4596,12 @@ def blog_admin():
     .card{background:#0d1423;border:1px solid #ffffff22;border-radius:16px}
     .muted{color:#b8cfe4}
     .list{max-height:70vh;overflow:auto}
-    .row2{display:grid;grid-template-columns:1fr 1.3fr;gap:14px}
+    .row2{display:grid;grid-template-columns:1fr 1.6fr;gap:18px}
     @media(max-width: 992px){.row2{grid-template-columns:1fr}}
     input,textarea,select{background:#0b1222!important;color:#eaf5ff!important;border:1px solid #ffffff22!important}
     textarea{min-height:220px}
+    textarea#excerpt{min-height:180px}
+    textarea#content{min-height:420px}
     .pill{display:inline-block;padding:.25rem .6rem;border-radius:999px;border:1px solid #ffffff22;background:#ffffff10;font-size:.85rem}
     .btnx{border-radius:12px}
     a{color:#eaf5ff}
