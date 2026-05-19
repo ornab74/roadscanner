@@ -3617,6 +3617,7 @@ def create_tables():
         blog_alters = {
             "summary_enc": "ALTER TABLE blog_posts ADD COLUMN summary_enc TEXT",
             "tags_enc": "ALTER TABLE blog_posts ADD COLUMN tags_enc TEXT",
+            "content_format": "ALTER TABLE blog_posts ADD COLUMN content_format TEXT DEFAULT 'html'",
             "featured": "ALTER TABLE blog_posts ADD COLUMN featured INTEGER NOT NULL DEFAULT 0",
             "featured_rank": "ALTER TABLE blog_posts ADD COLUMN featured_rank INTEGER NOT NULL DEFAULT 0",
         }
@@ -3899,22 +3900,46 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
         if allow_any_status:
-            cur.execute("SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id FROM blog_posts WHERE slug=? LIMIT 1", (slug,))
+            cur.execute(
+                "SELECT id,slug,title_enc,content_enc,content_format,summary_enc,tags_enc,status,created_at,updated_at,author_id "
+                "FROM blog_posts WHERE slug=? LIMIT 1",
+                (slug,),
+            )
         else:
-            cur.execute("SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id FROM blog_posts WHERE slug=? AND status='published' LIMIT 1", (slug,))
+            cur.execute(
+                "SELECT id,slug,title_enc,content_enc,content_format,summary_enc,tags_enc,status,created_at,updated_at,author_id "
+                "FROM blog_posts WHERE slug=? AND status='published' LIMIT 1",
+                (slug,),
+            )
         row = cur.fetchone()
     if not row:
         return None
+    # Map columns explicitly
+    raw_title = blog_decrypt(row[2]) if row[2] else ""
+    raw_content = blog_decrypt(row[3]) if row[3] else ""
+    content_format = (str(row[4] or "html")).strip().lower()
+    raw_summary = blog_decrypt(row[5]) if row[5] else ""
+    raw_tags = blog_decrypt(row[6]) if row[6] else ""
+
+    if content_format == "markdown":
+        rendered_content = sanitize_html(markdown(raw_content or ""))
+        rendered_summary = sanitize_html(markdown(raw_summary or ""))
+    else:
+        rendered_content = sanitize_html(raw_content or "")
+        rendered_summary = sanitize_html(raw_summary or "")
+
     post = {
-        "id": row[0], "slug": row[1],
-        "title": blog_decrypt(row[2]),
-        "content": blog_decrypt(row[3]),
-        "summary": blog_decrypt(row[4]),
-        "tags": blog_decrypt(row[5]),
-        "status": row[6],
-        "created_at": row[7],
-        "updated_at": row[8],
-        "author_id": row[9],
+        "id": row[0],
+        "slug": row[1],
+        "title": raw_title,
+        "content": rendered_content,
+        "summary": rendered_summary,
+        "tags": raw_tags,
+        "status": row[7],
+        "created_at": row[8],
+        "updated_at": row[9],
+        "author_id": row[10],
+        "content_format": content_format,
     }
     return post
 
@@ -3922,7 +3947,7 @@ def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
         cur.execute("""
-            SELECT id,slug,title_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id
+            SELECT id,slug,title_enc,summary_enc,content_format,tags_enc,status,created_at,updated_at,author_id
             FROM blog_posts
             WHERE status='published'
             ORDER BY created_at DESC
@@ -3931,14 +3956,25 @@ def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
         rows = cur.fetchall()
     out = []
     for r in rows:
+        raw_title = blog_decrypt(r[2]) if r[2] else ""
+        raw_summary = blog_decrypt(r[3]) if r[3] else ""
+        content_format = (str(r[4] or "html")).strip().lower()
+        raw_tags = blog_decrypt(r[5]) if r[5] else ""
+
+        if content_format == "markdown":
+            summary_html = sanitize_html(markdown(raw_summary or ""))
+        else:
+            summary_html = sanitize_html(raw_summary or "")
+
         out.append({
             "id": r[0], "slug": r[1],
-            "title": blog_decrypt(r[2]),
-            "summary": blog_decrypt(r[3]),
-            "tags": blog_decrypt(r[4]),
-            "status": r[5],
-            "created_at": r[6], "updated_at": r[7],
-            "author_id": r[8],
+            "title": raw_title,
+            "summary": summary_html,
+            "tags": raw_tags,
+            "status": r[6],
+            "created_at": r[7], "updated_at": r[8],
+            "author_id": r[9],
+            "content_format": content_format,
         })
     return out
 
@@ -3948,7 +3984,7 @@ def blog_list_featured(limit: int = 6) -> list[dict]:
         cur = db.cursor()
         cur.execute(
             """
-            SELECT id,slug,title_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,featured,featured_rank
+            SELECT id,slug,title_enc,summary_enc,content_format,tags_enc,status,created_at,updated_at,author_id,featured,featured_rank
             FROM blog_posts
             WHERE status='published' AND featured=1
             ORDER BY featured_rank DESC, created_at DESC
@@ -3959,19 +3995,30 @@ def blog_list_featured(limit: int = 6) -> list[dict]:
         rows = cur.fetchall()
     out: list[dict] = []
     for r in rows:
+        raw_title = blog_decrypt(r[2]) if r[2] else ""
+        raw_summary = blog_decrypt(r[3]) if r[3] else ""
+        content_format = (str(r[4] or "html")).strip().lower()
+        raw_tags = blog_decrypt(r[5]) if r[5] else ""
+
+        if content_format == "markdown":
+            summary_html = sanitize_html(markdown(raw_summary or ""))
+        else:
+            summary_html = sanitize_html(raw_summary or "")
+
         out.append(
             {
                 "id": r[0],
                 "slug": r[1],
-                "title": blog_decrypt(r[2]),
-                "summary": blog_decrypt(r[3]),
-                "tags": blog_decrypt(r[4]),
-                "status": r[5],
-                "created_at": r[6],
-                "updated_at": r[7],
-                "author_id": r[8],
-                "featured": int(r[9] or 0),
-                "featured_rank": int(r[10] or 0),
+                "title": raw_title,
+                "summary": summary_html,
+                "tags": raw_tags,
+                "status": r[6],
+                "created_at": r[7],
+                "updated_at": r[8],
+                "author_id": r[9],
+                "featured": int(r[10] or 0),
+                "featured_rank": int(r[11] or 0),
+                "content_format": content_format,
             }
         )
     return out
@@ -4046,14 +4093,32 @@ def blog_save(
     tags_csv: str,
     status: str,
     slug_in: Optional[str],
+    content_format: str = "html",
 ) -> tuple[bool, str, Optional[int], Optional[str]]:
     status = (status or "draft").strip().lower()
     if status not in ("draft", "published", "archived"):
         return False, "Invalid status", None, None
 
     title_html = sanitize_text(title_html, 160)
-    content_html = sanitize_html(((content_html or "")[:200_000]))
-    summary_html = sanitize_html(((summary_html or "")[:20_000]))
+
+    content_format = (str(content_format or "html")).strip().lower()
+    if content_format == "md":
+        content_format = "markdown"
+    if content_format not in ("html", "markdown"):
+        content_format = "html"
+
+    # Keep raw inputs; store processed/encrypted versions below depending on format
+    raw_content_in = (content_html or "")[:200_000]
+    raw_summary_in = (summary_html or "")[:20_000]
+
+    if content_format == "markdown":
+        # store markdown source; render only on public view
+        content_to_store = raw_content_in
+        summary_to_store = raw_summary_in
+    else:
+        # HTML mode - sanitize before storing
+        content_to_store = sanitize_html(raw_content_in)
+        summary_to_store = sanitize_html(raw_summary_in)
 
     raw_tags = (tags_csv or "").strip()
     raw_tags = re.sub(r"[\r\n\t]+", " ", raw_tags)
@@ -4123,8 +4188,8 @@ def blog_save(
                     return False, "Slug conflict; please edit slug", None, None
 
             title_enc = blog_encrypt("title", title_html, post_id_int)
-            content_enc = blog_encrypt("content", content_html, post_id_int)
-            summary_enc = blog_encrypt("summary", summary_html, post_id_int)
+            content_enc = blog_encrypt("content", content_to_store, post_id_int)
+            summary_enc = blog_encrypt("summary", summary_to_store, post_id_int)
             tags_enc = blog_encrypt("tags", tags_csv, post_id_int)
 
             if existing:
@@ -4133,10 +4198,10 @@ def blog_save(
                 cur.execute(
                     """
                     UPDATE blog_posts
-                    SET slug=?, title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?
+                    SET slug=?, title_enc=?, content_enc=?, content_format=?, summary_enc=?, tags_enc=?, status=?, updated_at=?
                     WHERE id=?
                     """,
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, now, post_id_int),
+                    (slug, title_enc, content_enc, content_format, summary_enc, tags_enc, status, now, post_id_int),
                 )
                 db.commit()
                 audit.append("blog_update", {"id": post_id_int, "slug": slug, "status": status}, actor=session.get("username") or "admin")
@@ -4145,10 +4210,10 @@ def blog_save(
                 cur.execute(
                     """
                     INSERT INTO blog_posts
-                      (slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id)
-                    VALUES (?,?,?,?,?,?,?,?,?)
+                      (slug,title_enc,content_enc,content_format,summary_enc,tags_enc,status,created_at,updated_at,author_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
                     """,
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, now, int(author_id)),
+                    (slug, title_enc, content_enc, content_format, summary_enc, tags_enc, status, created_at, now, int(author_id)),
                 )
                 new_id = cur.lastrowid
                 if new_id is None:
@@ -4540,7 +4605,7 @@ def _admin_blog_get_by_id(post_id: int):
         with sqlite3.connect(DB_FILE) as db:
             cur = db.cursor()
             cur.execute(
-                "SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id,featured,featured_rank "
+                "SELECT id,slug,title_enc,content_enc,content_format,summary_enc,tags_enc,status,created_at,updated_at,author_id,featured,featured_rank "
                 "FROM blog_posts WHERE id=? LIMIT 1",
                 (int(post_id),),
             )
@@ -4552,14 +4617,15 @@ def _admin_blog_get_by_id(post_id: int):
             "slug": r[1],
             "title": blog_decrypt(r[2]),
             "content": blog_decrypt(r[3]),
-            "summary": blog_decrypt(r[4]),
-            "tags": blog_decrypt(r[5]),
-            "status": r[6],
-            "created_at": r[7],
-            "updated_at": r[8],
-            "author_id": r[9],
-            "featured": int(r[10] or 0),
-            "featured_rank": int(r[11] or 0),
+            "content_format": (str(r[4] or "html")).strip().lower(),
+            "summary": blog_decrypt(r[5]),
+            "tags": blog_decrypt(r[6]),
+            "status": r[7],
+            "created_at": r[8],
+            "updated_at": r[9],
+            "author_id": r[10],
+            "featured": int(r[11] or 0),
+            "featured_rank": int(r[12] or 0),
         }
     except Exception:
         return None
@@ -4650,6 +4716,14 @@ def blog_admin():
           <input id="slug" class="form-control" placeholder="example-slug">
         </div>
 
+                <div class="mb-2">
+                    <label class="muted">Format</label>
+                    <select id="format" class="form-control">
+                        <option value="html">HTML</option>
+                        <option value="markdown">Markdown</option>
+                    </select>
+                </div>
+
         <div class="mb-2">
           <label class="muted">Excerpt (shows on lists)</label>
           <textarea id="excerpt" class="form-control" placeholder="Short excerpt for list pages..."></textarea>
@@ -4657,8 +4731,15 @@ def blog_admin():
 
         <div class="mb-2">
           <label class="muted">Content (HTML allowed, sanitized)</label>
-          <textarea id="content" class="form-control" placeholder="Write the post..."></textarea>
-        </div>
+                    <textarea id="content" class="form-control" placeholder="Write the post..."></textarea>
+                </div>
+
+                <div class="mb-2">
+                    <label class="muted">Preview</label>
+                    <div id="preview" class="form-control" style="min-height:200px; overflow:auto; background:#07101b; border:1px solid #ffffff22;">
+                        <div class="muted">Live preview will appear here.</div>
+                    </div>
+                </div>
 
         <div class="mb-3">
           <label class="muted">Tags (comma-separated)</label>
@@ -4746,12 +4827,14 @@ def blog_admin():
     el("slug").value="";
     el("excerpt").value="";
     el("content").value="";
+        el("format").value = "html";
     el("tags").value="";
     el("featured").checked = false;
     el("featured_rank").value = 0;
     el("status").value="draft";
     setStatusPill();
     setMsg("");
+        try{ updatePreview(); }catch(e){}
   }
 
   async function apiPost(url, body){
@@ -4779,6 +4862,7 @@ def blog_admin():
     el("slug").value = p.slug || "";
     el("excerpt").value = p.summary || "";
     el("content").value = p.content || "";
+    el("format").value = p.content_format || "html";
     el("tags").value = p.tags || "";
     const isFeatured = !!(p && (p.featured === 1 || p.featured === true || String(p.featured)==="1"));
     el("featured").checked = isFeatured;
@@ -4786,6 +4870,7 @@ def blog_admin():
     el("status").value = (p.status || "draft").toLowerCase();
     setStatusPill();
     setMsg("");
+        try{ updatePreview(); }catch(e){}
   }
 
   el("btnNew").onclick = ()=>clearEditor();
@@ -4807,14 +4892,40 @@ def blog_admin():
       id: state.id,
       title: el("title").value.trim(),
       slug: normalizeSlug(el("slug").value),
-      excerpt: el("excerpt").value.trim(),
-      content: el("content").value,
+            excerpt: el("excerpt").value.trim(),
+            content: el("content").value,
+            format: (el("format").value || "html").toLowerCase(),
       tags: el("tags").value.trim(),
       featured: el("featured").checked ? 1 : 0,
       featured_rank: (parseInt(el("featured_rank").value, 10) || 0),
       status: (el("status").value || "draft").toLowerCase()
     };
   }
+
+    // Debounce helper
+    function debounce(fn, wait){
+        let t = null;
+        return function(...args){
+            if(t) clearTimeout(t);
+            t = setTimeout(()=>fn.apply(this,args), wait || 250);
+        };
+    }
+
+    async function updatePreview(){
+        const fmt = (el("format").value || "html").toLowerCase();
+        const text = el("content").value || "";
+        const j = await apiPost('/admin/blog/api/render', { text: text, format: fmt });
+        if(!j || !j.ok){
+            el('preview').textContent = (j && j.error) ? j.error : 'Preview failed';
+            return;
+        }
+        el('preview').innerHTML = j.html || '';
+    }
+
+    const debouncedPreview = debounce(updatePreview, 350);
+
+    el("content").addEventListener("input", debouncedPreview);
+    el("format").addEventListener("change", ()=>{ updatePreview(); setStatusPill(); });
 
   el("btnSave").onclick = async ()=>{
     setMsg("Saving...");
@@ -4881,6 +4992,35 @@ def admin_blog_api_get():
 
     return jsonify(ok=True, post=post)
 
+
+@app.post("/admin/blog/api/render")
+def admin_blog_api_render():
+    guard = _require_admin()
+    if guard:
+        return guard
+
+    csrf_fail = _admin_csrf_guard()
+    if csrf_fail:
+        return csrf_fail
+
+    data = request.get_json(silent=True) or {}
+    text = data.get("text") or ""
+    fmt = (str(data.get("format") or "html")).strip().lower()
+    if fmt == "md":
+        fmt = "markdown"
+    if fmt not in ("html", "markdown"):
+        fmt = "html"
+
+    try:
+        if fmt == "markdown":
+            out_html = sanitize_html(markdown(text or ""))
+        else:
+            out_html = sanitize_html(text or "")
+    except Exception:
+        out_html = sanitize_html(text or "")
+
+    return jsonify(ok=True, html=out_html)
+
 @app.post("/admin/blog/api/save")
 def admin_blog_api_save():
     guard = _require_admin()
@@ -4905,6 +5045,11 @@ def admin_blog_api_save():
     summary = data.get("excerpt") or data.get("summary") or ""
     tags = data.get("tags") or ""
     status = (data.get("status") or "draft").lower()
+    content_format = (str(data.get("format") or data.get("content_format") or "html")).strip().lower()
+    if content_format == "md":
+        content_format = "markdown"
+    if content_format not in ("html", "markdown"):
+        content_format = "html"
 
     try:
         featured = int(data.get("featured") or 0)
@@ -4925,6 +5070,7 @@ def admin_blog_api_save():
         title_html=title,
         content_html=content,
         summary_html=summary,
+        content_format=content_format,
         tags_csv=tags,
         status=status,
         slug_in=slug,
@@ -4980,20 +5126,30 @@ def export_blog_posts_json() -> dict:
     with sqlite3.connect(DB_FILE) as db:
         cur = db.cursor()
         cur.execute(
-            "SELECT id,slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id "
+            "SELECT id,slug,title_enc,content_enc,content_format,summary_enc,tags_enc,status,created_at,updated_at,author_id "
             "FROM blog_posts ORDER BY created_at ASC"
         )
         rows = cur.fetchall()
 
-    for (pid, slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, updated_at, author_id) in rows:
+    for (pid, slug, title_enc, content_enc, content_format, summary_enc, tags_enc, status, created_at, updated_at, author_id) in rows:
         title = blog_decrypt(title_enc) if title_enc else ""
-        content = blog_decrypt(content_enc) if content_enc else ""
-        summary = blog_decrypt(summary_enc) if summary_enc else ""
+        content_raw = blog_decrypt(content_enc) if content_enc else ""
+        summary_raw = blog_decrypt(summary_enc) if summary_enc else ""
         tags = blog_decrypt(tags_enc) if tags_enc else ""
+
+        fmt = (str(content_format or "html")).strip().lower()
+        if fmt == "markdown":
+            content = sanitize_html(markdown(content_raw or ""))
+            summary = sanitize_html(markdown(summary_raw or ""))
+        else:
+            content = sanitize_html(content_raw or "")
+            summary = sanitize_html(summary_raw or "")
+
         out.append({
             "slug": slug,
             "title": title,
             "content": content,
+            "content_format": fmt,
             "summary": summary,
             "tags": tags,
             "status": status,
@@ -5104,6 +5260,7 @@ def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple
             title = item.get("title") or ""
             content = item.get("content") or ""
             summary = item.get("summary") or ""
+            content_format = (str(item.get("content_format") or "html")).strip().lower()
             tags = item.get("tags") or ""
             status = (item.get("status") or "draft").strip()
             created_at = item.get("created_at") or time.strftime("%Y-%m-%d %H:%M:%S")
@@ -5122,15 +5279,15 @@ def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple
             existing = cur.fetchone()
             if existing:
                 cur.execute(
-                    "UPDATE blog_posts SET title_enc=?, content_enc=?, summary_enc=?, tags_enc=?, status=?, updated_at=?, author_id=? WHERE slug=?",
-                    (title_enc, content_enc, summary_enc, tags_enc, status, updated_at, author_id, slug),
+                    "UPDATE blog_posts SET title_enc=?, content_enc=?, content_format=?, summary_enc=?, tags_enc=?, status=?, updated_at=?, author_id=? WHERE slug= ?",
+                    (title_enc, content_enc, content_format, summary_enc, tags_enc, status, updated_at, author_id, slug),
                 )
                 updated += 1
             else:
                 cur.execute(
-                    "INSERT INTO blog_posts (slug,title_enc,content_enc,summary_enc,tags_enc,status,created_at,updated_at,author_id) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (slug, title_enc, content_enc, summary_enc, tags_enc, status, created_at, updated_at, author_id),
+                    "INSERT INTO blog_posts (slug,title_enc,content_enc,content_format,summary_enc,tags_enc,status,created_at,updated_at,author_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (slug, title_enc, content_enc, content_format, summary_enc, tags_enc, status, created_at, updated_at, author_id),
                 )
                 inserted += 1
         db.commit()
