@@ -1,0 +1,50 @@
+name: roadscanner
+
+services:
+  roadscanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LIBOQS_VERSION: ${LIBOQS_VERSION:-0.14.0}
+        LIBOQS_TARBALL_SHA256: ${LIBOQS_TARBALL_SHA256:-5b0df6138763b3fc4e385d58dbb2f5dfa90248ec4a86cd0a58c218347e1f2d2}
+    image: ${ROADSCANNER_IMAGE:-roadscanner:local}
+    container_name: ${ROADSCANNER_CONTAINER:-roadscanner}
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ${ROADSCANNER_ENV_FILE:-./roadscanner.env}
+    ports:
+      - "${ROADSCANNER_BIND_ADDR:-127.0.0.1}:${ROADSCANNER_PORT:-3000}:3000"
+    volumes:
+      - roadscanner-data:/var/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: ${ROADSCANNER_PIDS_LIMIT:-512}
+    mem_limit: ${ROADSCANNER_MEMORY_LIMIT:-2g}
+    cpus: ${ROADSCANNER_CPU_LIMIT:-2.0}
+    stop_grace_period: 45s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',3000),3); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  roadscanner-data:
+    name: roadscanner-data
