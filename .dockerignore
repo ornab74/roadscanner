@@ -39,4 +39,11 @@ env.oqs
 
 *.log
 
+# Runtime/deployment secrets and local Compose state
+.env
+.env.*
+*.env
 roadscanner.env
+.roadscanner-deploy.env
+docker-compose.override.yml
+compose.override.yaml
