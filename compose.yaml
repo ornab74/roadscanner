@@ -6,44 +6,72 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
         LIBOQS_VERSION: ${LIBOQS_VERSION:-0.14.0}
         LIBOQS_TARBALL_SHA256: ${LIBOQS_TARBALL_SHA256:-5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea}
+        LIBOQS_PYTHON_VERSION: ${LIBOQS_PYTHON_VERSION:-0.14.1}
+        LIBOQS_PYTHON_SHA256: ${LIBOQS_PYTHON_SHA256:-e3c81e632d02122dda3734edc4ba83bd457eefa3fdb266d33ea908a77a17642f}
+        VCS_REF: ${ROADSCANNER_VCS_REF:-unknown}
+        BUILD_DATE: ${ROADSCANNER_BUILD_DATE:-unknown}
     image: ${ROADSCANNER_IMAGE:-roadscanner:local}
+    pull_policy: never
     container_name: ${ROADSCANNER_CONTAINER:-roadscanner}
     init: true
+    user: "10001:10001"
+    privileged: false
+    stdin_open: false
+    tty: false
     restart: unless-stopped
     env_file:
       - ${ROADSCANNER_ENV_FILE:-./roadscanner.env}
+    environment:
+      HOME: /tmp/roadscanner-home
+      XDG_CACHE_HOME: /tmp/roadscanner-cache
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      STRICT_PQ2_ONLY: "1"
+      QRS_BOOTSTRAP_SHOW: "0"
     ports:
       - "${ROADSCANNER_BIND_ADDR:-127.0.0.1}:${ROADSCANNER_PORT:-3000}:3000"
     volumes:
-      - roadscanner-data:/var/data
+      - type: volume
+        source: roadscanner-data
+        target: /var/data
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /tmp:rw,noexec,nosuid,nodev,size=96m,mode=1777
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
-    pids_limit: ${ROADSCANNER_PIDS_LIMIT:-512}
+    pids_limit: ${ROADSCANNER_PIDS_LIMIT:-384}
     mem_limit: ${ROADSCANNER_MEMORY_LIMIT:-2g}
     cpus: ${ROADSCANNER_CPU_LIMIT:-2.0}
+    shm_size: 64m
+    stop_signal: SIGTERM
     stop_grace_period: 45s
     ulimits:
       nofile:
-        soft: 65536
-        hard: 65536
+        soft: 32768
+        hard: 32768
+      nproc:
+        soft: 384
+        hard: 384
     logging:
       driver: local
       options:
-        max-size: "20m"
+        max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',3000),3); s.close()"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1',3000),3); s.close()"
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 75s
 
 volumes:
   roadscanner-data:
