@@ -43,6 +43,15 @@ pq_hybrid_keys/
 pq_sign_keys/
 sealed_store/
 env.oqs
+.env
+.env.*
+*.env
+roadscanner.env
+.roadscanner-deploy.env
+
+# Local Compose overrides
+docker-compose.override.yml
+compose.override.yaml
 
 # Logs
 *.log
