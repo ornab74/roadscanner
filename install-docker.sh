@@ -58,7 +58,7 @@ if [[ "$INSTALL_DOCKER" == "1" ]]; then
   chmod a+r /etc/apt/keyrings/docker.asc
   ARCH="$(dpkg --print-architecture)"; CODENAME="${VERSION_CODENAME:-}"
   [[ -n "$CODENAME" ]] || die "Unable to determine OS codename."
-  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/%s %s stable\n' "$ARCH" "$DIST" "$CODENAME" >/etc/apt/sources.list.d/roadscanner-docker.list
+  printf 'deb [arch=%s signed-by=%s] https://download.docker.com/linux/%s %s stable\n' "$ARCH" /etc/apt/keyrings/docker.asc "$DIST" "$CODENAME" >/etc/apt/sources.list.d/roadscanner-docker.list
   ROOTFUL_DOCKER_WAS_ACTIVE="$(systemctl is-active docker.service 2>/dev/null || true)"
   ROOTFUL_CONTAINERD_WAS_ACTIVE="$(systemctl is-active containerd.service 2>/dev/null || true)"
   apt-get update
@@ -204,7 +204,7 @@ dkr run --rm --network none --entrypoint /bin/sh "roadscanner:$SHORT" -c 'test !
 log "8/12 persist app-generated PQ keys"
 if ! grep -q '^QRS_X25519_PRIV_ENC_B64=' "$ENV_FILE"; then
   BOOT_TMP="/run/roadscanner-pq-bootstrap.$$"; : >"$BOOT_TMP"; chmod 0600 "$BOOT_TMP"
-  set +e; compose run --rm --network none -e QRS_BOOTSTRAP_SHOW=1 roadscanner python -c 'import main; print("ROADSCANNER_BOOTSTRAP_COMPLETE")' >"$BOOT_TMP" 2>&1; rc=$?; set -e
+  set +e; dkr run --rm --network none --env-file "$ENV_FILE" -e QRS_BOOTSTRAP_SHOW=1 "roadscanner:$SHORT" python -c 'import main; print("ROADSCANNER_BOOTSTRAP_COMPLETE")' >"$BOOT_TMP" 2>&1; rc=$?; set -e
   [[ $rc -eq 0 ]] || { sed -E 's/(export [A-Z0-9_]+=).*/\1<redacted>/' "$BOOT_TMP" | tail -80 >&2; die "PQ bootstrap failed"; }
   while IFS='=' read -r key value; do [[ "$key" =~ ^QRS_[A-Z0-9_]+$ ]] || continue; sed -i "/^${key}=/d" "$ENV_FILE"; printf '%s=%s\n' "$key" "$value" >>"$ENV_FILE"; done < <(grep '^export QRS_' "$BOOT_TMP" | sed -E "s/^export ([A-Z0-9_]+)='(.*)'$/\1=\2/")
   rm -f "$BOOT_TMP"; BOOT_TMP=""; chmod 0600 "$ENV_FILE"
