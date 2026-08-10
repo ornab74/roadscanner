@@ -37,14 +37,14 @@ jobs:
             cmake ninja-build build-essential pkg-config git
           rm -rf /var/lib/apt/lists/*
 
-      - name: Install compatible lock tooling
+      - name: Install supported lock tooling
         run: |
           set -euo pipefail
-          # pip-tools 7.6+ carries compatibility for the pip 26.x preparer API.
-          # Pin both tools so future pip internals cannot silently break locking.
-          python -m pip install --no-cache-dir \
-            "pip==26.2.1" \
-            "pip-tools==7.6.0"
+          # Keep pip on the API level explicitly supported by pip-tools 7.5.3.
+          # Do not upgrade pip independently: pip-tools uses pip internals.
+          python -m pip install --no-cache-dir --upgrade \
+            "pip==26.0.1" \
+            "pip-tools==7.5.3"
           python -m pip --version
           pip-compile --version
 
@@ -52,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -f requirements.txt
-          pip-compile \
+          python -m piptools compile \
             --generate-hashes \
             --resolver=backtracking \
             --output-file requirements.txt \
