@@ -2,7 +2,10 @@ services:
   roadscanner:
     image: ${ROADSCANNER_IMAGE:-roadscanner:local}
     build:
-      context: .
+      # Rootless Docker cannot traverse /root. The installer deploys the
+      # production checkout to /srv/roadscanner, so pin the build context there
+      # instead of resolving '.' relative to the caller's working directory.
+      context: ${ROADSCANNER_BUILD_CONTEXT:-/srv/roadscanner}
       dockerfile: Dockerfile
       args:
         PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
