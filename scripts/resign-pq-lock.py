@@ -21,7 +21,6 @@ MANIFEST = ROOT / "lock.manifest.json"
 SIG = ROOT / "lock.manifest.pqsig"
 PUB = ROOT / "pq_pubkey.b64"
 ALG = "ML-DSA-44"
-
 PIN_RE = re.compile(r"^([A-Za-z0-9_.-]+)==([^\s\\]+)")
 
 
@@ -65,7 +64,7 @@ def main() -> int:
         public_key = signer.generate_keypair()
         signature = signer.sign(canonical)
 
-    MANIFEST.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ",")) + "\n")
+    MANIFEST.write_text(canonical.decode() + "\n")
     SIG.write_text(base64.b64encode(signature).decode() + "\n")
     PUB.write_text(base64.b64encode(public_key).decode() + "\n")
 
