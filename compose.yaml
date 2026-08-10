@@ -1,0 +1,26 @@
+services:
+  roadscanner:
+    image: ${ROADSCANNER_IMAGE:-roadscanner:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+    container_name: ${ROADSCANNER_CONTAINER:-roadscanner}
+    restart: unless-stopped
+    ports:
+      - "${ROADSCANNER_BIND_ADDR:-127.0.0.1}:${ROADSCANNER_PORT:-3000}:3000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: ${ROADSCANNER_PIDS_LIMIT:-256}
+    mem_limit: ${ROADSCANNER_MEMORY_LIMIT:-768m}
+    cpus: ${ROADSCANNER_CPU_LIMIT:-1.0}
+    stop_grace_period: 30s
+
+volumes:
+  roadscanner-data:
