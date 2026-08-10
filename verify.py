@@ -1,8 +1,9 @@
 import base64
 import hashlib
 import json
-import sys
 import pathlib
+import sys
+
 import oqs
 
 manifest_path = pathlib.Path("lock.manifest.json")
@@ -10,22 +11,15 @@ sig_path = pathlib.Path("lock.manifest.pqsig")
 pub_path = pathlib.Path("pq_pubkey.b64")
 req_path = pathlib.Path("requirements.txt")
 
-# ---- strict file existence check ----
 for p in (manifest_path, sig_path, pub_path, req_path):
     if not p.exists():
         print(f"ERROR: missing file: {p}")
         sys.exit(2)
 
-# ---- load manifest deterministically ----
 manifest_obj = json.loads(manifest_path.read_text(encoding="utf-8"))
+canonical = json.dumps(manifest_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
-canonical = json.dumps(
-    manifest_obj,
-    sort_keys=True,
-    separators=(",", ":")
-).encode("utf-8")
 
-# ---- STRICT binary loading (NO guessing) ----
 def load_b64(path: pathlib.Path) -> bytes:
     raw = path.read_bytes().strip()
     try:
@@ -33,35 +27,43 @@ def load_b64(path: pathlib.Path) -> bytes:
     except Exception:
         return raw
 
+
+alg = manifest_obj.get("pq_alg", "ML-DSA-44")
+if alg.startswith("Dilithium"):
+    print(
+        "ERROR: legacy Dilithium lock manifest detected. liboqs 0.16 uses the "
+        "standardized ML-DSA family. Regenerate and re-sign the lock with "
+        "scripts/resign-pq-lock.py after updating requirements.txt."
+    )
+    sys.exit(6)
+
+if alg not in {"ML-DSA-44", "ML-DSA-65", "ML-DSA-87"}:
+    print(f"ERROR: unsupported PQ signature algorithm: {alg}")
+    sys.exit(6)
+
 sig = load_b64(sig_path)
 pub = load_b64(pub_path)
 
-# ---- algorithm selection ----
-alg = manifest_obj.get("pq_alg", "Dilithium2")
-
 try:
-    with oqs.Signature(alg) as signer:
-        ok = signer.verify(canonical, sig, pub)
-except Exception as e:
-    print(f"ERROR: oqs failure: {e}")
+    with oqs.Signature(alg) as verifier:
+        ok = verifier.verify(canonical, sig, pub)
+except Exception as exc:
+    print(f"ERROR: oqs failure ({alg}): {exc}")
     sys.exit(5)
 
 if not ok:
     print("PQ signature FAILED")
-    print("DEBUG:")
     print("sig bytes:", len(sig))
     print("pub bytes:", len(pub))
     print("canonical sha256:", hashlib.sha256(canonical).hexdigest())
     sys.exit(3)
 
-# ---- requirements hash check ----
 expected = manifest_obj.get("requirements_txt_sha256", "").lower().strip()
 actual = hashlib.sha256(req_path.read_bytes()).hexdigest().lower()
-
-if expected != actual:
+if not expected or expected != actual:
     print("requirements.txt mismatch")
-    print("expected:", expected)
+    print("expected:", expected or "<missing>")
     print("actual:  ", actual)
     sys.exit(4)
 
-print("OK: PQ verification passed")
+print(f"OK: PQ verification passed ({alg})")
