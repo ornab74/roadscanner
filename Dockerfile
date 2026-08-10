@@ -44,9 +44,14 @@ RUN python -m pip install --no-cache-dir --require-hashes -r requirements.txt
 
 COPY . .
 
+# Persistent application state lives under /var/data.  Create the mountpoint in
+# the image and give it to the unprivileged runtime user so a freshly-created
+# named volume inherits usable ownership instead of becoming root-only.
 RUN useradd -ms /bin/bash appuser \
- && mkdir -p /app/static \
- && chown -R appuser:appuser /app
+ && mkdir -p /app/static /var/data /var/data/models \
+ && chown -R appuser:appuser /app /var/data \
+ && chmod 0700 /var/data \
+ && chmod 0750 /var/data/models
 
 USER appuser
 EXPOSE 3000

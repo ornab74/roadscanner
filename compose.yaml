@@ -13,6 +13,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=128m
+    volumes:
+      # main.py stores SQLite, backup/rekey markers, backups, and local models
+      # under /var/data. Keep that state outside the read-only container layer.
+      - roadscanner-data:/var/data
     cap_drop:
       - ALL
     security_opt:
