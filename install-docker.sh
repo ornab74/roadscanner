@@ -236,30 +236,24 @@ fi
 log "6/14 immutable source checkout"
 install -d -m 0755 /srv
 
-# The installer itself is expected to live on the repository's main branch.
-# Deployment never builds from the caller's working tree. Instead, it fetches
-# origin/main into /srv/roadscanner and checks out the exact fetched commit in
-# detached-HEAD mode. This prevents local edits in ~/roadscanner from affecting
-# the production image.
-if [[ "$REF" != "main" ]]; then
-  die "This installer is main-branch-only. REF must be 'main'."
+[[ "$REF" == "main" ]] || die "This installer only deploys origin/main."
+
+# Production checkout is isolated from /root and owned by the rootless Docker
+# service account for the entire build/bootstrap phase. This avoids permission
+# mismatches between Git, Compose, BuildKit and rootless user namespaces.
+if [[ "$FORCE_SOURCE_RESET" == "1" ]]; then
+  rm -rf "$APP_DIR"
 fi
 
-if [[ -d "$APP_DIR/.git" && "$FORCE_SOURCE_RESET" != "1" ]]; then
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
-  # Discard deployment-tree modifications only. The user's source checkout
-  # containing this installer is never touched.
-  runu git -C "$APP_DIR" reset --hard >/dev/null 2>&1 || true
-  runu git -C "$APP_DIR" clean -ffd >/dev/null 2>&1 || true
-else
-  rm -rf "$APP_DIR"
+if [[ ! -d "$APP_DIR/.git" ]]; then
   install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$APP_DIR"
   runu git clone --no-checkout "$REPO_URL" "$APP_DIR"
+else
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
 fi
 
 runu git -C "$APP_DIR" remote set-url origin "$REPO_URL"
 runu git -C "$APP_DIR" fetch --force --tags --prune origin main
-
 TARGET="$(runu git -C "$APP_DIR" rev-parse origin/main)"
 runu git -C "$APP_DIR" checkout --detach --force "$TARGET"
 runu git -C "$APP_DIR" reset --hard "$TARGET"
@@ -272,17 +266,22 @@ SOURCE_ARCHIVE_SHA256="$(
   sha256sum | awk '{print $1}'
 )"
 
-# Normalize readability explicitly for rootless Docker/Compose.
-chown -R root:root "$APP_DIR"
-find "$APP_DIR" -xdev -type d -exec chmod 0755 {} +
-find "$APP_DIR" -xdev -type f -exec chmod 0644 {} +
-chmod 0755 "$APP_DIR"
-[[ -f "$APP_DIR/install-docker.sh" ]] && chmod 0755 "$APP_DIR/install-docker.sh"
-[[ -f "$APP_DIR/install-roadscanner-secure-main.sh" ]] && chmod 0755 "$APP_DIR/install-roadscanner-secure-main.sh"
-[[ -f "$APP_DIR/scripts/runtime-security-audit.sh" ]] && chmod 0755 "$APP_DIR/scripts/runtime-security-audit.sh"
+# Build-time source permissions: service-user owned and readable/traversable.
+# Do not convert the tree to root:root until the image has been built.
+chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
+find "$APP_DIR" -xdev -type d -exec chmod 0750 {} +
+find "$APP_DIR" -xdev -type f -exec chmod 0640 {} +
+chmod 0750 "$APP_DIR"
 
+# Restore execution where required.
+[[ -f "$APP_DIR/install-docker.sh" ]] && chmod 0750 "$APP_DIR/install-docker.sh"
+[[ -f "$APP_DIR/docker-install.sh" ]] && chmod 0750 "$APP_DIR/docker-install.sh"
+[[ -f "$APP_DIR/scripts/runtime-security-audit.sh" ]] && chmod 0750 "$APP_DIR/scripts/runtime-security-audit.sh"
+
+runu test -x "$APP_DIR" || die "Service user cannot traverse $APP_DIR"
 runu test -r "$APP_DIR/compose.yaml" || die "Service user cannot read compose.yaml"
 runu test -r "$APP_DIR/Dockerfile" || die "Service user cannot read Dockerfile"
+runu test -r "$APP_DIR/requirements.txt" || die "Service user cannot read requirements.txt"
 
 ok "Pinned origin/main commit: $COMMIT"
 
@@ -433,16 +432,16 @@ RUNTIME_DIR='$RUNTIME_SECRET_DIR'
 RUNTIME_PARENT='$RUNTIME_SECRET_PARENT'
 SERVICE_USER='$SERVICE_USER'
 install -d -m 0750 -o root -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
-install -d -m 0755 -o root -g "\$SERVICE_USER" "\$RUNTIME_DIR"
+install -d -m 0750 -o root -g "\$SERVICE_USER" "\$RUNTIME_DIR"
 find "\$RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type f -delete
 shopt -s nullglob
 for cred in "\$CRED_DIR"/*.cred; do
   name="\$(basename "\$cred" .cred)"
   tmp="\$(mktemp "\$RUNTIME_DIR/.tmp.XXXXXX")"
   systemd-creds decrypt --name="\$name" "\$cred" "\$tmp" >/dev/null
-  chown root:"\$SERVICE_USER" "\$tmp"
+  chown "\$SERVICE_USER:\$SERVICE_USER" "\$tmp"
   # Host access is blocked by the private parent. 0444 allows remapped container UID 10001 to read.
-  chmod 0444 "\$tmp"
+  chmod 0400 "\$tmp"
   mv -f "\$tmp" "\$RUNTIME_DIR/\$name"
 done
 EOF
@@ -594,6 +593,15 @@ runu test -r "$DEPLOY_ENV" || die "deploy.env unreadable"
 
 compose build --pull roadscanner
 IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "roadscanner:$SHORT")"
+
+# Image now contains the immutable application source. Lock host checkout so the
+# rootless service user can read it for Compose metadata but cannot modify it.
+chown -R root:"$SERVICE_USER" "$APP_DIR"
+find "$APP_DIR" -xdev -type d -exec chmod 0750 {} +
+find "$APP_DIR" -xdev -type f -exec chmod 0640 {} +
+chmod 0750 "$APP_DIR"
+[[ -f "$APP_DIR/scripts/runtime-security-audit.sh" ]] && chmod 0550 "$APP_DIR/scripts/runtime-security-audit.sh"
+
 
 log "11/14 application PQ bootstrap"
 # Existing encrypted QRS credentials are materialized automatically. If this is
