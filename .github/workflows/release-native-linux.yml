@@ -1,107 +1,17 @@
-name: Release native Linux runtime artifacts
+name: Build pinned native Linux artifacts (liboqs 0.14 only)
 
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Immutable release tag for native runtime artifacts"
-        required: true
-        default: "native-linux-v1"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
       image: python:3.12-slim
+
     env:
-      LIBOQS_VERSION: "0.16.0"
-      LIBOQS_SHA256: "162d5b510518ee5f285f82fa1f16402a885176e818bf1b1a4c3c91c9a2f01eae"
-      LIBOQS_PYTHON_VERSION: "0.16.0"
-      LLAMA_CPP_PYTHON_VERSION: "0.3.16"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install build toolchain
-        run: |
-          set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl cmake ninja-build build-essential pkg-config git binutils
-          rm -rf /var/lib/apt/lists/*
-          python -m pip install --no-cache-dir --upgrade pip build wheel
-
-      - name: Build verified liboqs 0.16.0 bundle
-        run: |
-          set -euo pipefail
-          mkdir -p release /tmp/liboqs-src /tmp/liboqs-stage
-          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o /tmp/liboqs.tar.gz \
-            "https://github.com/open-quantum-safe/liboqs/archive/refs/tags/${LIBOQS_VERSION}.tar.gz"
-          echo "${LIBOQS_SHA256}  /tmp/liboqs.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/liboqs.tar.gz -C /tmp/liboqs-src --strip-components=1
-          cmake -S /tmp/liboqs-src -B /tmp/liboqs-src/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DBUILD_SHARED_LIBS=ON \
-            -DOQS_USE_OPENSSL=OFF \
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-            -G Ninja
-          cmake --build /tmp/liboqs-src/build --parallel 2
-          DESTDIR=/tmp/liboqs-stage cmake --install /tmp/liboqs-src/build
-          tar -C /tmp/liboqs-stage -czf release/liboqs-${LIBOQS_VERSION}-debian-py312-x86_64.tar.gz usr/local
-
-      - name: Build Python native wheels
-        env:
-          CMAKE_ARGS: "-DGGML_NATIVE=OFF"
-          FORCE_CMAKE: "1"
-        run: |
-          set -euo pipefail
-          python -m pip wheel --no-cache-dir --no-deps --wheel-dir release \
-            "llama-cpp-python==${LLAMA_CPP_PYTHON_VERSION}"
-          python -m pip wheel --no-cache-dir --no-deps --wheel-dir release \
-            "liboqs-python==${LIBOQS_PYTHON_VERSION}"
-
-      - name: Validate native artifacts
-        run: |
-          set -euo pipefail
-          mkdir -p /tmp/native-test
-          tar -xzf release/liboqs-${LIBOQS_VERSION}-debian-py312-x86_64.tar.gz -C /tmp/native-test
-          test -s /tmp/native-test/usr/local/lib/liboqs.so
-          file /tmp/native-test/usr/local/lib/liboqs.so
-          find release -maxdepth 1 -type f -name 'llama_cpp_python-*.whl' -size +100k | grep -q .
-          find release -maxdepth 1 -type f -name 'liboqs_python-*.whl' -size +1k | grep -q .
-
-      - name: Generate release checksums
-        run: |
-          set -euo pipefail
-          cd release
-          sha256sum liboqs-*.tar.gz llama_cpp_python-*.whl liboqs_python-*.whl | sort -k2 > SHA256SUMS
-          sha256sum -c SHA256SUMS
-          sha256sum SHA256SUMS > SHA256SUMS.sha256
-          cat SHA256SUMS
-          cat SHA256SUMS.sha256
-
-      - name: Upload workflow copy
-        uses: actions/upload-artifact@v4
-        with:
-          name: roadscanner-native-linux
-          path: release/
-          retention-days: 30
-
-      - name: Publish immutable GitHub Release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release_tag }}
-        run: |
-          set -euo pipefail
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Refusing to overwrite existing immutable release tag: ${TAG}" >&2
-            exit 1
-          fi
-          gh release create "${TAG}" release/* \
-            --repo "${GITHUB_REPOSITORY}" \
-            --target "${GITHUB_SHA}" \
-            --title "Roadscanner native Linux ${TAG}" \
-            --notes "Prebuilt native runtime artifacts for Roadscanner. Built inside python:3.12-slim. Verify SHA256SUMS and independently pin SHA256SUMS.sha256 before deployment."
+      # SECURITY PIN: Roadscanner intentionally supports liboqs 0.14.0 only.
+      # Do not make this configurable from
