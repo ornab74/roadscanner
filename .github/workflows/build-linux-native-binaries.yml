@@ -1,0 +1,52 @@
+name: Build Linux native artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - requirements.in
+      - Dockerfile
+      - .github/workflows/build-linux-native-binaries.yml
+
+jobs:
+  build-native:
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim
+    env:
+      LIBOQS_VERSION: "0.16.0"
+      LIBOQS_SHA256: "162d5b510518ee5f285f82fa1f16402a885176e818bf1b1a4c3c91c9a2f01eae"
+      LLAMA_CPP_PYTHON_VERSION: "0.3.16"
+      OQS_PYTHON_VERSION: "0.16.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Debian slim x86_64 native bundle
+        env:
+          CMAKE_ARGS: "-DGGML_NATIVE=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_BMI2=OFF"
+          FORCE_CMAKE: "1"
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl cmake ninja-build build-essential pkg-config git
+          rm -rf /var/lib/apt/lists/*
+          python -m pip install --no-cache-dir --upgrade pip build wheel
+          mkdir -p binaryandwheel /tmp/liboqs-src /tmp/liboqs-install
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o /tmp/liboqs.tar.gz "https://github.com/open-quantum-safe/liboqs/archive/refs/tags/${LIBOQS_VERSION}.tar.gz"
+          echo "${LIBOQS_SHA256}  /tmp/liboqs.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/liboqs.tar.gz -C /tmp/liboqs-src --strip-components=1
+          cmake -S /tmp/liboqs-src -B /tmp/liboqs-src/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=ON -DOQS_USE_OPENSSL=OFF -DOQS_BUILD_ONLY_LIB=ON -G Ninja
+          cmake --build /tmp/liboqs-src/build --parallel 2
+          DESTDIR=/tmp/liboqs-install cmake --install /tmp/liboqs-src/build
+          tar -C /tmp/liboqs-install -czf binaryandwheel/liboqs-${LIBOQS_VERSION}-linux-x86_64-py312-slim.tar.gz usr/local
+          python -m pip wheel --no-cache-dir --no-deps --wheel-dir binaryandwheel "llama-cpp-python==${LLAMA_CPP_PYTHON_VERSION}"
+          python -m pip wheel --no-cache-dir --no-deps --wheel-dir binaryandwheel "liboqs-python==${OQS_PYTHON_VERSION}"
+          cd binaryandwheel
+          sha256sum *.whl *.tar.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          ls -lh
+      - name: Upload native bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadscanner-linux-x86_64-py312-slim-native
+          path: binaryandwheel/
+          retention-days: 30
