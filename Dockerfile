@@ -12,7 +12,7 @@ RUN set -eux; \
     tar -xzf liboqs-0.16.0-linux-x86_64-py312-slim.tar.gz -C /; \
     ldconfig; \
     python -m pip install --no-cache-dir ./liboqs_python-0.16.0-*.whl ./llama_cpp_python-0.3.16-*.whl; \
-    grep -vE '^(llama-cpp-python|liboqs-python)==' /app/requirements.txt > /tmp/requirements-runtime.txt; \
+    awk 'BEGIN{s=0} /^[^ #][^ ]*==/{s=($0 ~ /^(llama-cpp-python|liboqs-python)==/)} !s{print}' /app/requirements.txt > /tmp/requirements-runtime.txt; \
     python -m pip install --no-cache-dir --require-hashes -r /tmp/requirements-runtime.txt; \
     python /app/verify.py; \
     useradd -ms /bin/bash appuser; \
