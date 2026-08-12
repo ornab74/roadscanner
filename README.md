@@ -3,6 +3,550 @@
 https://qroadscan.com
 
 https://hub.docker.com/r/graylanquantum/quantum_road_scanner
+
+# Production installation guides
+
+Choose one installation path:
+
+- [Guide 1 — Prebuilt Docker image (recommended)](#guide-1--prebuilt-docker-image-recommended)
+- [Guide 2 — Build everything from source](#guide-2--build-everything-from-source)
+- [Cloudflare dashboard links](#cloudflare-dashboard-links)
+
+Both paths produce the same hardened runtime: rootless Docker, encrypted
+credentials, strict application PQ, a loopback-only application port, and a
+strict-PQ Cloudflare Tunnel. The difference is where the application image is
+built.
+
+| Path | Installer | Best for | Typical tradeoff |
+|---|---|---|---|
+| Prebuilt image | `install-prebuilt.sh` | Most production users and smaller servers | Fast; trusts the published Docker image |
+| Source build | `docker-install.sh` | Auditing, development, and reproducible local builds | Slow; compiles `liboqs` and installs the complete locked Python stack |
+
+<a id="guide-1--prebuilt-docker-image-recommended"></a>
+## Guide 1 — Prebuilt Docker image (recommended)
+
+This path uses [`graylanjanulis/roadscanner:latest`](https://hub.docker.com/r/graylanjanulis/roadscanner).
+It avoids compiling Open Quantum Safe libraries, `llama-cpp-python`, and the
+rest of the application dependency stack on the server. The installer pulls the
+tag, resolves the registry digest, and records that immutable digest in the
+deployment configuration. It then verifies ML-KEM-768 and ML-DSA-87 inside the
+downloaded image before starting Roadscanner.
+
+### Prebuilt Stage 1: prepare accounts and information
+
+You need:
+
+- a new Ubuntu or Debian server and its IP address;
+- root SSH access;
+- a domain using Cloudflare nameservers;
+- a [Cloudflare account](https://dash.cloudflare.com/);
+- OpenAI and xAI/Grok API keys;
+- an admin username;
+- an admin password with 16+ characters, uppercase and lowercase letters, a
+  number, and a special character.
+
+The installer hides API-key and password input. It never stores them in Docker
+image metadata.
+
+### Prebuilt Stage 2: run the complete installation block
+
+Log in to the server as root, then copy and paste this entire block:
+
+```bash
+set -Eeuo pipefail
+
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates git
+
+git clone https://github.com/ornab74/roadscanner.git /root/roadscanner-installer
+
+chmod 0755 \
+  /root/roadscanner-installer/install-prebuilt.sh \
+  /root/roadscanner-installer/docker-install.sh \
+  /root/roadscanner-installer/scripts/install-cloudflared-docker.sh
+
+bash /root/roadscanner-installer/install-prebuilt.sh
+```
+
+This installs the bootstrap requirements, downloads Roadscanner, applies the
+needed executable permissions, and launches the recommended prebuilt-image
+installer. Run it from a normal interactive root terminal so hidden credential
+prompts can read from `/dev/tty`.
+
+Enter each requested value:
+
+1. **Public hostname** — for example, `scanner.example.com`.
+2. **Certbot renewal email** — your administrative email.
+3. **OPENAI_API_KEY** — hidden while pasted.
+4. **xAI/Grok API key** — hidden while pasted.
+5. **Admin username** — used on Roadscanner's login page.
+6. **Admin password** — hidden and validated against the 16-character policy.
+7. **Confirm admin password** — enter the same password again.
+
+The installer performs the following work automatically:
+
+- installs Docker's rootless prerequisites;
+- creates a dedicated, locked `roadscanner` service account;
+- checks out a clean production repository under `/srv/roadscanner`;
+- encrypts credentials using TPM2 when available, otherwise a host-bound
+  `systemd-creds` key;
+- pulls `graylanjanulis/roadscanner:latest` as the service account;
+- resolves and pins the pulled image's `sha256` repository digest;
+- tests ML-KEM-768 and ML-DSA-87 inside that exact image;
+- creates persistent application storage without placing it in the image;
+- starts Roadscanner on `127.0.0.1:3000` only;
+- checks health, dropped capabilities, and `no-new-privileges`.
+
+The image contains application code and dependencies. Your API keys, admin
+password, generated QRS keys, Cloudflare token, and database remain external to
+the image.
+
+### Prebuilt Stage 3: verify the application
+
+```bash
+/usr/local/sbin/roadscanner-health
+```
+
+```bash
+/usr/local/bin/roadscanner-docker ps
+```
+
+```bash
+/usr/local/bin/roadscanner-docker exec roadscanner python -c "import oqs; oqs.KeyEncapsulation('ML-KEM-768'); oqs.Signature('ML-DSA-87'); print('PQ application runtime verified')"
+```
+
+Wait for `roadscanner` to report `healthy` before publishing it.
+
+### Prebuilt Stage 4: create a Cloudflare Tunnel
+
+Open [Cloudflare Networking > Tunnels](https://dash.cloudflare.com/?to=/:account/networks/tunnels)
+and select **Create a tunnel**.
+
+1. Choose the `cloudflared` connector.
+2. Name the tunnel, for example `roadscanner-production`.
+3. Select **Create Tunnel**.
+4. Select Linux and your server architecture on the connector page.
+5. Copy only the long token from Cloudflare's displayed command. It commonly
+   begins with `eyJ`.
+6. Do not run Cloudflare's generic command; the repository provides a hardened
+   container configuration.
+
+The token grants permission to connect to this tunnel. Keep it secret.
+
+### Prebuilt Stage 5: launch strict-PQ cloudflared
+
+```bash
+/srv/roadscanner/scripts/install-cloudflared-docker.sh
+```
+
+Paste the tunnel token at the hidden prompt. The helper stores it privately at
+`/home/roadscanner/.config/roadscanner/cloudflared/tunnel-token` with mode
+`0400`, then starts cloudflared with strict QUIC post-quantum transport.
+
+### Prebuilt Stage 6: publish the hostname
+
+In [Cloudflare Tunnels](https://dash.cloudflare.com/?to=/:account/networks/tunnels),
+select your tunnel, then **Routes > Add route > Published application**.
+
+Enter:
+
+- **Hostname:** your chosen subdomain and domain, such as
+  `scanner.example.com`.
+- **Service URL:** `http://roadscanner:3000`
+
+Select **Add route**. Do not use `localhost`, the server's public IP, or HTTPS
+for the service URL. `roadscanner` is the private container name on the shared
+Docker network.
+
+### Prebuilt Stage 7: verify Cloudflare and log in
+
+```bash
+/usr/local/bin/roadscanner-docker inspect cloudflared --format '{{json .Config.Cmd}}'
+```
+
+The output must contain `--protocol`, `quic`, and `--post-quantum`.
+
+```bash
+/usr/local/bin/roadscanner-docker logs --tail 100 cloudflared
+```
+
+Open your real hostname:
+
+```text
+https://scanner.example.com/login
+```
+
+Sign in with the admin credentials entered during installation.
+
+### Prebuilt Stage 8: final checks
+
+```bash
+find /etc/roadscanner/credentials -maxdepth 1 -type f -name '*.cred' -printf '%u:%g %m %f\n'
+```
+
+Encrypted credential files should report `root:root 600`.
+
+```bash
+/usr/local/bin/roadscanner-docker port roadscanner
+```
+
+The application mapping should begin with `127.0.0.1:3000`.
+
+```bash
+/usr/local/bin/roadscanner-docker inspect roadscanner --format 'Image={{.Config.Image}} CapDrop={{json .HostConfig.CapDrop}} Security={{json .HostConfig.SecurityOpt}}'
+```
+
+The image should be an `@sha256:` digest, capabilities should include `ALL`,
+and security options should include `no-new-privileges`.
+
+<a id="guide-2--build-everything-from-source"></a>
+## Guide 2 — Build everything from source
+
+This guide starts with a new Ubuntu or Debian server and finishes with a working
+Roadscanner website behind Cloudflare. Follow the sections in order.
+
+The finished deployment has two post-quantum layers:
+
+1. Roadscanner encrypts application data with hybrid X25519 + ML-KEM-768 and
+   signs envelopes with ML-DSA-87. The installer enables strict mode and refuses
+   to start if these algorithms are unavailable.
+2. `cloudflared` connects the server to Cloudflare using strict post-quantum
+   QUIC. It cannot silently fall back to non-PQ HTTP/2.
+
+Strict tunnel mode requires outbound UDP port `7844`. Browser-to-Cloudflare PQ
+support additionally depends on each visitor's browser and TLS capabilities.
+
+## Stage 1: collect what you need
+
+Have these ready before starting:
+
+- a new Ubuntu or Debian server with its public IP address;
+- root access through SSH;
+- a domain using Cloudflare DNS;
+- an OpenAI API key;
+- an xAI/Grok API key;
+- a planned admin username;
+- a strong admin password.
+
+The admin password must contain at least 16 characters, including an uppercase
+letter, lowercase letter, number, and special character. For example, use the
+structure of `Several-Random-Words-47!`, but do not use that exact password.
+
+## Stage 2: run the complete source-build block
+
+Log in to the server as root, then copy and paste this entire block:
+
+```bash
+set -Eeuo pipefail
+
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates git
+
+git clone https://github.com/ornab74/roadscanner.git /root/roadscanner-installer
+
+chmod 0755 \
+  /root/roadscanner-installer/docker-install.sh \
+  /root/roadscanner-installer/scripts/install-cloudflared-docker.sh
+
+bash /root/roadscanner-installer/docker-install.sh
+```
+
+This installs the bootstrap requirements, downloads Roadscanner, applies the
+needed executable permissions, and launches the full source-build installer.
+Run it from a normal interactive root terminal so hidden credential prompts can
+read from `/dev/tty`.
+
+The installation can take several minutes because it installs rootless Docker,
+compiles `liboqs`, verifies the dependency lock, builds the application image,
+generates cryptographic keys, and waits for the health check.
+
+Respond to each prompt as follows:
+
+1. **Public hostname:** enter the final hostname, such as
+   `scanner.example.com`.
+2. **Certbot renewal email:** enter an administrative email address. The
+   Cloudflare Tunnel does not require an exposed origin certificate, but the
+   installer records the deployment hostname and certificate contact settings.
+3. **OPENAI_API_KEY:** paste the OpenAI key. Input is hidden.
+4. **xAI/Grok API key:** paste the xAI key. Input is hidden.
+5. **Admin username:** enter the username you will use at `/login`.
+6. **Admin password:** enter a password meeting the 16-character policy. Input
+   is hidden.
+7. **Confirm admin password:** enter the same password again.
+
+The installer then:
+
+- creates a locked-down `roadscanner` service account;
+- configures rootless Docker for that account;
+- installs the production source at `/srv/roadscanner`;
+- encrypts credentials at rest with `systemd-creds`;
+- materializes read-only runtime secrets beneath a private `/run` directory;
+- builds and verifies ML-KEM-768 and ML-DSA-87 in the final image;
+- enables `STRICT_PQ2_ONLY=1`;
+- starts Roadscanner only on `127.0.0.1:3000`;
+- verifies container hardening and application health.
+
+## Stage 3: verify Roadscanner locally
+
+Run the installed health check:
+
+```bash
+/usr/local/sbin/roadscanner-health
+```
+
+Display the rootless containers:
+
+```bash
+/usr/local/bin/roadscanner-docker ps
+```
+
+The `roadscanner` container should show `healthy`. First startup can take a
+little longer while post-quantum keys are bootstrapped.
+
+Confirm that the container has the required PQ algorithms:
+
+```bash
+/usr/local/bin/roadscanner-docker exec roadscanner python -c "import oqs; oqs.KeyEncapsulation('ML-KEM-768'); oqs.Signature('ML-DSA-87'); print('PQ application runtime verified')"
+```
+
+Do not continue to Cloudflare until Roadscanner is healthy.
+
+## Stage 4: create the Cloudflare Tunnel
+
+Open the [Cloudflare dashboard](https://dash.cloudflare.com/) in your browser.
+Cloudflare's current tunnel workflow is under **Networking > Tunnels**.
+
+1. Select **Create a tunnel**.
+2. Choose the `cloudflared` connector when asked.
+3. Name it something recognizable, such as `roadscanner-production`.
+4. Select **Create Tunnel**.
+5. On the connector setup page, choose Linux and the appropriate architecture.
+6. Cloudflare displays an installation command containing a long token that
+   begins with text similar to `eyJ`.
+7. Copy only that token. Do not run Cloudflare's displayed installation command;
+   this repository supplies a hardened Docker-based connector instead.
+
+Treat the tunnel token like a password. Anyone who has it can run a connector
+for the tunnel. Do not paste it into chat, logs, or the README.
+
+## Stage 5: install strict-PQ cloudflared
+
+Return to the server terminal and run:
+
+```bash
+/srv/roadscanner/scripts/install-cloudflared-docker.sh
+```
+
+At the hidden `Cloudflare tunnel token` prompt, paste the token and press Enter.
+Nothing appears while you paste; that is expected.
+
+The helper stores the token at:
+
+```text
+/home/roadscanner/.config/roadscanner/cloudflared/tunnel-token
+```
+
+The directory is private and the token file uses mode `0400`. The helper then
+starts a read-only, capability-free `cloudflared` container on Roadscanner's
+Docker network with:
+
+```text
+--protocol quic run --post-quantum
+```
+
+If you run the helper again later, it securely reuses the saved token.
+
+## Stage 6: publish the website in Cloudflare
+
+Return to **Networking > Tunnels** in the Cloudflare dashboard:
+
+1. Select the Roadscanner tunnel.
+2. Open **Routes**.
+3. Select **Add route**.
+4. Select **Published application**.
+5. Enter the subdomain, such as `scanner`.
+6. Select your Cloudflare-managed domain, such as `example.com`.
+7. Set **Service URL** exactly to:
+
+   ```text
+   http://roadscanner:3000
+   ```
+
+8. Select **Add route**.
+
+Use `roadscanner`, not `localhost`, in the service URL. The Cloudflare and
+Roadscanner containers communicate through their shared private Docker network.
+For a full Cloudflare DNS setup, adding the published route also creates the
+required proxied DNS record.
+
+The published hostname is public unless you separately configure Cloudflare
+Access. Roadscanner still requires its own application login.
+
+## Stage 7: verify strict post-quantum transport
+
+Check both containers:
+
+```bash
+/usr/local/bin/roadscanner-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+```
+
+Inspect the exact cloudflared launch arguments:
+
+```bash
+/usr/local/bin/roadscanner-docker inspect cloudflared --format '{{json .Config.Cmd}}'
+```
+
+The output must include `--protocol`, `quic`, and `--post-quantum`.
+
+Review the tunnel logs:
+
+```bash
+/usr/local/bin/roadscanner-docker logs --tail 100 cloudflared
+```
+
+The logs should show successful QUIC connections. Cloudflare Tunnel normally
+uses hybrid post-quantum key agreement but may fall back; the explicit
+`--post-quantum` option used here disables that fallback.
+
+## Stage 8: open Roadscanner and log in
+
+Open your configured hostname:
+
+```text
+https://scanner.example.com/login
+```
+
+Replace the example hostname with your real hostname. Sign in with the admin
+username and password entered during Stage 2.
+
+Your server does not need public inbound ports 80 or 443 for this setup.
+Cloudflare Tunnel makes an outbound connection and sends requests over the
+private Docker network.
+
+## Stage 9: final security checks
+
+Verify encrypted credential ownership and permissions without printing values:
+
+```bash
+find /etc/roadscanner/credentials -maxdepth 1 -type f -name '*.cred' -printf '%u:%g %m %f\n'
+```
+
+Each encrypted credential should show `root:root 600`.
+
+Verify that Roadscanner is only bound to loopback:
+
+```bash
+/usr/local/bin/roadscanner-docker port roadscanner
+```
+
+The result should begin with `127.0.0.1:3000`.
+
+Verify container hardening:
+
+```bash
+/usr/local/bin/roadscanner-docker inspect roadscanner --format 'Capabilities dropped={{json .HostConfig.CapDrop}} Security={{json .HostConfig.SecurityOpt}}'
+```
+
+The output should include capability `ALL` and `no-new-privileges`.
+
+## Installation troubleshooting
+
+### Roadscanner stays in `health: starting`
+
+The initial PQ bootstrap can take time. Watch the logs:
+
+```bash
+/usr/local/bin/roadscanner-docker logs -f roadscanner
+```
+
+Press `Ctrl+C` after startup completes. If the logs report `Weak admin_pass`,
+the supplied credential did not satisfy the stated policy; correct it before
+trying to start the application again. During a normal fresh installation, the
+installer keeps prompting until the password passes validation and confirmation.
+
+### Cloudflare displays Bad Gateway
+
+Confirm Roadscanner is healthy:
+
+```bash
+/usr/local/bin/roadscanner-docker ps --filter name=roadscanner
+```
+
+Check application logs:
+
+```bash
+/usr/local/bin/roadscanner-docker logs --tail 150 roadscanner
+```
+
+After Roadscanner becomes healthy, restart the connector:
+
+```bash
+/usr/local/bin/roadscanner-docker restart cloudflared
+```
+
+Also confirm that the Cloudflare Service URL is
+`http://roadscanner:3000`—not `localhost` and not HTTPS.
+
+### Cloudflared cannot establish QUIC
+
+Strict PQ mode requires outbound UDP port `7844`. If UFW blocks outbound
+traffic, permit it:
+
+```bash
+ufw allow out 7844/udp
+```
+
+Restart the connector:
+
+```bash
+/usr/local/bin/roadscanner-docker restart cloudflared
+```
+
+If the hosting provider or upstream network blocks UDP 7844, strict mode
+intentionally stays offline instead of downgrading to HTTP/2.
+
+### Useful commands after installation
+
+Application health:
+
+```bash
+/usr/local/sbin/roadscanner-health
+```
+
+Roadscanner logs:
+
+```bash
+/usr/local/bin/roadscanner-docker logs --tail 100 roadscanner
+```
+
+Cloudflare logs:
+
+```bash
+/usr/local/bin/roadscanner-docker logs --tail 100 cloudflared
+```
+
+Restart Roadscanner:
+
+```bash
+/usr/local/bin/roadscanner-compose restart roadscanner
+```
+
+Restart Cloudflare Tunnel:
+
+```bash
+/usr/local/bin/roadscanner-docker restart cloudflared
+```
+
+<a id="cloudflare-dashboard-links"></a>
+## Cloudflare dashboard links
+
+- [Cloudflare dashboard](https://dash.cloudflare.com/)
+- [Networking > Tunnels](https://dash.cloudflare.com/?to=/:account/networks/tunnels)
+- [Official tunnel setup guide](https://developers.cloudflare.com/tunnel/setup/)
+- [Official tunnel-token guide](https://developers.cloudflare.com/tunnel/advanced/tunnel-tokens/)
+- [Official run parameters and `--post-quantum`](https://developers.cloudflare.com/tunnel/advanced/run-parameters/)
+- [Cloudflare connectivity and firewall requirements](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)
+
 # Crypto, Quantum, and the Human Project: A Tour of the QRS App Revolution from Pre Quantum to a Post-Quantum, AI-Secured Civilization
 https://www.twitch.tv/videos/2547848897
 https://www.twitch.tv/freedomdao/clip/ToughBoldButterDansGame-EY9h7a5O_Yal5Eon
@@ -1907,4 +2451,3 @@ sudo bash <(curl -Ss https://get.netdata.cloud/kickstart.sh)
 ---
 
 ## <a name="security"></a>7. Security Model + Hardening Commandments + Threat Model
-

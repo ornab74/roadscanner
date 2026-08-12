@@ -306,6 +306,10 @@ compose config >/dev/null || die "Compose configuration invalid"
 compose build --pull roadscanner
 IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "roadscanner:$SHORT")"
 
+dkr run --rm --network none "roadscanner:$SHORT" python -c \
+  "import oqs; oqs.KeyEncapsulation('ML-KEM-768'); oqs.Signature('ML-DSA-87'); print('PQ runtime verified: ML-KEM-768 + ML-DSA-87')" \
+  || die "Final image is missing required post-quantum algorithms"
+
 dkr run --rm --network none \
   --entrypoint /bin/sh \
   -v "$RUNTIME_SECRET_DIR:/run/roadscanner-secrets:ro" \

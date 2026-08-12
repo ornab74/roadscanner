@@ -41,6 +41,7 @@ CPU_LIMIT="${CPU_LIMIT:-1.0}"
 PIDS_LIMIT="${PIDS_LIMIT:-256}"
 
 PYTHON_IMAGE_TAG="${PYTHON_IMAGE_TAG:-python:3.12-slim}"
+PREBUILT_IMAGE="${PREBUILT_IMAGE:-}"
 INSTALL_DOCKER="${INSTALL_DOCKER:-1}"
 HARDEN_HOST="${HARDEN_HOST:-1}"
 REQUIRE_APPARMOR="${REQUIRE_APPARMOR:-auto}"
@@ -636,20 +637,33 @@ EOF
 chown root:"$SERVICE_USER" "$CONFIG_DIR/compose.secure.yaml"
 chmod 0640 "$CONFIG_DIR/compose.secure.yaml"
 
-log "10/14 immutable base-image resolution + image build"
-dkr pull "$PYTHON_IMAGE_TAG"
-PYTHON_IMAGE_DIGEST="$(
-  dkr image inspect "$PYTHON_IMAGE_TAG" \
-    --format '{{index .RepoDigests 0}}' 2>/dev/null || true
-)"
-[[ "$PYTHON_IMAGE_DIGEST" == *@sha256:* ]] \
-  || die "Could not resolve immutable digest for $PYTHON_IMAGE_TAG"
+if [[ -n "$PREBUILT_IMAGE" ]]; then
+  log "10/14 immutable prebuilt image resolution"
+  dkr pull "$PREBUILT_IMAGE"
+  DEPLOY_IMAGE="$(
+    dkr image inspect "$PREBUILT_IMAGE" \
+      --format '{{index .RepoDigests 0}}' 2>/dev/null || true
+  )"
+  [[ "$DEPLOY_IMAGE" == *@sha256:* ]] \
+    || die "Could not resolve immutable digest for $PREBUILT_IMAGE"
+  PYTHON_IMAGE_DIGEST="$PYTHON_IMAGE_TAG"
+else
+  log "10/14 immutable base-image resolution + image build"
+  dkr pull "$PYTHON_IMAGE_TAG"
+  PYTHON_IMAGE_DIGEST="$(
+    dkr image inspect "$PYTHON_IMAGE_TAG" \
+      --format '{{index .RepoDigests 0}}' 2>/dev/null || true
+  )"
+  [[ "$PYTHON_IMAGE_DIGEST" == *@sha256:* ]] \
+    || die "Could not resolve immutable digest for $PYTHON_IMAGE_TAG"
+  DEPLOY_IMAGE="roadscanner:$SHORT"
+fi
 
 BUILD_DATE="$(date -u --iso-8601=seconds)"
 cat >"$DEPLOY_ENV" <<EOF
 ROADSCANNER_ENV_FILE=$PUBLIC_ENV
 ROADSCANNER_BUILD_CONTEXT=$APP_DIR
-ROADSCANNER_IMAGE=roadscanner:$SHORT
+ROADSCANNER_IMAGE=$DEPLOY_IMAGE
 ROADSCANNER_CONTAINER=roadscanner
 ROADSCANNER_BIND_ADDR=$BIND_ADDR
 ROADSCANNER_PORT=$PORT
@@ -679,13 +693,19 @@ runu test -r "$APP_DIR/compose.yaml" || die "compose.yaml unreadable"
 runu test -r "$CONFIG_DIR/compose.secure.yaml" || die "secure compose override unreadable"
 runu test -r "$DEPLOY_ENV" || die "deploy.env unreadable"
 
-compose build --pull roadscanner
-IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "roadscanner:$SHORT")"
+if [[ -z "$PREBUILT_IMAGE" ]]; then
+  compose build --pull roadscanner
+fi
+IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "$DEPLOY_IMAGE")"
+
+dkr run --rm --network none "$DEPLOY_IMAGE" python -c \
+  "import oqs; oqs.KeyEncapsulation('ML-KEM-768'); oqs.Signature('ML-DSA-87'); print('PQ runtime verified: ML-KEM-768 + ML-DSA-87')" \
+  || die "Final image is missing required post-quantum algorithms"
 
 dkr run --rm --network none \
   --entrypoint /bin/sh \
   -v "$RUNTIME_SECRET_DIR:/run/roadscanner-secrets:ro" \
-  "roadscanner:$SHORT" -c '
+  "$DEPLOY_IMAGE" -c '
     set -eu
     for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
       test -s "/run/roadscanner-secrets/$required" || exit 78
@@ -706,7 +726,7 @@ if [[ ! -s "$CRED_DIR/QRS_X25519_PRIV_ENC_B64.cred" ]]; then
     --env-file "$PUBLIC_ENV" \
     -e QRS_BOOTSTRAP_SHOW=1 \
     --entrypoint /bin/sh \
-    "roadscanner:$SHORT" \
+    "$DEPLOY_IMAGE" \
     -c '
       set -eu
       for f in /run/roadscanner-secrets/*; do
@@ -863,7 +883,7 @@ Ref: origin/main (detached at fetched commit)
 Commit: $COMMIT
 Source archive SHA256: $SOURCE_ARCHIVE_SHA256
 Base image: $PYTHON_IMAGE_DIGEST
-Image: roadscanner:$SHORT
+Image: $DEPLOY_IMAGE
 Image ID: $IMAGE_ID
 Service user: $SERVICE_USER
 Application directory: $APP_DIR
@@ -888,7 +908,7 @@ passwd -l "$SERVICE_USER" >/dev/null 2>&1 || true
 printf '\nROADSCANNER HARDENED DEPLOYMENT READY\n'
 printf 'URL:       http://%s:%s\n' "$BIND_ADDR" "$PORT"
 printf 'Commit:    %s\n' "$COMMIT"
-printf 'Image:     roadscanner:%s\n' "$SHORT"
+printf 'Image:     %s\n' "$DEPLOY_IMAGE"
 printf 'Secrets:   encrypted at %s (%s)\n' "$CRED_DIR" "$CRED_KEY_MODE"
 printf 'Runtime:   %s (volatile)\n' "$RUNTIME_SECRET_DIR"
 printf 'Manifest:  %s\n' "$MANIFEST"
