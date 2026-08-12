@@ -9,7 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OQS_INSTALL_PATH=/usr/local \
-    LD_LIBRARY_PATH=/usr/local/lib
+    LD_LIBRARY_PATH=/usr/local/lib \
+    QRS_DATA_DIR=/var/data
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates cmake curl ninja-build pkg-config \
@@ -45,7 +46,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OQS_INSTALL_PATH=/usr/local \
-    LD_LIBRARY_PATH=/usr/local/lib
+    LD_LIBRARY_PATH=/usr/local/lib \
+    QRS_DATA_DIR=/var/data
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libgomp1 \

@@ -13,15 +13,16 @@ services:
         PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
     container_name: ${ROADSCANNER_CONTAINER:-roadscanner}
     restart: unless-stopped
+    environment:
+      QRS_DATA_DIR: ${QRS_DATA_DIR:-/var/data}
     ports:
       - "${ROADSCANNER_BIND_ADDR:-127.0.0.1}:${ROADSCANNER_PORT:-3000}:3000"
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=128m
     volumes:
-      # main.py stores SQLite, backup/rekey markers, backups, and local models
-      # under /var/data. Keep that state outside the read-only container layer.
-      - roadscanner-data:/var/data
+      # QRS_DATA_DIR controls both the application root and volume target.
+      - "roadscanner-data:${QRS_DATA_DIR:-/var/data}"
     cap_drop:
       - ALL
     security_opt:

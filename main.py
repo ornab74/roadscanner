@@ -759,11 +759,34 @@ class MultiKeySessionInterface(SecureCookieSessionInterface):
 app.session_interface = MultiKeySessionInterface()
 
 BASE_DIR = Path(__file__).parent.resolve()
+
+# Canonical persistent-storage layout. QRS_DATA_DIR moves the complete storage
+# tree; specific variables may place individual classes of data elsewhere.
+DATA_DIR = Path(os.getenv("QRS_DATA_DIR", "/var/data")).expanduser()
+DB_PATH = Path(os.getenv("QRS_DB_PATH", str(DATA_DIR / "secure_data.db"))).expanduser()
+SEALED_DIR = Path(os.getenv("QRS_SEALED_DIR", str(DATA_DIR / "sealed_store"))).expanduser()
+MODELS_DIR = Path(os.getenv("QRS_MODELS_DIR", str(DATA_DIR / "models"))).expanduser()
+BACKUP_DIR = Path(os.getenv("QRS_BACKUP_DIR", str(DATA_DIR / "backups"))).expanduser()
+BLOG_BACKUP_PATH = Path(
+    os.getenv("BLOG_BACKUP_PATH", str(BACKUP_DIR / "blog_posts_backup.json"))
+).expanduser()
+
+for _persistent_dir in {
+    DATA_DIR,
+    DB_PATH.parent,
+    SEALED_DIR,
+    MODELS_DIR,
+    BACKUP_DIR,
+    BLOG_BACKUP_PATH.parent,
+}:
+    _persistent_dir.mkdir(parents=True, exist_ok=True)
+
+# Internal compatibility alias used throughout the existing code.
+DB_FILE = DB_PATH
 RATE_LIMIT_COUNT = 13
 RATE_LIMIT_WINDOW = timedelta(minutes=15)
 
 config_lock = threading.Lock()
-DB_FILE = Path('/var/data') / 'secure_data.db'
 EXPIRATION_HOURS = 65
 
 app.config.update(SESSION_COOKIE_SECURE=True,
@@ -2468,7 +2491,6 @@ def shamir_recover(shares: list[tuple[int, bytes]], t: int) -> bytes:
     return bytes(out)
 
 
-SEALED_DIR   = Path(os.getenv("QRS_SEALED_DIR", "/var/data/sealed_store"))
 SEALED_FILE  = SEALED_DIR / "sealed.json.enc"
 SEALED_VER   = "SS1"
 SHARDS_ENV   = "QRS_SHARDS_JSON"
@@ -3633,7 +3655,7 @@ def create_tables():
     run_blog_signature_cleanup_once()
     print("Database tables created and verified successfully.")
 
-BLOG_SIG_CLEANUP_MARKER = Path('/var/data') / '.blog_sig_cleanup_v1.done'
+BLOG_SIG_CLEANUP_MARKER = DATA_DIR / '.blog_sig_cleanup_v1.done'
 
 def run_blog_signature_cleanup_once() -> None:
     if BLOG_SIG_CLEANUP_MARKER.exists():
@@ -3815,7 +3837,7 @@ def sanitize_tags_csv(raw: str, max_tags: int = 50) -> str:
     return out[:500]
 
 BLOG_ENC_PREFIX = "BLG1."
-BLOG_REKEY_MARKER = Path('/var/data') / '.blog_rekey_v2.done'
+BLOG_REKEY_MARKER = DATA_DIR / '.blog_rekey_v2.done'
 
 
 def _blog_ctx(field: str, rid: Optional[int] = None) -> dict:
@@ -5114,7 +5136,7 @@ def admin_blog_api_delete():
 
 
 def _blog_backup_path() -> Path:
-    p = Path(os.getenv("BLOG_BACKUP_PATH", "/var/data/blog_posts_backup.json"))
+    p = BLOG_BACKUP_PATH
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
@@ -6307,8 +6329,8 @@ _LLAMA_MODEL = None
 _LLAMA_MODEL_LOCK = threading.Lock()
 
 def _llama_models_dir() -> "Path":
-    base = os.getenv("LLAMA_MODELS_DIR", "/var/data/models")
-    p = Path(base)
+    # Legacy LLAMA_MODELS_DIR remains supported; QRS_MODELS_DIR is canonical.
+    p = Path(os.getenv("LLAMA_MODELS_DIR", str(MODELS_DIR))).expanduser()
     try:
         p.mkdir(parents=True, exist_ok=True)
     except Exception:
