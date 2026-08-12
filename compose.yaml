@@ -32,6 +32,7 @@ services:
     stop_grace_period: 30s
 
   nginx:
+    profiles: ["direct-tls"]
     image: nginx:1.27-alpine
     container_name: ${NGINX_CONTAINER:-roadscanner-nginx}
     restart: unless-stopped
@@ -52,20 +53,21 @@ services:
       - /var/run:rw,nosuid,nodev,noexec
       - /tmp:rw,nosuid,nodev,noexec
     environment:
-      CERTBOT_DOMAIN: ${CERTBOT_DOMAIN:?Set CERTBOT_DOMAIN to the public hostname}
+      CERTBOT_DOMAIN: ${CERTBOT_DOMAIN:-localhost}
     entrypoint: ["/bin/sh", "/opt/roadscanner/nginx-entrypoint.sh"]
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
 
   certbot:
+    profiles: ["direct-tls"]
     image: certbot/certbot:v3.0.1
     container_name: ${CERTBOT_CONTAINER:-roadscanner-certbot}
     restart: unless-stopped
     depends_on: [nginx]
     environment:
-      CERTBOT_DOMAIN: ${CERTBOT_DOMAIN:?Set CERTBOT_DOMAIN to the public hostname}
-      CERTBOT_EMAIL: ${CERTBOT_EMAIL:?Set CERTBOT_EMAIL for renewal notices}
+      CERTBOT_DOMAIN: ${CERTBOT_DOMAIN:-localhost}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-root@localhost}
     volumes:
       - letsencrypt:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot

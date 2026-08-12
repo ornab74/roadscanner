@@ -247,6 +247,10 @@ ROADSCANNER_PIDS_LIMIT=$PIDS_LIMIT
 ROADSCANNER_VCS_REF=$COMMIT
 ROADSCANNER_BUILD_DATE=$BUILD_DATE
 PYTHON_IMAGE=$PYTHON_IMAGE_DIGEST
+# Inert defaults satisfy older Compose files. The installer starts only the
+# roadscanner service; Nginx and Certbot remain disabled.
+CERTBOT_DOMAIN=localhost
+CERTBOT_EMAIL=root@localhost
 EOF
 chown root:"$SERVICE_USER" "$DEPLOY_ENV"; chmod 0640 "$DEPLOY_ENV"
 compose(){ runu env DOCKER_HOST="unix:///run/user/$UIDN/docker.sock" docker compose --project-directory "$APP_DIR" --env-file "$DEPLOY_ENV" -f "$APP_DIR/compose.yaml" -f "$CONFIG_DIR/compose.secure.yaml" "$@"; }
@@ -272,4 +276,6 @@ dkr inspect roadscanner --format '{{json .HostConfig.CapDrop}}' | grep -q ALL ||
 ok "Roadscanner installed from $COMMIT"
 ok "Image: $IMAGE_ID"
 ok "Listening only on $BIND_ADDR:$PORT"
-printf '\nNext: terminate TLS in a hardened reverse proxy and expose only ports 80/443.\n'
+printf '\nNext: create a Cloudflare Tunnel, then run:\n'
+printf '  sudo %s/scripts/install-cloudflared-docker.sh\n' "$APP_DIR"
+printf 'Set its public-hostname service URL to http://roadscanner:3000.\n'

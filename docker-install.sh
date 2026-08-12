@@ -574,6 +574,10 @@ ROADSCANNER_PIDS_LIMIT=$PIDS_LIMIT
 ROADSCANNER_VCS_REF=$COMMIT
 ROADSCANNER_BUILD_DATE=$BUILD_DATE
 PYTHON_IMAGE=$PYTHON_IMAGE_DIGEST
+# Inert defaults satisfy older Compose files. The installer starts only the
+# roadscanner service; Nginx and Certbot remain disabled.
+CERTBOT_DOMAIN=localhost
+CERTBOT_EMAIL=root@localhost
 EOF
 chown root:"$SERVICE_USER" "$DEPLOY_ENV"
 chmod 0640 "$DEPLOY_ENV"
@@ -805,3 +809,6 @@ printf '  roadscanner-docker ps\n'
 printf '  roadscanner-docker logs -f roadscanner\n'
 printf '  roadscanner-compose restart roadscanner\n'
 printf '  ss -lntp | grep :%s\n' "$PORT"
+printf '\nCloudflare Tunnel (optional):\n'
+printf '  sudo %s/scripts/install-cloudflared-docker.sh\n' "$APP_DIR"
+printf 'Set its public-hostname service URL to http://roadscanner:3000.\n'
