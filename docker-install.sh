@@ -160,7 +160,7 @@ done
 UIDN="$(id -u "$SERVICE_USER")"
 GIDN="$(id -g "$SERVICE_USER")"
 HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
-RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
+RUNTIME_SECRET_PARENT="/run/roadscanner-private"
 RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
 
 loginctl enable-linger "$SERVICE_USER"
@@ -391,15 +391,26 @@ if [[ -c /dev/tpmrm0 || -c /dev/tpm0 ]]; then
 fi
 ok "Credential-at-rest mode: $CRED_KEY_MODE"
 
+if [[ "$CRED_KEY_MODE" == "tpm2" ]]; then
+  MATERIALIZER_DEVICE_POLICY=$'PrivateDevices=no\nDevicePolicy=closed'
+  [[ -c /dev/tpmrm0 ]] && MATERIALIZER_DEVICE_POLICY+=$'\nDeviceAllow=/dev/tpmrm0 rw'
+  [[ -c /dev/tpm0 ]] && MATERIALIZER_DEVICE_POLICY+=$'\nDeviceAllow=/dev/tpm0 rw'
+else
+  MATERIALIZER_DEVICE_POLICY='PrivateDevices=yes'
+fi
+
 encrypt_credential() {
   local name="$1"
   local value="$2"
   local tmp
-  tmp="$(mktemp)"
+  tmp="$(mktemp /run/roadscanner-credential.XXXXXX)"
   chmod 0600 "$tmp"
   printf '%s' "$value" >"$tmp"
-  systemd-creds encrypt --with-key="$CRED_KEY_MODE" \
-    --name="$name" "$tmp" "$CRED_DIR/$name.cred" >/dev/null
+  if ! systemd-creds encrypt --with-key="$CRED_KEY_MODE" \
+    --name="$name" "$tmp" "$CRED_DIR/$name.cred" >/dev/null; then
+    rm -f "$tmp"
+    die "Failed to encrypt credential: $name"
+  fi
   rm -f "$tmp"
   chmod 0600 "$CRED_DIR/$name.cred"
   chown root:root "$CRED_DIR/$name.cred"
@@ -485,7 +496,12 @@ fi
 while IFS= read -r -d '' credential_file; do
   [[ "$(stat -c '%U:%G %a' "$credential_file")" == "root:root 600" ]] ||
     die "Unsafe encrypted credential permissions: $credential_file"
+  [[ "$(stat -c '%h' "$credential_file")" == "1" ]] ||
+    die "Encrypted credential has unexpected hard links: $credential_file"
 done < <(find "$CRED_DIR" -maxdepth 1 -type f -name '*.cred' -print0)
+if find "$CRED_DIR" -maxdepth 1 -type l -print -quit | grep -q .; then
+  die "Credential directory must not contain symbolic links"
+fi
 
 # Non-secret runtime configuration only.
 cat >"$PUBLIC_ENV" <<EOF
@@ -508,7 +524,8 @@ CRED_DIR='$CRED_DIR'
 RUNTIME_DIR='$RUNTIME_SECRET_DIR'
 RUNTIME_PARENT='$RUNTIME_SECRET_PARENT'
 SERVICE_USER='$SERVICE_USER'
-install -d -m 0700 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
+# Root owns the runtime root; only the dedicated service group may traverse it.
+install -d -m 0710 -o root -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
 install -d -m 0755 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_DIR"
 find "\$RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type f -delete
 shopt -s nullglob
@@ -527,7 +544,9 @@ chmod 0700 /usr/local/sbin/roadscanner-materialize-secrets
 cat >/usr/local/sbin/roadscanner-clear-secrets <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-rm -rf '$RUNTIME_SECRET_PARENT'
+if [[ -d '$RUNTIME_SECRET_PARENT' ]]; then
+  find '$RUNTIME_SECRET_PARENT' -mindepth 1 -delete
+fi
 EOF
 chmod 0700 /usr/local/sbin/roadscanner-clear-secrets
 
@@ -540,20 +559,35 @@ After=local-fs.target user-runtime-dir@${UIDN}.service
 
 [Service]
 Type=oneshot
+User=root
+Group=$SERVICE_USER
+UMask=0077
+RuntimeDirectory=roadscanner-private
+RuntimeDirectoryMode=0710
 ExecStart=/usr/local/sbin/roadscanner-materialize-secrets
 ExecStop=/usr/local/sbin/roadscanner-clear-secrets
 RemainAfterExit=yes
 NoNewPrivileges=yes
 PrivateTmp=yes
+$MATERIALIZER_DEVICE_POLICY
 ProtectSystem=strict
-# Permit creation/removal of only the service user's private runtime subtree.
-# /run/user/$UIDN is itself private to the dedicated roadscanner account.
-ReadWritePaths=/run/user/$UIDN
+# RuntimeDirectory creates this path before ExecStart and removes it on stop.
+ReadWritePaths=$RUNTIME_SECRET_PARENT
 ProtectHome=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+ProtectKernelLogs=yes
 RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=yes
+RemoveIPC=yes
+KeyringMode=private
+SystemCallArchitectures=native
 LockPersonality=yes
 
 [Install]
@@ -563,12 +597,16 @@ EOF
 systemctl daemon-reload
 systemctl enable roadscanner-secrets.service
 systemctl restart roadscanner-secrets.service
+[[ "$(stat -c '%U:%G %a' "$RUNTIME_SECRET_PARENT")" == "root:$SERVICE_USER 710" ]] ||
+  die "Unsafe runtime secret parent permissions"
 for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
   [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
 done
 while IFS= read -r -d '' runtime_secret; do
   [[ "$(stat -c '%U:%G %a' "$runtime_secret")" == "root:$SERVICE_USER 444" ]] ||
     die "Unsafe runtime secret permissions: $runtime_secret"
+  [[ "$(stat -c '%h' "$runtime_secret")" == "1" ]] ||
+    die "Runtime secret has unexpected hard links: $runtime_secret"
 done < <(find "$RUNTIME_SECRET_DIR" -maxdepth 1 -type f -print0)
 
 log "9/14 secure in-container entrypoint"

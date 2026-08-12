@@ -139,9 +139,11 @@ The token grants permission to connect to this tunnel. Keep it secret.
 /srv/roadscanner/scripts/install-cloudflared-docker.sh
 ```
 
-Paste the tunnel token at the hidden prompt. The helper stores it privately at
-`/home/roadscanner/.config/roadscanner/cloudflared/tunnel-token` with mode
-`0400`, then starts cloudflared with strict QUIC post-quantum transport.
+Paste the tunnel token at the hidden prompt. The helper encrypts it as
+`/etc/roadscanner/credentials/CLOUDFLARE_TUNNEL_TOKEN.cred` with mode `0600`.
+Only a temporary read-only copy exists under `/run/roadscanner-private` while
+the service is active. It then starts cloudflared with strict QUIC post-quantum
+transport. A legacy plaintext token is automatically encrypted and removed.
 
 ### Prebuilt Stage 6: publish the hostname
 
@@ -340,13 +342,14 @@ Return to the server terminal and run:
 At the hidden `Cloudflare tunnel token` prompt, paste the token and press Enter.
 Nothing appears while you paste; that is expected.
 
-The helper stores the token at:
+The helper encrypts the token at rest as:
 
 ```text
-/home/roadscanner/.config/roadscanner/cloudflared/tunnel-token
+/etc/roadscanner/credentials/CLOUDFLARE_TUNNEL_TOKEN.cred
 ```
 
-The directory is private and the token file uses mode `0400`. The helper then
+The encrypted file is `root:root` mode `0600`. Its plaintext form exists only
+under `/run/roadscanner-private` while the service is active. The helper then
 starts a read-only, capability-free `cloudflared` container on Roadscanner's
 Docker network with:
 
@@ -354,7 +357,8 @@ Docker network with:
 --protocol quic run --post-quantum
 ```
 
-If you run the helper again later, it securely reuses the saved token.
+If you run the helper again later, it reuses the encrypted credential. Existing
+legacy plaintext token files are migrated and removed automatically.
 
 ## Stage 6: publish the website in Cloudflare
 
