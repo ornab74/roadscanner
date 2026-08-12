@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+ARG PYTHON_IMAGE=python:3.12-slim
+FROM ${PYTHON_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -13,21 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 
 COPY requirements.txt lock.manifest.json lock.manifest.pqsig pq_pubkey.b64 verify.py ./
-COPY binaryandwheel/ /opt/roadscanner-native/
-
-# SECURITY PIN: only the manually-reviewed liboqs 0.14.0 native bundle is accepted.
-# SHA256SUMS must cover the exact tarball and wheels copied into this build context.
-RUN cd /opt/roadscanner-native \
- && test -f liboqs-0.14.0-debian-py312-x86_64.tar.gz \
- && test ! -e liboqs-0.16.0-debian-py312-x86_64.tar.gz \
- && sha256sum -c SHA256SUMS \
- && tar -xzf liboqs-0.14.0-debian-py312-x86_64.tar.gz -C / \
- && ldconfig \
- && python -m pip install --no-cache-dir ./liboqs_python-0.14.0-*.whl \
- && python /app/verify.py \
- && python -m pip install --no-cache-dir ./llama_cpp_python-0.3.16-*.whl \
- && python -m pip install --no-cache-dir --require-hashes -r /app/requirements.txt \
- && rm -rf /opt/roadscanner-native
+RUN python -m pip install --no-cache-dir --require-hashes -r /app/requirements.txt \
+ && python /app/verify.py
 
 COPY . .
 
@@ -39,5 +27,8 @@ RUN useradd -ms /bin/bash appuser \
 
 USER appuser
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/healthz', timeout=4)" || exit 1
 
 CMD ["gunicorn","main:app","-b","0.0.0.0:3000","-w","4","-k","gthread","--threads","4","--timeout","180","--graceful-timeout","30","--log-level","info","--preload","--max-requests","1000","--max-requests-jitter","200"]

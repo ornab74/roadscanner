@@ -31,7 +31,7 @@ def load_b64(path: pathlib.Path) -> bytes:
 alg = manifest_obj.get("pq_alg", "ML-DSA-44")
 if alg.startswith("Dilithium"):
     print(
-        "ERROR: legacy Dilithium lock manifest detected. liboqs 0.16 uses the "
+        "ERROR: legacy Dilithium lock manifest detected. liboqs 0.14 uses the "
         "standardized ML-DSA family. Regenerate and re-sign the lock with "
         "scripts/resign-pq-lock.py after updating requirements.txt."
     )

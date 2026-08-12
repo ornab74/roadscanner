@@ -40,3 +40,8 @@ env.oqs
 *.log
 
 roadscanner.env
+.env
+.env.*
+!.env.example
+credentials/
+*.cred

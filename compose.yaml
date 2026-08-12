@@ -1,6 +1,8 @@
 services:
   roadscanner:
     image: ${ROADSCANNER_IMAGE:-roadscanner:local}
+    env_file:
+      - ${ROADSCANNER_ENV_FILE:-.env}
     build:
       # Rootless Docker cannot traverse /root. The installer deploys the
       # production checkout to /srv/roadscanner, so pin the build context there
@@ -29,5 +31,53 @@ services:
     cpus: ${ROADSCANNER_CPU_LIMIT:-1.0}
     stop_grace_period: 30s
 
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ${NGINX_CONTAINER:-roadscanner-nginx}
+    restart: unless-stopped
+    depends_on:
+      roadscanner:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot:ro
+      - ./deploy/nginx/nginx-entrypoint.sh:/opt/roadscanner/nginx-entrypoint.sh:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,nosuid,nodev,noexec
+      - /var/run:rw,nosuid,nodev,noexec
+      - /tmp:rw,nosuid,nodev,noexec
+    environment:
+      CERTBOT_DOMAIN: ${CERTBOT_DOMAIN:?Set CERTBOT_DOMAIN to the public hostname}
+    entrypoint: ["/bin/sh", "/opt/roadscanner/nginx-entrypoint.sh"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+
+  certbot:
+    image: certbot/certbot:v3.0.1
+    container_name: ${CERTBOT_CONTAINER:-roadscanner-certbot}
+    restart: unless-stopped
+    depends_on: [nginx]
+    environment:
+      CERTBOT_DOMAIN: ${CERTBOT_DOMAIN:?Set CERTBOT_DOMAIN to the public hostname}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:?Set CERTBOT_EMAIL for renewal notices}
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >-
+      certbot certonly --webroot -w /var/www/certbot
+      -d "$${CERTBOT_DOMAIN}" --email "$${CERTBOT_EMAIL}"
+      --agree-tos --no-eff-email --non-interactive || true;
+      while :; do certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h; done
+
 volumes:
   roadscanner-data:
+  letsencrypt:
+  certbot-webroot:

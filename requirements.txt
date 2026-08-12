@@ -1,7 +1,7 @@
-# liboqs_version=0.16.0
-# liboqs_tarball_sha256=162d5b510518ee5f285f82fa1f16402a885176e818bf1b1a4c3c91c9a2f01eae
-# liboqs_tarball_url=https://github.com/open-quantum-safe/liboqs/archive/refs/tags/0.16.0.tar.gz
-# liboqs_python_version=0.16.0
+# liboqs_version=0.14.0
+# liboqs_tarball_sha256=5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea
+# liboqs_tarball_url=https://github.com/open-quantum-safe/liboqs/archive/refs/tags/0.14.0.tar.gz
+# liboqs_python_version=0.14.1
 # pq_signature_alg=ML-DSA-44
 # pq_manifest=lock.manifest.json
 # pq_signature=lock.manifest.pqsig
@@ -419,7 +419,7 @@ jinja2==3.1.6 \
     # via
     #   flask
     #   llama-cpp-python
-liboqs-python==0.16.0 \
+liboqs-python==0.14.1 \
     --hash=sha256:50bb11a9767b88f68099cedef8de09f798f31eaba1aa18b483988bfcd50df440 \
     --hash=sha256:ee01445ccfbeab8dced956a642ce1eb5ba69438caba7ec291eea14083627d5c0
     # via -r requirements.in

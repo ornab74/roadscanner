@@ -20,7 +20,7 @@ mapfile -t ASSETS < <(awk '{print $2}' "$TMP/SHA256SUMS")
 
 for asset in "${ASSETS[@]}"; do
   case "$asset" in
-    liboqs-0.16.0-debian-py312-x86_64.tar.gz|llama_cpp_python-0.3.16-*.whl|liboqs_python-0.16.0-*.whl) ;;
+    liboqs-0.14.0-debian-py312-x86_64.tar.gz|llama_cpp_python-0.3.16-*.whl|liboqs_python-0.14.1-*.whl) ;;
     *) echo "unexpected native asset in manifest: $asset" >&2; exit 1 ;;
   esac
   curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o "$TMP/$asset" "$BASE/$asset"

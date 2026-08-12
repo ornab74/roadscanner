@@ -1,17 +1,125 @@
-name: Build pinned native Linux artifacts (liboqs 0.14 only)
+name: Build Linux native artifacts
 
 on:
   workflow_dispatch:
+  push:
+    tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  LIBOQS_VERSION: '0.14.0'
+  LIBOQS_SHA256: '5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea'
+  LIBOQS_PYTHON_VERSION: '0.14.1'
+  LLAMA_CPP_VERSION: '0.3.16'
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    container:
-      image: python:3.12-slim
+  linux-amd64:
+    name: Linux amd64 wheels and liboqs bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    env:
-      # SECURITY PIN: Roadscanner intentionally supports liboqs 0.14.0 only.
-      # Do not make this configurable from
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install native build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build build-essential pkg-config libssl-dev \
+            patchelf zip
+
+      - name: Build and verify liboqs
+        run: |
+          set -euxo pipefail
+          url="https://github.com/open-quantum-safe/liboqs/archive/refs/tags/${LIBOQS_VERSION}.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 5 "$url" -o /tmp/liboqs.tar.gz
+          echo "${LIBOQS_SHA256}  /tmp/liboqs.tar.gz" | sha256sum --check
+          mkdir /tmp/liboqs-src
+          tar -xzf /tmp/liboqs.tar.gz -C /tmp/liboqs-src --strip-components=1
+          cmake -S /tmp/liboqs-src -B /tmp/liboqs-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/native/liboqs" \
+            -DBUILD_SHARED_LIBS=ON -DOQS_USE_OPENSSL=OFF \
+            -DOQS_BUILD_ONLY_LIB=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build /tmp/liboqs-build --parallel
+          cmake --install /tmp/liboqs-build
+          tar -C native -czf "liboqs-${LIBOQS_VERSION}-debian-py312-x86_64.tar.gz" liboqs
+          sha256sum "liboqs-${LIBOQS_VERSION}-debian-py312-x86_64.tar.gz" > SHA256SUMS
+
+      - name: Build liboqs-python wheel
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/native/liboqs/lib
+          CMAKE_PREFIX_PATH: ${{ github.workspace }}/native/liboqs
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip build wheel
+          python -m pip wheel --no-deps \
+            --wheel-dir dist \
+            "liboqs-python==${LIBOQS_PYTHON_VERSION}"
+
+      - name: Build llama-cpp-python wheel
+        env:
+          CMAKE_ARGS: '-DGGML_NATIVE=OFF -DGGML_OPENMP=OFF'
+          FORCE_CMAKE: '1'
+        run: |
+          set -euxo pipefail
+          python -m pip wheel --no-deps \
+            --wheel-dir dist \
+            "llama-cpp-python==${LLAMA_CPP_VERSION}"
+
+      - name: Smoke-test native artifacts
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/native/liboqs/lib
+        run: |
+          set -euxo pipefail
+          python -m pip install --no-index --find-links dist \
+            "liboqs-python==${LIBOQS_PYTHON_VERSION}" \
+            "llama-cpp-python==${LLAMA_CPP_VERSION}"
+          python - <<'PY'
+          import oqs
+          from llama_cpp import Llama
+          assert 'ML-DSA-44' in oqs.get_enabled_sig_mechanisms()
+          print('liboqs and llama-cpp-python imports passed')
+          PY
+
+      - name: Create checksums and upload release bundle
+        run: |
+          set -euxo pipefail
+          cp SHA256SUMS dist/
+          (cd dist && sha256sum *.whl >> SHA256SUMS)
+          cp "liboqs-${LIBOQS_VERSION}-debian-py312-x86_64.tar.gz" dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roadscanner-linux-amd64-native
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish native release assets
+    needs: linux-amd64
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: roadscanner-linux-amd64-native
+          path: release-assets
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
