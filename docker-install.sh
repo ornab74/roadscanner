@@ -298,6 +298,7 @@ chmod 0755 "$APP_DIR"
 [[ -f "$APP_DIR/install-docker.sh" ]] && chmod 0755 "$APP_DIR/install-docker.sh"
 [[ -f "$APP_DIR/install-roadscanner-secure-main.sh" ]] && chmod 0755 "$APP_DIR/install-roadscanner-secure-main.sh"
 [[ -f "$APP_DIR/scripts/runtime-security-audit.sh" ]] && chmod 0755 "$APP_DIR/scripts/runtime-security-audit.sh"
+[[ -f "$APP_DIR/scripts/install-cloudflared-docker.sh" ]] && chmod 0755 "$APP_DIR/scripts/install-cloudflared-docker.sh"
 
 runu test -r "$APP_DIR/compose.yaml" || die "Service user cannot read compose.yaml"
 runu test -r "$APP_DIR/Dockerfile" || die "Service user cannot read Dockerfile"

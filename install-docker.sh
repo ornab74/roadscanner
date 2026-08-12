@@ -162,6 +162,7 @@ find "$APP_DIR" -xdev -type f -exec chmod 0640 {} +
 chmod 0750 "$APP_DIR"
 [[ -f "$APP_DIR/install-docker.sh" ]] && chmod 0750 "$APP_DIR/install-docker.sh"
 [[ -f "$APP_DIR/scripts/runtime-security-audit.sh" ]] && chmod 0750 "$APP_DIR/scripts/runtime-security-audit.sh"
+[[ -f "$APP_DIR/scripts/install-cloudflared-docker.sh" ]] && chmod 0750 "$APP_DIR/scripts/install-cloudflared-docker.sh"
 setfacl -m "u:${SERVICE_USER}:rx" /srv "$APP_DIR"
 for f in compose.yaml Dockerfile requirements.txt verify.py; do
   [[ -f "$APP_DIR/$f" ]] || die "Required deployment file missing: $f"
