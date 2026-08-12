@@ -160,8 +160,8 @@ done
 UIDN="$(id -u "$SERVICE_USER")"
 GIDN="$(id -g "$SERVICE_USER")"
 HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
-RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
-RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
+RUNTIME_SECRET_PARENT="/run/user/$UIDN"
+RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/roadscanner-secrets"
 
 loginctl enable-linger "$SERVICE_USER"
 systemctl start "user-runtime-dir@${UIDN}.service"
@@ -524,7 +524,9 @@ CRED_DIR='$CRED_DIR'
 RUNTIME_DIR='$RUNTIME_SECRET_DIR'
 RUNTIME_PARENT='$RUNTIME_SECRET_PARENT'
 SERVICE_USER='$SERVICE_USER'
-install -d -m 0700 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
+# /run/user/<uid> is created by systemd with mode 0700. The bind-mount source
+# lives directly beneath it so rootless Docker sees the same mount namespace.
+[[ "\$(stat -c '%U:%G %a' "\$RUNTIME_PARENT")" == "\$SERVICE_USER:\$SERVICE_USER 700" ]] || exit 73
 install -d -m 0755 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_DIR"
 find "\$RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type f -delete
 shopt -s nullglob
@@ -543,8 +545,9 @@ chmod 0700 /usr/local/sbin/roadscanner-materialize-secrets
 cat >/usr/local/sbin/roadscanner-clear-secrets <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-if [[ -d '$RUNTIME_SECRET_PARENT' ]]; then
-  find '$RUNTIME_SECRET_PARENT' -mindepth 1 -delete
+if [[ -d '$RUNTIME_SECRET_DIR' ]]; then
+  find '$RUNTIME_SECRET_DIR' -mindepth 1 -delete
+  rmdir '$RUNTIME_SECRET_DIR'
 fi
 EOF
 chmod 0700 /usr/local/sbin/roadscanner-clear-secrets
@@ -596,8 +599,8 @@ EOF
 systemctl daemon-reload
 systemctl enable roadscanner-secrets.service
 systemctl restart roadscanner-secrets.service
-[[ "$(stat -c '%U:%G %a' "$RUNTIME_SECRET_PARENT")" == "$SERVICE_USER:$SERVICE_USER 700" ]] ||
-  die "Unsafe runtime secret parent permissions"
+[[ "$(stat -c '%U:%G %a' "/run/user/$UIDN")" == "$SERVICE_USER:$SERVICE_USER 700" ]] ||
+  die "Unsafe service-user runtime permissions"
 for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
   [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
 done

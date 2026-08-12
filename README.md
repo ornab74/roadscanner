@@ -142,7 +142,7 @@ The token grants permission to connect to this tunnel. Keep it secret.
 Paste the tunnel token at the hidden prompt. The helper encrypts it as
 `/etc/roadscanner/credentials/CLOUDFLARE_TUNNEL_TOKEN.cred` with mode `0600`.
 Only a temporary read-only copy exists under the dedicated service account's
-private `/run/user/<uid>/roadscanner-private` directory while active. It then
+private `/run/user/<uid>/roadscanner-secrets` directory while active. It then
 starts cloudflared with strict QUIC post-quantum transport. A legacy plaintext
 token is automatically encrypted and removed.
 
@@ -350,7 +350,7 @@ The helper encrypts the token at rest as:
 ```
 
 The encrypted file is `root:root` mode `0600`. Its plaintext form exists only
-under `/run/user/<uid>/roadscanner-private` while the service is active. The helper then
+under `/run/user/<uid>/roadscanner-secrets` while the service is active. The helper then
 starts a read-only, capability-free `cloudflared` container on Roadscanner's
 Docker network with:
 

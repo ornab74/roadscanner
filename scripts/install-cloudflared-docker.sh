@@ -12,7 +12,7 @@ TOKEN_FILE="$SECRET_DIR/tunnel-token"
 CRED_DIR="${CRED_DIR:-/etc/roadscanner/credentials}"
 TOKEN_CRED="$CRED_DIR/CLOUDFLARE_TUNNEL_TOKEN.cred"
 SERVICE_UID="$(id -u "$SERVICE_USER")"
-RUNTIME_TOKEN_FILE="${RUNTIME_TOKEN_FILE:-/run/user/$SERVICE_UID/roadscanner-private/secrets/CLOUDFLARE_TUNNEL_TOKEN}"
+RUNTIME_TOKEN_FILE="${RUNTIME_TOKEN_FILE:-/run/user/$SERVICE_UID/roadscanner-secrets/CLOUDFLARE_TUNNEL_TOKEN}"
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
