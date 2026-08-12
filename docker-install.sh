@@ -164,7 +164,9 @@ RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
 RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
 
 loginctl enable-linger "$SERVICE_USER"
-systemctl start "user@${UIDN}.service" || true
+systemctl start "user-runtime-dir@${UIDN}.service"
+systemctl start "user@${UIDN}.service"
+[[ -d "/run/user/$UIDN" ]] || die "Service-user runtime directory was not created"
 
 runu() {
   runuser -u "$SERVICE_USER" -- env \
@@ -533,7 +535,8 @@ cat >/etc/systemd/system/roadscanner-secrets.service <<EOF
 [Unit]
 Description=Materialize Roadscanner encrypted credentials into volatile runtime storage
 Before=roadscanner-container.service
-After=local-fs.target
+Requires=user-runtime-dir@${UIDN}.service
+After=local-fs.target user-runtime-dir@${UIDN}.service
 
 [Service]
 Type=oneshot
@@ -543,7 +546,9 @@ RemainAfterExit=yes
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=-$RUNTIME_SECRET_PARENT
+# Permit creation/removal of only the service user's private runtime subtree.
+# /run/user/$UIDN is itself private to the dedicated roadscanner account.
+ReadWritePaths=/run/user/$UIDN
 ProtectHome=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

@@ -101,7 +101,9 @@ UIDN="$(id -u "$SERVICE_USER")"; HOME_DIR="$(getent passwd "$SERVICE_USER" | cut
 RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
 RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
 loginctl enable-linger "$SERVICE_USER"
-systemctl start "user@${UIDN}.service" || true
+systemctl start "user-runtime-dir@${UIDN}.service"
+systemctl start "user@${UIDN}.service"
+[[ -d "/run/user/$UIDN" ]] || die "Service-user runtime directory was not created"
 
 runu(){ runuser -u "$SERVICE_USER" -- env HOME="$HOME_DIR" USER="$SERVICE_USER" LOGNAME="$SERVICE_USER" XDG_RUNTIME_DIR="/run/user/$UIDN" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$UIDN/bus" PATH="/usr/local/bin:/usr/bin:/bin:$HOME_DIR/.local/bin" "$@"; }
 dkr(){ runu env DOCKER_HOST="unix:///run/user/$UIDN/docker.sock" docker "$@"; }
