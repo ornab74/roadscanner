@@ -73,6 +73,20 @@ case "$BIND_ADDR" in
   *) die "Refusing non-loopback bind ($BIND_ADDR). Put Cloudflare Tunnel in front." ;;
 esac
 
+prompt_certbot_config() {
+  CERTBOT_DOMAIN="${CERTBOT_DOMAIN:-}"
+  CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
+  while [[ ! "$CERTBOT_DOMAIN" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; do
+    printf 'Public hostname (for example, scan.example.com): ' >/dev/tty
+    IFS= read -r CERTBOT_DOMAIN </dev/tty
+  done
+  while [[ ! "$CERTBOT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]]; do
+    printf 'Certbot renewal email: ' >/dev/tty
+    IFS= read -r CERTBOT_EMAIL </dev/tty
+  done
+}
+prompt_certbot_config
+
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 chmod 0700 "$STATE_DIR"
 chmod 0750 "$LOG_DIR"
@@ -574,10 +588,8 @@ ROADSCANNER_PIDS_LIMIT=$PIDS_LIMIT
 ROADSCANNER_VCS_REF=$COMMIT
 ROADSCANNER_BUILD_DATE=$BUILD_DATE
 PYTHON_IMAGE=$PYTHON_IMAGE_DIGEST
-# Inert defaults satisfy older Compose files. The installer starts only the
-# roadscanner service; Nginx and Certbot remain disabled.
-CERTBOT_DOMAIN=localhost
-CERTBOT_EMAIL=root@localhost
+CERTBOT_DOMAIN=$CERTBOT_DOMAIN
+CERTBOT_EMAIL=$CERTBOT_EMAIL
 EOF
 chown root:"$SERVICE_USER" "$DEPLOY_ENV"
 chmod 0640 "$DEPLOY_ENV"
