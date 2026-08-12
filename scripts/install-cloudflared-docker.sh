@@ -36,21 +36,27 @@ APP_NETWORK="$(dkr inspect "$APP_CONTAINER" \
 [[ -n "$APP_NETWORK" ]] || die "could not determine the Roadscanner Docker network"
 
 install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$SECRET_DIR"
-TMP_TOKEN="$(mktemp "$SECRET_DIR/.tunnel-token.XXXXXX")"
-trap 'rm -f "$TMP_TOKEN"' EXIT
+if [[ -s "$TOKEN_FILE" ]]; then
+  printf 'Reusing existing Cloudflare tunnel token.\n'
+  chown "$SERVICE_USER:$SERVICE_GID" "$TOKEN_FILE"
+  chmod 0400 "$TOKEN_FILE"
+else
+  TMP_TOKEN="$(mktemp "$SECRET_DIR/.tunnel-token.XXXXXX")"
+  trap 'rm -f "$TMP_TOKEN"' EXIT
 
-printf 'Cloudflare tunnel token: ' >/dev/tty
-IFS= read -r -s TUNNEL_TOKEN </dev/tty
-printf '\n' >/dev/tty
-[[ -n "$TUNNEL_TOKEN" ]] || die "token cannot be empty"
-[[ "$TUNNEL_TOKEN" != *[[:space:]]* ]] || die "token must not contain whitespace"
+  printf 'Cloudflare tunnel token: ' >/dev/tty
+  IFS= read -r -s TUNNEL_TOKEN </dev/tty
+  printf '\n' >/dev/tty
+  [[ -n "$TUNNEL_TOKEN" ]] || die "token cannot be empty"
+  [[ "$TUNNEL_TOKEN" != *[[:space:]]* ]] || die "token must not contain whitespace"
 
-printf '%s' "$TUNNEL_TOKEN" >"$TMP_TOKEN"
-unset TUNNEL_TOKEN
-chown "$SERVICE_USER:$SERVICE_GID" "$TMP_TOKEN"
-chmod 0400 "$TMP_TOKEN"
-mv -f "$TMP_TOKEN" "$TOKEN_FILE"
-trap - EXIT
+  printf '%s' "$TUNNEL_TOKEN" >"$TMP_TOKEN"
+  unset TUNNEL_TOKEN
+  chown "$SERVICE_USER:$SERVICE_GID" "$TMP_TOKEN"
+  chmod 0400 "$TMP_TOKEN"
+  mv -f "$TMP_TOKEN" "$TOKEN_FILE"
+  trap - EXIT
+fi
 
 dkr pull "$CLOUDFLARED_IMAGE"
 if dkr inspect "$TUNNEL_CONTAINER" >/dev/null 2>&1; then
