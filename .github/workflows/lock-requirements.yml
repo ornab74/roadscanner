@@ -28,10 +28,7 @@ jobs:
       PQ_SIGNATURE_ALG: "ML-DSA-44"
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Install system tools
+      - name: Install checkout and build tools
         run: |
           set -euo pipefail
           apt-get update
@@ -39,6 +36,11 @@ jobs:
             ca-certificates curl coreutils \
             cmake ninja-build build-essential pkg-config git
           rm -rf /var/lib/apt/lists/*
+
+      # Git must exist before Checkout. Otherwise actions/checkout falls back to
+      # an archive download, which has no .git directory for the commit step.
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Install supported lock tooling
         run: |
