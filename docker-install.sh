@@ -68,6 +68,7 @@ trap cleanup EXIT
 trap onerr ERR
 
 [[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run as root."
+case "$APP_DIR" in /root|/root/*) die "APP_DIR must not be under /root; use /srv/roadscanner." ;; esac
 case "$BIND_ADDR" in
   127.0.0.1|::1|localhost) ;;
   *) die "Refusing non-loopback bind ($BIND_ADDR). Put Cloudflare Tunnel in front." ;;
@@ -578,6 +579,7 @@ PYTHON_IMAGE_DIGEST="$(
 BUILD_DATE="$(date -u --iso-8601=seconds)"
 cat >"$DEPLOY_ENV" <<EOF
 ROADSCANNER_ENV_FILE=$PUBLIC_ENV
+ROADSCANNER_BUILD_CONTEXT=$APP_DIR
 ROADSCANNER_IMAGE=roadscanner:$SHORT
 ROADSCANNER_CONTAINER=roadscanner
 ROADSCANNER_BIND_ADDR=$BIND_ADDR

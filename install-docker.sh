@@ -42,6 +42,7 @@ trap onerr ERR
 
 [[ ${EUID:-$(id -u)} -eq 0 ]] || die "Run as root."
 [[ "$REF" == "main" ]] || die "This installer deploys origin/main only."
+case "$APP_DIR" in /root|/root/*) die "APP_DIR must not be under /root; use /srv/roadscanner." ;; esac
 case "$BIND_ADDR" in 127.0.0.1|::1|localhost) ;; *) die "Refusing public application bind. Put a hardened TLS reverse proxy in front." ;; esac
 
 prompt_certbot_config() {
@@ -251,6 +252,7 @@ PYTHON_IMAGE_DIGEST="$(dkr image inspect "$PYTHON_IMAGE_TAG" --format '{{index .
 BUILD_DATE="$(date -u --iso-8601=seconds)"
 cat >"$DEPLOY_ENV" <<EOF
 ROADSCANNER_ENV_FILE=$PUBLIC_ENV
+ROADSCANNER_BUILD_CONTEXT=$APP_DIR
 ROADSCANNER_IMAGE=roadscanner:$SHORT
 ROADSCANNER_CONTAINER=roadscanner
 ROADSCANNER_BIND_ADDR=$BIND_ADDR

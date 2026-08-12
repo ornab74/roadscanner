@@ -1,5 +1,8 @@
 name: Lock requirements + ML-DSA sign lock manifest
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -21,7 +24,7 @@ jobs:
     env:
       LIBOQS_VERSION: "0.14.0"
       LIBOQS_SHA256: "5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea"
-      LIBOQS_PYTHON_VERSION: "0.14.1"
+      LIBOQS_PYTHON_VERSION: "0.16.0"
       PQ_SIGNATURE_ALG: "ML-DSA-44"
 
     steps:
@@ -119,6 +122,20 @@ jobs:
         run: |
           set -euo pipefail
           python verify.py
+
+      - name: Commit regenerated signed lock
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements.txt lock.manifest.json lock.manifest.pqsig pq_pubkey.b64
+          if git diff --cached --quiet; then
+            echo "Signed dependency lock is already current."
+          else
+            git commit -m "Regenerate signed dependency lock"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Upload lock + PQ materials
         uses: actions/upload-artifact@v4
