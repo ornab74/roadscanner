@@ -160,7 +160,7 @@ done
 UIDN="$(id -u "$SERVICE_USER")"
 GIDN="$(id -g "$SERVICE_USER")"
 HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
-RUNTIME_SECRET_PARENT="/run/roadscanner-private"
+RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
 RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
 
 loginctl enable-linger "$SERVICE_USER"
@@ -524,8 +524,7 @@ CRED_DIR='$CRED_DIR'
 RUNTIME_DIR='$RUNTIME_SECRET_DIR'
 RUNTIME_PARENT='$RUNTIME_SECRET_PARENT'
 SERVICE_USER='$SERVICE_USER'
-# Root owns the runtime root; only the dedicated service group may traverse it.
-install -d -m 0710 -o root -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
+install -d -m 0700 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
 install -d -m 0755 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_DIR"
 find "\$RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type f -delete
 shopt -s nullglob
@@ -562,8 +561,6 @@ Type=oneshot
 User=root
 Group=$SERVICE_USER
 UMask=0077
-RuntimeDirectory=roadscanner-private
-RuntimeDirectoryMode=0710
 ExecStart=/usr/local/sbin/roadscanner-materialize-secrets
 ExecStop=/usr/local/sbin/roadscanner-clear-secrets
 RemainAfterExit=yes
@@ -571,9 +568,11 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 $MATERIALIZER_DEVICE_POLICY
 ProtectSystem=strict
-# RuntimeDirectory creates this path before ExecStart and removes it on stop.
-ReadWritePaths=$RUNTIME_SECRET_PARENT
-ProtectHome=yes
+# Rootless Docker shares files reliably only through its systemd-managed user
+# runtime. ProtectHome also masks /run/user, so this service uses an explicit,
+# narrow write allowlist instead. The parent /run/user/$UIDN remains mode 0700.
+ReadWritePaths=/run/user/$UIDN
+ProtectHome=no
 ProtectHostname=yes
 ProtectClock=yes
 ProtectProc=invisible
@@ -597,7 +596,7 @@ EOF
 systemctl daemon-reload
 systemctl enable roadscanner-secrets.service
 systemctl restart roadscanner-secrets.service
-[[ "$(stat -c '%U:%G %a' "$RUNTIME_SECRET_PARENT")" == "root:$SERVICE_USER 710" ]] ||
+[[ "$(stat -c '%U:%G %a' "$RUNTIME_SECRET_PARENT")" == "$SERVICE_USER:$SERVICE_USER 700" ]] ||
   die "Unsafe runtime secret parent permissions"
 for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
   [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"

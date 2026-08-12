@@ -11,14 +11,14 @@ SECRET_DIR="${SECRET_DIR:-/home/$SERVICE_USER/.config/roadscanner/cloudflared}"
 TOKEN_FILE="$SECRET_DIR/tunnel-token"
 CRED_DIR="${CRED_DIR:-/etc/roadscanner/credentials}"
 TOKEN_CRED="$CRED_DIR/CLOUDFLARE_TUNNEL_TOKEN.cred"
-RUNTIME_TOKEN_FILE="${RUNTIME_TOKEN_FILE:-/run/roadscanner-private/secrets/CLOUDFLARE_TUNNEL_TOKEN}"
+SERVICE_UID="$(id -u "$SERVICE_USER")"
+RUNTIME_TOKEN_FILE="${RUNTIME_TOKEN_FILE:-/run/user/$SERVICE_UID/roadscanner-private/secrets/CLOUDFLARE_TUNNEL_TOKEN}"
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [[ ${EUID:-$(id -u)} -eq 0 ]] || die "run this script with sudo"
 id "$SERVICE_USER" >/dev/null 2>&1 || die "service user '$SERVICE_USER' does not exist"
 
-SERVICE_UID="$(id -u "$SERVICE_USER")"
 SERVICE_GID="$(id -g "$SERVICE_USER")"
 DOCKER_HOST="unix:///run/user/$SERVICE_UID/docker.sock"
 
