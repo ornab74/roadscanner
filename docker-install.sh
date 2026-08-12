@@ -758,6 +758,51 @@ dkr run --rm --network none \
   ' || die "Final image cannot read required runtime secrets"
 
 log "11/14 application PQ bootstrap"
+
+QRS_REQUIRED=(
+  QRS_SALT_B64
+  QRS_X25519_PUB_B64 QRS_X25519_PRIV_ENC_B64
+  QRS_PQ_KEM_ALG QRS_PQ_PUB_B64 QRS_PQ_PRIV_ENC_B64
+  QRS_SIG_ALG QRS_SIG_PUB_B64 QRS_SIG_PRIV_ENC_B64
+)
+
+qrs_credentials_valid() {
+  local key cred
+  for key in "${QRS_REQUIRED[@]}"; do
+    cred="$CRED_DIR/$key.cred"
+    [[ -s "$cred" ]] || return 1
+    case "$key" in
+      QRS_PQ_KEM_ALG|QRS_SIG_ALG)
+        systemd-creds decrypt --name="$key" "$cred" - 2>/dev/null |
+          grep -Eq '^[A-Za-z0-9-]+$' || return 1
+        ;;
+      *)
+        systemd-creds decrypt --name="$key" "$cred" - 2>/dev/null |
+          python3 -c \
+            'import base64,sys; v=sys.stdin.buffer.read(); assert v; base64.b64decode(v, validate=True)' \
+          2>/dev/null || return 1
+        ;;
+    esac
+  done
+}
+
+qrs_database_has_data() {
+  dkr volume inspect roadscanner-data >/dev/null 2>&1 || return 1
+  dkr run --rm --network none \
+    --entrypoint /bin/sh \
+    -v roadscanner-data:/var/data \
+    "$DEPLOY_IMAGE" -c 'test -s /var/data/secure_data.db'
+}
+
+if compgen -G "$CRED_DIR/QRS_*.cred" >/dev/null && ! qrs_credentials_valid; then
+  if qrs_database_has_data; then
+    die "QRS credentials are incomplete or corrupt; refusing automatic key regeneration because application data exists"
+  fi
+  warn "Discarding invalid QRS bootstrap credentials from an uninitialized deployment."
+  find "$CRED_DIR" -maxdepth 1 -type f -name 'QRS_*.cred' -delete
+  systemctl restart roadscanner-secrets.service
+fi
+
 # Existing encrypted QRS credentials are materialized automatically. If this is
 # first boot, run bootstrap without network and capture only QRS export lines.
 if [[ ! -s "$CRED_DIR/QRS_X25519_PRIV_ENC_B64.cred" ]]; then
@@ -821,9 +866,7 @@ if [[ ! -s "$CRED_DIR/QRS_X25519_PRIV_ENC_B64.cred" ]]; then
   systemctl restart roadscanner-secrets.service
 fi
 
-for k in QRS_X25519_PRIV_ENC_B64 QRS_PQ_PRIV_ENC_B64 QRS_SIG_PRIV_ENC_B64; do
-  [[ -s "$CRED_DIR/$k.cred" ]] || die "PQ bootstrap missing encrypted credential: $k"
-done
+qrs_credentials_valid || die "PQ bootstrap credential validation failed"
 
 log "12/14 persistent data volume"
 dkr volume create roadscanner-data >/dev/null
