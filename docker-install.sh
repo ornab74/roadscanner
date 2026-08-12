@@ -532,7 +532,7 @@ exec gunicorn main:app \
   --max-requests-jitter 200
 ENTRY
 chown root:"$SERVICE_USER" "$CONFIG_DIR/container-entrypoint.sh"
-chmod 0550 "$CONFIG_DIR/container-entrypoint.sh"
+chmod 0555 "$CONFIG_DIR/container-entrypoint.sh"
 
 cat >"$CONFIG_DIR/compose.secure.yaml" <<EOF
 services:

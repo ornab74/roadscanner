@@ -208,12 +208,16 @@ for cred in '$CRED_DIR'/*.cred; do
   [ -f "\$cred" ] || continue
   name="\$(basename "\$cred" .cred)"; tmp="\$(mktemp '$RUNTIME_SECRET_DIR/.tmp.XXXXXX')"
   systemd-creds decrypt --name="\$name" "\$cred" "\$tmp" >/dev/null
-  chown '$SERVICE_USER:$SERVICE_USER' "\$tmp"; chmod 0400 "\$tmp"; mv -f "\$tmp" '$RUNTIME_SECRET_DIR/'"\$name"
+  # The private parent blocks ordinary host traversal. World-read permission on
+  # the file itself is required for the rootless container's remapped app UID.
+  chown 'root:$SERVICE_USER' "\$tmp"; chmod 0444 "\$tmp"; mv -f "\$tmp" '$RUNTIME_SECRET_DIR/'"\$name"
 done
 EOF
 chmod 0700 /usr/local/sbin/roadscanner-materialize-secrets
 /usr/local/sbin/roadscanner-materialize-secrets
-runu test -r "$RUNTIME_SECRET_DIR/OPENAI_API_KEY" || die "Runtime secrets unreadable by service account"
+for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+  [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
+done
 
 log "9/14 secure container override"
 cat >"$CONFIG_DIR/container-entrypoint.sh" <<'EOF'
@@ -226,7 +230,7 @@ for f in /run/roadscanner-secrets/*; do
 done
 exec gunicorn main:app -b 0.0.0.0:3000 -w "${GUNICORN_WORKERS:-2}" -k gthread --threads "${GUNICORN_THREADS:-2}" --timeout 180 --graceful-timeout 30 --log-level info --preload
 EOF
-chown root:"$SERVICE_USER" "$CONFIG_DIR/container-entrypoint.sh"; chmod 0550 "$CONFIG_DIR/container-entrypoint.sh"
+chown root:"$SERVICE_USER" "$CONFIG_DIR/container-entrypoint.sh"; chmod 0555 "$CONFIG_DIR/container-entrypoint.sh"
 cat >"$CONFIG_DIR/compose.secure.yaml" <<EOF
 services:
   roadscanner:
