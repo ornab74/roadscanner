@@ -22,6 +22,57 @@ built.
 | Prebuilt image | `install-prebuilt.sh` | Most production users and smaller servers | Fast; trusts the published Docker image |
 | Source build | `docker-install.sh` | Auditing, development, and reproducible local builds | Slow; compiles `liboqs` and installs the complete locked Python stack |
 
+### Configuring persistent storage
+
+`QRS_DATA_DIR` is the canonical persistent path inside the container. Its
+default is `/var/data`, but `/var/data` is not otherwise required. The database,
+sealed store, local models, backups, audit log, and migration markers derive
+from this root.
+
+To install with a different root, prefix either installer command:
+
+```bash
+QRS_DATA_DIR=/data/roadscanner \
+PREBUILT_IMAGE=graylanjanulis/roadscanner:latest \
+  bash /root/roadscanner-installer/install-prebuilt.sh
+```
+
+The installer mounts the persistent `roadscanner-data` Docker volume at
+`/data/roadscanner` and configures the application with the same value. The
+resulting layout is:
+
+```text
+/data/roadscanner/
+├── secure_data.db
+├── sealed_store/
+├── models/
+├── backups/
+├── .blog_sig_cleanup_v1.done
+└── .blog_rekey_v2.done
+```
+
+Individual locations can be overridden:
+
+```bash
+QRS_DATA_DIR=/data/roadscanner \
+QRS_DB_PATH=/data/roadscanner/database/roadscanner.db \
+QRS_SEALED_DIR=/data/roadscanner/keys \
+QRS_MODELS_DIR=/data/roadscanner/models \
+QRS_BACKUP_DIR=/data/roadscanner/backups \
+PREBUILT_IMAGE=graylanjanulis/roadscanner:latest \
+  bash /root/roadscanner-installer/install-prebuilt.sh
+```
+
+Keep these overrides beneath `QRS_DATA_DIR` when using the standard installer;
+that root is the mounted persistent volume and the rest of the container is
+read-only. Splitting a path onto another root, such as `/mnt/keys`, requires an
+additional bind or named-volume mount for that path in a Compose override.
+
+`QRS_DATA_DIR` controls the path inside the container. Docker still manages the
+host location of the named volume. To choose an exact host filesystem path,
+replace the named volume with an explicitly secured bind mount in a local
+Compose override.
+
 <a id="guide-1--prebuilt-docker-image-recommended"></a>
 ## Guide 1 — Prebuilt Docker image (recommended)
 
