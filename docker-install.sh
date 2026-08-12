@@ -319,6 +319,52 @@ prompt_secret() {
   printf '%s' "$value"
 }
 
+prompt_admin_username() {
+  local value=""
+  while [[ -z "$value" ]]; do
+    printf 'Enter admin username: ' >/dev/tty
+    IFS= read -r value </dev/tty
+    [[ -n "$value" ]] || printf 'Admin username cannot be empty.\n' >/dev/tty
+  done
+  printf '%s' "$value"
+}
+
+admin_password_is_strong() {
+  local value="$1"
+  [[ ${#value} -ge 16 ]] &&
+    [[ "$value" =~ [[:upper:]] ]] &&
+    [[ "$value" =~ [[:lower:]] ]] &&
+    [[ "$value" =~ [[:digit:]] ]] &&
+    [[ "$value" =~ [^[:alnum:]] ]]
+}
+
+prompt_admin_password() {
+  local value="" confirmation=""
+  printf '%s\n' \
+    'Admin password requirements: 16+ characters with uppercase, lowercase, numbers, and special characters.' \
+    >/dev/tty
+  while true; do
+    printf 'Enter admin password: ' >/dev/tty
+    IFS= read -r -s value </dev/tty
+    printf '\n' >/dev/tty
+    if ! admin_password_is_strong "$value"; then
+      printf '%s\n' \
+        'Password is too weak. Use 16+ characters with uppercase, lowercase, numbers, and special characters.' \
+        >/dev/tty
+      continue
+    fi
+    printf 'Confirm admin password: ' >/dev/tty
+    IFS= read -r -s confirmation </dev/tty
+    printf '\n' >/dev/tty
+    if [[ "$value" != "$confirmation" ]]; then
+      printf 'Passwords do not match. Try again.\n' >/dev/tty
+      continue
+    fi
+    printf '%s' "$value"
+    return
+  done
+}
+
 generate_b64url() {
   local bytes="${1:-48}"
   openssl rand -base64 "$bytes" | tr -d '\n=' | tr '+/' '-_'
@@ -412,23 +458,31 @@ if ! credential_exists XAI_API_KEY; then
   unset XAI_API_KEY
 fi
 
-# Generate all local secrets with the kernel/OpenSSL CSPRNG.
+# Prompt for initial administrator credentials beside the provider keys. On an
+# idempotent rerun, preserve credentials that are already provisioned.
 if ! credential_exists admin_username; then
-  ADMIN_USERNAME="qrs_$(openssl rand -hex 6)"
+  ADMIN_USERNAME="$(prompt_admin_username)"
   encrypt_credential admin_username "$ADMIN_USERNAME"
   unset ADMIN_USERNAME
 fi
 if ! credential_exists admin_pass; then
-  ADMIN_PASSWORD="$(generate_b64url 48)"
+  ADMIN_PASSWORD="$(prompt_admin_password)"
   encrypt_credential admin_pass "$ADMIN_PASSWORD"
   unset ADMIN_PASSWORD
 fi
+
+# Generate all remaining local secrets with the kernel/OpenSSL CSPRNG.
 if ! credential_exists INVITE_CODE_SECRET_KEY; then
   encrypt_credential INVITE_CODE_SECRET_KEY "$(generate_hex 64)"
 fi
 if ! credential_exists ENCRYPTION_PASSPHRASE; then
   encrypt_credential ENCRYPTION_PASSPHRASE "$(generate_b64url 64)"
 fi
+
+while IFS= read -r -d '' credential_file; do
+  [[ "$(stat -c '%U:%G %a' "$credential_file")" == "root:root 600" ]] ||
+    die "Unsafe encrypted credential permissions: $credential_file"
+done < <(find "$CRED_DIR" -maxdepth 1 -type f -name '*.cred' -print0)
 
 # Non-secret runtime configuration only.
 cat >"$PUBLIC_ENV" <<EOF
@@ -506,6 +560,10 @@ systemctl restart roadscanner-secrets.service
 for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
   [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
 done
+while IFS= read -r -d '' runtime_secret; do
+  [[ "$(stat -c '%U:%G %a' "$runtime_secret")" == "root:$SERVICE_USER 444" ]] ||
+    die "Unsafe runtime secret permissions: $runtime_secret"
+done < <(find "$RUNTIME_SECRET_DIR" -maxdepth 1 -type f -print0)
 
 log "9/14 secure in-container entrypoint"
 

@@ -70,10 +70,11 @@ dkr run -d \
   --pids-limit 128 \
   --memory 128m \
   "$CLOUDFLARED_IMAGE" \
-  tunnel --no-autoupdate run \
+  tunnel --no-autoupdate --protocol quic run --post-quantum \
   --token-file /run/secrets/cloudflare-tunnel-token
 
 printf '\nCloudflared is running on Docker network %s.\n' "$APP_NETWORK"
+printf 'Tunnel transport: strict post-quantum QUIC (outbound UDP port 7844 required).\n'
 printf 'Set the Cloudflare public-hostname service URL to: http://%s:3000\n' "$APP_CONTAINER"
 printf 'Check status with: sudo -iu %s env DOCKER_HOST=%s docker logs --tail 100 %s\n' \
   "$SERVICE_USER" "$DOCKER_HOST" "$TUNNEL_CONTAINER"

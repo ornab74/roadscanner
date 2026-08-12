@@ -174,6 +174,19 @@ ok "Pinned origin/main commit: $COMMIT"
 
 log "7/14 encrypted secret provisioning"
 prompt_secret(){ local label="$1" value=""; while [[ -z "$value" ]]; do printf '%s: ' "$label" >/dev/tty; IFS= read -r -s value </dev/tty; printf '\n' >/dev/tty; done; printf '%s' "$value"; }
+prompt_admin_username(){ local value=""; while [[ -z "$value" ]]; do printf 'Enter admin username: ' >/dev/tty; IFS= read -r value </dev/tty; [[ -n "$value" ]] || printf 'Admin username cannot be empty.\n' >/dev/tty; done; printf '%s' "$value"; }
+admin_password_is_strong(){ local value="$1"; [[ ${#value} -ge 16 ]] && [[ "$value" =~ [[:upper:]] ]] && [[ "$value" =~ [[:lower:]] ]] && [[ "$value" =~ [[:digit:]] ]] && [[ "$value" =~ [^[:alnum:]] ]]; }
+prompt_admin_password(){
+  local value="" confirmation=""
+  printf '%s\n' 'Admin password requirements: 16+ characters with uppercase, lowercase, numbers, and special characters.' >/dev/tty
+  while true; do
+    printf 'Enter admin password: ' >/dev/tty; IFS= read -r -s value </dev/tty; printf '\n' >/dev/tty
+    if ! admin_password_is_strong "$value"; then printf '%s\n' 'Password is too weak. Use 16+ characters with uppercase, lowercase, numbers, and special characters.' >/dev/tty; continue; fi
+    printf 'Confirm admin password: ' >/dev/tty; IFS= read -r -s confirmation </dev/tty; printf '\n' >/dev/tty
+    if [[ "$value" != "$confirmation" ]]; then printf 'Passwords do not match. Try again.\n' >/dev/tty; continue; fi
+    printf '%s' "$value"; return
+  done
+}
 generate_b64url(){ openssl rand -base64 "${1:-48}" | tr -d '\n=' | tr '+/' '-_'; }
 generate_hex(){ openssl rand -hex "${1:-64}"; }
 CRED_KEY_MODE=host
@@ -183,14 +196,17 @@ if [[ -c /dev/tpmrm0 || -c /dev/tpm0 ]]; then
   rm -f "$ti" "$to"
 fi
 ok "Credential-at-rest mode: $CRED_KEY_MODE"
-encrypt_credential(){ local name="$1" value="$2" tmp; tmp="$(mktemp)"; chmod 0600 "$tmp"; printf '%s' "$value" >"$tmp"; systemd-creds encrypt --with-key="$CRED_KEY_MODE" --name="$name" "$tmp" "$CRED_DIR/$name.cred" >/dev/null; rm -f "$tmp"; chmod 0600 "$CRED_DIR/$name.cred"; }
+encrypt_credential(){ local name="$1" value="$2" tmp; tmp="$(mktemp)"; chmod 0600 "$tmp"; printf '%s' "$value" >"$tmp"; systemd-creds encrypt --with-key="$CRED_KEY_MODE" --name="$name" "$tmp" "$CRED_DIR/$name.cred" >/dev/null; rm -f "$tmp"; chmod 0600 "$CRED_DIR/$name.cred"; chown root:root "$CRED_DIR/$name.cred"; }
 credential_exists(){ [[ -s "$CRED_DIR/$1.cred" ]]; }
 if ! credential_exists OPENAI_API_KEY; then v="$(prompt_secret 'Enter OPENAI_API_KEY')"; encrypt_credential OPENAI_API_KEY "$v"; unset v; fi
 if ! credential_exists XAI_API_KEY; then v="$(prompt_secret 'Enter xAI/Grok API key')"; encrypt_credential XAI_API_KEY "$v"; encrypt_credential GROK_API_KEY "$v"; unset v; fi
-credential_exists admin_username || encrypt_credential admin_username "qrs_$(openssl rand -hex 6)"
-credential_exists admin_pass || encrypt_credential admin_pass "$(generate_b64url 48)"
+if ! credential_exists admin_username; then v="$(prompt_admin_username)"; encrypt_credential admin_username "$v"; unset v; fi
+if ! credential_exists admin_pass; then v="$(prompt_admin_password)"; encrypt_credential admin_pass "$v"; unset v; fi
 credential_exists INVITE_CODE_SECRET_KEY || encrypt_credential INVITE_CODE_SECRET_KEY "$(generate_hex 64)"
 credential_exists ENCRYPTION_PASSPHRASE || encrypt_credential ENCRYPTION_PASSPHRASE "$(generate_b64url 64)"
+while IFS= read -r -d '' credential_file; do
+  [[ "$(stat -c '%U:%G %a' "$credential_file")" == "root:root 600" ]] || die "Unsafe encrypted credential permissions: $credential_file"
+done < <(find "$CRED_DIR" -maxdepth 1 -type f -name '*.cred' -print0)
 cat >"$PUBLIC_ENV" <<EOF
 STRICT_PQ2_ONLY=1
 QRS_BOOTSTRAP_SHOW=0
@@ -224,6 +240,9 @@ chmod 0700 /usr/local/sbin/roadscanner-materialize-secrets
 for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
   [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
 done
+while IFS= read -r -d '' runtime_secret; do
+  [[ "$(stat -c '%U:%G %a' "$runtime_secret")" == "root:$SERVICE_USER 444" ]] || die "Unsafe runtime secret permissions: $runtime_secret"
+done < <(find "$RUNTIME_SECRET_DIR" -maxdepth 1 -type f -print0)
 
 log "9/14 secure container override"
 cat >"$CONFIG_DIR/container-entrypoint.sh" <<'EOF'
