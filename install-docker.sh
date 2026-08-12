@@ -202,7 +202,9 @@ cat >/usr/local/sbin/roadscanner-materialize-secrets <<EOF
 set -Eeuo pipefail
 umask 077
 install -d -m 0710 -o root -g '$SERVICE_USER' '$RUNTIME_SECRET_PARENT'
-install -d -m 0710 -o root -g '$SERVICE_USER' '$RUNTIME_SECRET_DIR'
+# This directory becomes the bind-mount root inside the container, so the
+# remapped application UID needs traversal. Its 0710 parent protects host access.
+install -d -m 0755 -o root -g '$SERVICE_USER' '$RUNTIME_SECRET_DIR'
 find '$RUNTIME_SECRET_DIR' -mindepth 1 -maxdepth 1 -type f -delete
 for cred in '$CRED_DIR'/*.cred; do
   [ -f "\$cred" ] || continue

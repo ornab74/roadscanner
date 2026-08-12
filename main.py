@@ -2468,7 +2468,7 @@ def shamir_recover(shares: list[tuple[int, bytes]], t: int) -> bytes:
     return bytes(out)
 
 
-SEALED_DIR   = Path("./sealed_store")
+SEALED_DIR   = Path(os.getenv("QRS_SEALED_DIR", "/var/data/sealed_store"))
 SEALED_FILE  = SEALED_DIR / "sealed.json.enc"
 SEALED_VER   = "SS1"
 SHARDS_ENV   = "QRS_SHARDS_JSON"
@@ -2877,7 +2877,7 @@ _KM.sign_blob                   = _km_sign
 _KM.verify_blob                 = _km_verify
 
 
-HD_FILE = Path("./sealed_store/hd_epoch.json")
+HD_FILE = SEALED_DIR / "hd_epoch.json"
 
 
 def hd_get_epoch() -> int:
@@ -2944,7 +2944,7 @@ class DecryptionGuard:
             return False
 
 dec_guard = DecryptionGuard()
-AUDIT_FILE = Path("./sealed_store/audit.log")
+AUDIT_FILE = SEALED_DIR / "audit.log"
 
 class AuditTrail:
     def __init__(self, km: "KeyManager"):
