@@ -39,11 +39,6 @@ PORT="${PORT:-3000}"
 MEMORY_LIMIT="${MEMORY_LIMIT:-768m}"
 CPU_LIMIT="${CPU_LIMIT:-1.0}"
 PIDS_LIMIT="${PIDS_LIMIT:-256}"
-QRS_DATA_DIR="${QRS_DATA_DIR:-/var/data}"
-QRS_DB_PATH="${QRS_DB_PATH:-}"
-QRS_SEALED_DIR="${QRS_SEALED_DIR:-}"
-QRS_MODELS_DIR="${QRS_MODELS_DIR:-}"
-QRS_BACKUP_DIR="${QRS_BACKUP_DIR:-}"
 
 PYTHON_IMAGE_TAG="${PYTHON_IMAGE_TAG:-python:3.12-slim}"
 PREBUILT_IMAGE="${PREBUILT_IMAGE:-}"
@@ -80,19 +75,6 @@ case "$BIND_ADDR" in
   127.0.0.1|::1|localhost) ;;
   *) die "Refusing non-loopback bind ($BIND_ADDR). Put Cloudflare Tunnel in front." ;;
 esac
-
-validate_container_path() {
-  local name="$1" value="$2"
-  [[ -z "$value" || "$value" == /* ]] || die "$name must be an absolute container path"
-  [[ -z "$value" || "$value" =~ ^/[A-Za-z0-9._/-]+$ ]] ||
-    die "$name may contain only letters, numbers, dot, underscore, slash, and hyphen"
-}
-validate_container_path QRS_DATA_DIR "$QRS_DATA_DIR"
-[[ "$QRS_DATA_DIR" != "/" ]] || die "QRS_DATA_DIR must not be the container root"
-validate_container_path QRS_DB_PATH "$QRS_DB_PATH"
-validate_container_path QRS_SEALED_DIR "$QRS_SEALED_DIR"
-validate_container_path QRS_MODELS_DIR "$QRS_MODELS_DIR"
-validate_container_path QRS_BACKUP_DIR "$QRS_BACKUP_DIR"
 
 prompt_certbot_config() {
   CERTBOT_DOMAIN="${CERTBOT_DOMAIN:-}"
@@ -527,12 +509,7 @@ QRS_BOOTSTRAP_SHOW=0
 QRS_ROTATE_SESSION_KEY=1
 QRS_SESSION_KEY_ROTATION_PERIOD_SECONDS=1800
 QRS_SESSION_KEY_ROTATION_LOOKBACK=8
-QRS_DATA_DIR=$QRS_DATA_DIR
 EOF
-for path_setting in QRS_DB_PATH QRS_SEALED_DIR QRS_MODELS_DIR QRS_BACKUP_DIR; do
-  path_value="${!path_setting}"
-  [[ -z "$path_value" ]] || printf '%s=%s\n' "$path_setting" "$path_value" >>"$PUBLIC_ENV"
-done
 chown root:"$SERVICE_USER" "$PUBLIC_ENV"
 chmod 0640 "$PUBLIC_ENV"
 
@@ -682,7 +659,6 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       STRICT_PQ2_ONLY: "1"
-      QRS_DATA_DIR: "$QRS_DATA_DIR"
       QRS_BOOTSTRAP_SHOW: "0"
       GUNICORN_WORKERS: "2"
       GUNICORN_THREADS: "2"
@@ -692,7 +668,7 @@ services:
     volumes:
       - type: volume
         source: roadscanner-data
-        target: $QRS_DATA_DIR
+        target: /var/data
       - type: bind
         source: $RUNTIME_SECRET_DIR
         target: /run/roadscanner-secrets
@@ -738,7 +714,6 @@ ROADSCANNER_PORT=$PORT
 ROADSCANNER_MEMORY_LIMIT=$MEMORY_LIMIT
 ROADSCANNER_CPU_LIMIT=$CPU_LIMIT
 ROADSCANNER_PIDS_LIMIT=$PIDS_LIMIT
-QRS_DATA_DIR=$QRS_DATA_DIR
 ROADSCANNER_VCS_REF=$COMMIT
 ROADSCANNER_BUILD_DATE=$BUILD_DATE
 PYTHON_IMAGE=$PYTHON_IMAGE_DIGEST
@@ -766,10 +741,6 @@ if [[ -z "$PREBUILT_IMAGE" ]]; then
   compose build --pull roadscanner
 fi
 IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "$DEPLOY_IMAGE")"
-APP_UID="$(dkr run --rm --network none --entrypoint /usr/bin/id "$DEPLOY_IMAGE" -u)"
-APP_GID="$(dkr run --rm --network none --entrypoint /usr/bin/id "$DEPLOY_IMAGE" -g)"
-[[ "$APP_UID" =~ ^[0-9]+$ && "$APP_GID" =~ ^[0-9]+$ ]] ||
-  die "Could not determine application UID/GID from final image"
 
 dkr run --rm --network none "$DEPLOY_IMAGE" python -c \
   "import oqs; oqs.KeyEncapsulation('ML-KEM-768'); oqs.Signature('ML-DSA-87'); print('PQ runtime verified: ML-KEM-768 + ML-DSA-87')" \
@@ -818,10 +789,8 @@ qrs_database_has_data() {
   dkr volume inspect roadscanner-data >/dev/null 2>&1 || return 1
   dkr run --rm --network none \
     --entrypoint /bin/sh \
-    -v "roadscanner-data:$QRS_DATA_DIR" \
-    -e "QRS_DATA_DIR=$QRS_DATA_DIR" \
-    -e "QRS_DB_PATH=$QRS_DB_PATH" \
-    "$DEPLOY_IMAGE" -c 'test -s "${QRS_DB_PATH:-$QRS_DATA_DIR/secure_data.db}"'
+    -v roadscanner-data:/var/data \
+    "$DEPLOY_IMAGE" -c 'test -s /var/data/secure_data.db'
 }
 
 if compgen -G "$CRED_DIR/QRS_*.cred" >/dev/null && ! qrs_credentials_valid; then
@@ -902,9 +871,9 @@ log "12/14 persistent data volume"
 dkr volume create roadscanner-data >/dev/null
 dkr run --rm --network none --read-only \
   --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE \
-  -v "roadscanner-data:$QRS_DATA_DIR" \
+  -v roadscanner-data:/var/data \
   "$PYTHON_IMAGE_DIGEST" \
-  /bin/chown -R "$APP_UID:$APP_GID" "$QRS_DATA_DIR"
+  /bin/chown -R 10001:10001 /var/data
 
 log "13/14 hardened container service"
 cat >/usr/local/bin/roadscanner-compose <<EOF
