@@ -793,13 +793,28 @@ if [[ ! -s "$CRED_DIR/QRS_X25519_PRIV_ENC_B64.cred" ]]; then
 
   # Encrypt each generated QRS value immediately. Never write a persistent
   # plaintext env file.
-  while IFS='=' read -r key value; do
+  qrs_export_count=0
+  while IFS= read -r export_line; do
+    key="${export_line%%=*}"
+    value="${export_line#*=}"
     [[ "$key" =~ ^QRS_[A-Z0-9_]+$ ]] || continue
+    [[ "$export_line" == *=* && -n "$value" ]] || die "Malformed PQ bootstrap export: $key"
+    case "$key" in
+      QRS_PQ_KEM_ALG|QRS_SIG_ALG) ;;
+      *)
+        printf '%s' "$value" | python3 -c \
+          'import base64,sys; base64.b64decode(sys.stdin.buffer.read(), validate=True)' \
+          || die "PQ bootstrap produced invalid Base64: $key"
+        ;;
+    esac
     encrypt_credential "$key" "$value"
+    qrs_export_count=$((qrs_export_count + 1))
+    unset value export_line
   done < <(
     grep '^export QRS_' "$BOOT_TMP" |
       sed -E "s/^export ([A-Z0-9_]+)='(.*)'$/\1=\2/"
   )
+  [[ $qrs_export_count -ge 9 ]] || die "PQ bootstrap returned too few credentials"
 
   rm -f "$BOOT_TMP"
   BOOT_TMP=""
