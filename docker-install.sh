@@ -247,11 +247,10 @@ grep -qi rootless <<<"$SECURITY" || die "Docker is not rootless"
 grep -qi seccomp <<<"$SECURITY" || die "Docker seccomp is unavailable"
 
 if [[ "$REQUIRE_APPARMOR" == auto ]]; then
-  if command -v aa-enabled >/dev/null 2>&1 && aa-enabled >/dev/null 2>&1; then
-    REQUIRE_APPARMOR=1
-  else
-    REQUIRE_APPARMOR=0
-  fi
+  # Host AppArmor availability does not imply that an unprivileged rootless
+  # Docker daemon can attach a container profile. Keep auto portable; operators
+  # who have configured rootless AppArmor mediation can require it explicitly.
+  REQUIRE_APPARMOR=0
 fi
 
 log "6/14 immutable source checkout"
