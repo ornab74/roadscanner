@@ -17,8 +17,9 @@ CONFIG_DIR="${CONFIG_DIR:-/etc/roadscanner}"
 CRED_DIR="${CRED_DIR:-$CONFIG_DIR/credentials}"
 PUBLIC_ENV="${PUBLIC_ENV:-$CONFIG_DIR/public.env}"
 DEPLOY_ENV="${DEPLOY_ENV:-$CONFIG_DIR/deploy.env}"
-RUNTIME_SECRET_PARENT="${RUNTIME_SECRET_PARENT:-/run/roadscanner-private}"
-RUNTIME_SECRET_DIR="${RUNTIME_SECRET_DIR:-$RUNTIME_SECRET_PARENT/secrets}"
+# Resolved after the dedicated rootless Docker UID exists.
+RUNTIME_SECRET_PARENT=""
+RUNTIME_SECRET_DIR=""
 STATE_DIR="${STATE_DIR:-/var/lib/roadscanner-installer}"
 LOG_DIR="${LOG_DIR:-/var/log/roadscanner}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
@@ -97,6 +98,8 @@ for f in /etc/subuid /etc/subgid; do
   fi
 done
 UIDN="$(id -u "$SERVICE_USER")"; HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
+RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
 loginctl enable-linger "$SERVICE_USER"
 systemctl start "user@${UIDN}.service" || true
 
@@ -201,10 +204,10 @@ cat >/usr/local/sbin/roadscanner-materialize-secrets <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-install -d -m 0710 -o root -g '$SERVICE_USER' '$RUNTIME_SECRET_PARENT'
+install -d -m 0700 -o '$SERVICE_USER' -g '$SERVICE_USER' '$RUNTIME_SECRET_PARENT'
 # This directory becomes the bind-mount root inside the container, so the
 # remapped application UID needs traversal. Its 0710 parent protects host access.
-install -d -m 0755 -o root -g '$SERVICE_USER' '$RUNTIME_SECRET_DIR'
+install -d -m 0755 -o '$SERVICE_USER' -g '$SERVICE_USER' '$RUNTIME_SECRET_DIR'
 find '$RUNTIME_SECRET_DIR' -mindepth 1 -maxdepth 1 -type f -delete
 for cred in '$CRED_DIR'/*.cred; do
   [ -f "\$cred" ] || continue
@@ -225,6 +228,10 @@ log "9/14 secure container override"
 cat >"$CONFIG_DIR/container-entrypoint.sh" <<'EOF'
 #!/bin/sh
 set -eu
+for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+  file="/run/roadscanner-secrets/$required"
+  [ -s "$file" ] || { echo "fatal: required secret file missing: $required" >&2; exit 78; }
+done
 for f in /run/roadscanner-secrets/*; do
   [ -f "$f" ] || continue
   name="$(basename "$f")"; case "$name" in *[!A-Za-z0-9_]*|'') exit 70;; esac
@@ -278,6 +285,16 @@ runu test -r "$DEPLOY_ENV" || die "deploy.env unreadable"
 compose config >/dev/null || die "Compose configuration invalid"
 compose build --pull roadscanner
 IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "roadscanner:$SHORT")"
+
+dkr run --rm --network none \
+  --entrypoint /bin/sh \
+  -v "$RUNTIME_SECRET_DIR:/run/roadscanner-secrets:ro" \
+  "roadscanner:$SHORT" -c '
+    set -eu
+    for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+      test -s "/run/roadscanner-secrets/$required" || exit 78
+    done
+  ' || die "Final image cannot read required runtime secrets"
 
 log "11/14 application PQ bootstrap"
 # PQ dependency-lock verification occurs in the Dockerfile. Legacy Dilithium

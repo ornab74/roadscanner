@@ -27,8 +27,9 @@ CONFIG_DIR="${CONFIG_DIR:-/etc/roadscanner}"
 CRED_DIR="${CRED_DIR:-$CONFIG_DIR/credentials}"
 PUBLIC_ENV="${PUBLIC_ENV:-$CONFIG_DIR/public.env}"
 DEPLOY_ENV="${DEPLOY_ENV:-$CONFIG_DIR/deploy.env}"
-RUNTIME_SECRET_PARENT="${RUNTIME_SECRET_PARENT:-/run/roadscanner-private}"
-RUNTIME_SECRET_DIR="${RUNTIME_SECRET_DIR:-$RUNTIME_SECRET_PARENT/secrets}"
+# Resolved after the dedicated rootless Docker UID exists.
+RUNTIME_SECRET_PARENT=""
+RUNTIME_SECRET_DIR=""
 STATE_DIR="${STATE_DIR:-/var/lib/roadscanner-installer}"
 LOG_DIR="${LOG_DIR:-/var/log/roadscanner}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
@@ -158,6 +159,8 @@ done
 UIDN="$(id -u "$SERVICE_USER")"
 GIDN="$(id -g "$SERVICE_USER")"
 HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+RUNTIME_SECRET_PARENT="/run/user/$UIDN/roadscanner-private"
+RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/secrets"
 
 loginctl enable-linger "$SERVICE_USER"
 systemctl start "user@${UIDN}.service" || true
@@ -447,8 +450,8 @@ CRED_DIR='$CRED_DIR'
 RUNTIME_DIR='$RUNTIME_SECRET_DIR'
 RUNTIME_PARENT='$RUNTIME_SECRET_PARENT'
 SERVICE_USER='$SERVICE_USER'
-install -d -m 0750 -o root -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
-install -d -m 0755 -o root -g "\$SERVICE_USER" "\$RUNTIME_DIR"
+install -d -m 0700 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_PARENT"
+install -d -m 0755 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_DIR"
 find "\$RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type f -delete
 shopt -s nullglob
 for cred in "\$CRED_DIR"/*.cred; do
@@ -497,9 +500,11 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now roadscanner-secrets.service
-runu test -r "$RUNTIME_SECRET_DIR/OPENAI_API_KEY" \
-  || die "Runtime secrets are not readable by service account"
+systemctl enable roadscanner-secrets.service
+systemctl restart roadscanner-secrets.service
+for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+  [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
+done
 
 log "9/14 secure in-container entrypoint"
 
@@ -507,6 +512,11 @@ log "9/14 secure in-container entrypoint"
 cat >"$CONFIG_DIR/container-entrypoint.sh" <<'ENTRY'
 #!/bin/sh
 set -eu
+
+for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+  file="/run/roadscanner-secrets/$required"
+  [ -s "$file" ] || { echo "fatal: required secret file missing: $required" >&2; exit 78; }
+done
 
 for f in /run/roadscanner-secrets/*; do
   [ -f "$f" ] || continue
@@ -612,6 +622,16 @@ runu test -r "$DEPLOY_ENV" || die "deploy.env unreadable"
 
 compose build --pull roadscanner
 IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "roadscanner:$SHORT")"
+
+dkr run --rm --network none \
+  --entrypoint /bin/sh \
+  -v "$RUNTIME_SECRET_DIR:/run/roadscanner-secrets:ro" \
+  "roadscanner:$SHORT" -c '
+    set -eu
+    for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+      test -s "/run/roadscanner-secrets/$required" || exit 78
+    done
+  ' || die "Final image cannot read required runtime secrets"
 
 log "11/14 application PQ bootstrap"
 # Existing encrypted QRS credentials are materialized automatically. If this is
