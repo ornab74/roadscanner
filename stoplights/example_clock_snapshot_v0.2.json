@@ -1,0 +1,167 @@
+{
+  "mode": "idealized_llm_clock",
+  "reference_local": "2026-08-15T20:50:00-04:00",
+  "generated_at_local": "2026-08-15T20:50:00-04:00",
+  "fit_rmse_s": 0.12611995292628375,
+  "mean_confidence": 0.984528866541397,
+  "notes": [
+    "Upper-bound synthetic test assumption.",
+    "Clock estimates are derived from hidden simulated truth.",
+    "Not live SPaT or controller telemetry."
+  ],
+  "estimates": [
+    {
+      "signal": "Times Sq / Broadway & W 46 St",
+      "cycle_s": 89.28112178307559,
+      "offset_s": 55.7493817493469,
+      "drift_ppm": 43.796317365509516,
+      "jitter_sd_s": 1.3731356353994217,
+      "confidence": 0.9840285270135845,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "7th Ave & W 45 St",
+      "cycle_s": 89.6544434267753,
+      "offset_s": 37.66080492253502,
+      "drift_ppm": 43.43356967511794,
+      "jitter_sd_s": 0.6983754196198471,
+      "confidence": 0.9844120205530922,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "7th Ave & W 44 St",
+      "cycle_s": 88.99696370724055,
+      "offset_s": 31.73962215304172,
+      "drift_ppm": 8.187332252967948,
+      "jitter_sd_s": 1.410574391468988,
+      "confidence": 0.9849178014168771,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "7th Ave & W 43 St",
+      "cycle_s": 89.9091677770167,
+      "offset_s": 47.77912360249366,
+      "drift_ppm": 38.09941135676076,
+      "jitter_sd_s": 1.0296921745292524,
+      "confidence": 0.9844783123028056,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "7th Ave & W 42 St",
+      "cycle_s": 90.47478993312544,
+      "offset_s": 49.624813105497395,
+      "drift_ppm": 30.133844759465504,
+      "jitter_sd_s": 1.5368347411327876,
+      "confidence": 0.9847503775327009,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "7th Ave & W 41 St",
+      "cycle_s": 90.68807908102478,
+      "offset_s": 20.160322094121703,
+      "drift_ppm": 60.74105094896963,
+      "jitter_sd_s": 0.8987835239352342,
+      "confidence": 0.9840125697654414,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "7th Ave & W 40 St",
+      "cycle_s": 89.16334291216369,
+      "offset_s": 12.004087577868694,
+      "drift_ppm": 49.67478129168774,
+      "jitter_sd_s": 1.2309862782232521,
+      "confidence": 0.9848868681987348,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "W 40 St & 6th Ave",
+      "cycle_s": 89.65317283564076,
+      "offset_s": 64.91385568792936,
+      "drift_ppm": -38.69300762443532,
+      "jitter_sd_s": 1.367013043376928,
+      "confidence": 0.9848208657259117,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "W 40 St & 5th Ave",
+      "cycle_s": 90.3835343086539,
+      "offset_s": 85.08626373206657,
+      "drift_ppm": 55.406111642884696,
+      "jitter_sd_s": 1.6299260662940043,
+      "confidence": 0.9848625945313759,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "E 40 St & Madison Ave",
+      "cycle_s": 90.01329427280226,
+      "offset_s": 39.097007265125484,
+      "drift_ppm": 47.58104569227403,
+      "jitter_sd_s": 0.9545469966316921,
+      "confidence": 0.9845848668491672,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "E 40 St & Park Ave",
+      "cycle_s": 90.12496256546655,
+      "offset_s": 34.27911229625997,
+      "drift_ppm": -33.67045848425099,
+      "jitter_sd_s": 0.6770787506539089,
+      "confidence": 0.9839751553377597,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "E 40 St & Lexington Ave",
+      "cycle_s": 90.56041126147738,
+      "offset_s": 54.477265017401635,
+      "drift_ppm": -4.8608837217879035,
+      "jitter_sd_s": 1.1535700988735356,
+      "confidence": 0.9847356134751502,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "E 40 St & 3rd Ave",
+      "cycle_s": 90.07861373678631,
+      "offset_s": 4.558818497040124,
+      "drift_ppm": -3.199234364343072,
+      "jitter_sd_s": 0.6810864212662867,
+      "confidence": 0.9846044015913498,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "E 40 St & 2nd Ave",
+      "cycle_s": 89.8745025993412,
+      "offset_s": 76.71060046310181,
+      "drift_ppm": -109.87503590941566,
+      "jitter_sd_s": 1.762423567117515,
+      "confidence": 0.9847670794087622,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "2nd Ave & E 39 St",
+      "cycle_s": 89.50900783996173,
+      "offset_s": 84.21993145066132,
+      "drift_ppm": 39.21123224636936,
+      "jitter_sd_s": 1.7095466294032358,
+      "confidence": 0.984495809835001,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "2nd Ave & E 38 St",
+      "cycle_s": 90.28218228410611,
+      "offset_s": 35.108807380002084,
+      "drift_ppm": 72.62862245496746,
+      "jitter_sd_s": 1.2142539749648074,
+      "confidence": 0.9842650879385744,
+      "source": "idealized_llm_clock"
+    },
+    {
+      "signal": "2nd Ave & E 37 St / Midtown Tunnel approach",
+      "cycle_s": 90.47086058931994,
+      "offset_s": 59.52273068310487,
+      "drift_ppm": -24.092696444632487,
+      "jitter_sd_s": 0.6086566240249902,
+      "confidence": 0.9843927797274624,
+      "source": "idealized_llm_clock"
+    }
+  ]
+}

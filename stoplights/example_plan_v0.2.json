@@ -1,0 +1,514 @@
+{
+  "project": "StopForGreen",
+  "version": "0.2.0",
+  "clock_mode": "idealized-llm",
+  "clock_snapshot": {
+    "mode": "idealized_llm_clock",
+    "reference_local": "2026-08-15T20:50:00-04:00",
+    "generated_at_local": "2026-08-15T20:50:00-04:00",
+    "fit_rmse_s": 0.12611995292628375,
+    "mean_confidence": 0.984528866541397,
+    "notes": [
+      "Upper-bound synthetic test assumption.",
+      "Clock estimates are derived from hidden simulated truth.",
+      "Not live SPaT or controller telemetry."
+    ],
+    "estimates": [
+      {
+        "signal": "Times Sq / Broadway & W 46 St",
+        "cycle_s": 89.28112178307559,
+        "offset_s": 55.7493817493469,
+        "drift_ppm": 43.796317365509516,
+        "jitter_sd_s": 1.3731356353994217,
+        "confidence": 0.9840285270135845,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "7th Ave & W 45 St",
+        "cycle_s": 89.6544434267753,
+        "offset_s": 37.66080492253502,
+        "drift_ppm": 43.43356967511794,
+        "jitter_sd_s": 0.6983754196198471,
+        "confidence": 0.9844120205530922,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "7th Ave & W 44 St",
+        "cycle_s": 88.99696370724055,
+        "offset_s": 31.73962215304172,
+        "drift_ppm": 8.187332252967948,
+        "jitter_sd_s": 1.410574391468988,
+        "confidence": 0.9849178014168771,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "7th Ave & W 43 St",
+        "cycle_s": 89.9091677770167,
+        "offset_s": 47.77912360249366,
+        "drift_ppm": 38.09941135676076,
+        "jitter_sd_s": 1.0296921745292524,
+        "confidence": 0.9844783123028056,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "7th Ave & W 42 St",
+        "cycle_s": 90.47478993312544,
+        "offset_s": 49.624813105497395,
+        "drift_ppm": 30.133844759465504,
+        "jitter_sd_s": 1.5368347411327876,
+        "confidence": 0.9847503775327009,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "7th Ave & W 41 St",
+        "cycle_s": 90.68807908102478,
+        "offset_s": 20.160322094121703,
+        "drift_ppm": 60.74105094896963,
+        "jitter_sd_s": 0.8987835239352342,
+        "confidence": 0.9840125697654414,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "7th Ave & W 40 St",
+        "cycle_s": 89.16334291216369,
+        "offset_s": 12.004087577868694,
+        "drift_ppm": 49.67478129168774,
+        "jitter_sd_s": 1.2309862782232521,
+        "confidence": 0.9848868681987348,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "W 40 St & 6th Ave",
+        "cycle_s": 89.65317283564076,
+        "offset_s": 64.91385568792936,
+        "drift_ppm": -38.69300762443532,
+        "jitter_sd_s": 1.367013043376928,
+        "confidence": 0.9848208657259117,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "W 40 St & 5th Ave",
+        "cycle_s": 90.3835343086539,
+        "offset_s": 85.08626373206657,
+        "drift_ppm": 55.406111642884696,
+        "jitter_sd_s": 1.6299260662940043,
+        "confidence": 0.9848625945313759,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "E 40 St & Madison Ave",
+        "cycle_s": 90.01329427280226,
+        "offset_s": 39.097007265125484,
+        "drift_ppm": 47.58104569227403,
+        "jitter_sd_s": 0.9545469966316921,
+        "confidence": 0.9845848668491672,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "E 40 St & Park Ave",
+        "cycle_s": 90.12496256546655,
+        "offset_s": 34.27911229625997,
+        "drift_ppm": -33.67045848425099,
+        "jitter_sd_s": 0.6770787506539089,
+        "confidence": 0.9839751553377597,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "E 40 St & Lexington Ave",
+        "cycle_s": 90.56041126147738,
+        "offset_s": 54.477265017401635,
+        "drift_ppm": -4.8608837217879035,
+        "jitter_sd_s": 1.1535700988735356,
+        "confidence": 0.9847356134751502,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "E 40 St & 3rd Ave",
+        "cycle_s": 90.07861373678631,
+        "offset_s": 4.558818497040124,
+        "drift_ppm": -3.199234364343072,
+        "jitter_sd_s": 0.6810864212662867,
+        "confidence": 0.9846044015913498,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "E 40 St & 2nd Ave",
+        "cycle_s": 89.8745025993412,
+        "offset_s": 76.71060046310181,
+        "drift_ppm": -109.87503590941566,
+        "jitter_sd_s": 1.762423567117515,
+        "confidence": 0.9847670794087622,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "2nd Ave & E 39 St",
+        "cycle_s": 89.50900783996173,
+        "offset_s": 84.21993145066132,
+        "drift_ppm": 39.21123224636936,
+        "jitter_sd_s": 1.7095466294032358,
+        "confidence": 0.984495809835001,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "2nd Ave & E 38 St",
+        "cycle_s": 90.28218228410611,
+        "offset_s": 35.108807380002084,
+        "drift_ppm": 72.62862245496746,
+        "jitter_sd_s": 1.2142539749648074,
+        "confidence": 0.9842650879385744,
+        "source": "idealized_llm_clock"
+      },
+      {
+        "signal": "2nd Ave & E 37 St / Midtown Tunnel approach",
+        "cycle_s": 90.47086058931994,
+        "offset_s": 59.52273068310487,
+        "drift_ppm": -24.092696444632487,
+        "jitter_sd_s": 0.6086566240249902,
+        "confidence": 0.9843927797274624,
+        "source": "idealized_llm_clock"
+      }
+    ]
+  },
+  "advisor_mode": "deterministic",
+  "plan": {
+    "route_name": "Times Square -> JFK",
+    "request": {
+      "arrival_window_start": "2026-08-15T21:15:00-04:00",
+      "arrival_window_end": "2026-08-15T21:30:00-04:00",
+      "earliest_departure": "2026-08-15T20:15:00-04:00",
+      "latest_departure": "2026-08-15T20:45:00-04:00"
+    },
+    "recommended": {
+      "candidate_id": "ab27fdb679",
+      "departure_local": "2026-08-15T20:31:21-04:00",
+      "score": 0.508761,
+      "p_arrive_in_window": 0.715909,
+      "p_early": 0.069091,
+      "p_late": 0.215,
+      "median_arrival_local": "2026-08-15T21:23:23.089933-04:00",
+      "p05_arrival_local": "2026-08-15T21:14:25.219813-04:00",
+      "p95_arrival_local": "2026-08-15T21:40:50.561211-04:00",
+      "mean_green_fraction": 0.474973,
+      "p_green_fraction_ge_target": 0.01,
+      "p_all_green": 0.0,
+      "expected_red_stops": 8.36,
+      "median_red_stops": 8.0,
+      "expected_signal_wait_s": 195.732,
+      "median_signal_wait_s": 195.086,
+      "p95_signal_wait_s": 290.342,
+      "schedule_distance_s": 98.069,
+      "robustness": 0.469982
+    },
+    "alternatives": [
+      {
+        "candidate_id": "7b186fbf7e",
+        "departure_local": "2026-08-15T20:31:39-04:00",
+        "score": 0.506703,
+        "p_arrive_in_window": 0.709545,
+        "p_early": 0.061818,
+        "p_late": 0.228636,
+        "median_arrival_local": "2026-08-15T21:23:56.876298-04:00",
+        "p05_arrival_local": "2026-08-15T21:14:30.993629-04:00",
+        "p95_arrival_local": "2026-08-15T21:41:33.056141-04:00",
+        "mean_green_fraction": 0.485615,
+        "p_green_fraction_ge_target": 0.014091,
+        "p_all_green": 0.0,
+        "expected_red_stops": 8.0982,
+        "median_red_stops": 8.0,
+        "expected_signal_wait_s": 194.999,
+        "median_signal_wait_s": 192.48,
+        "p95_signal_wait_s": 298.804,
+        "schedule_distance_s": 108.964,
+        "robustness": 0.477569
+      },
+      {
+        "candidate_id": "991b30835c",
+        "departure_local": "2026-08-15T20:30:00-04:00",
+        "score": 0.498195,
+        "p_arrive_in_window": 0.688636,
+        "p_early": 0.125455,
+        "p_late": 0.185909,
+        "median_arrival_local": "2026-08-15T21:22:01.680636-04:00",
+        "p05_arrival_local": "2026-08-15T21:12:37.232909-04:00",
+        "p95_arrival_local": "2026-08-15T21:39:51.509405-04:00",
+        "mean_green_fraction": 0.479813,
+        "p_green_fraction_ge_target": 0.013636,
+        "p_all_green": 0.0,
+        "expected_red_stops": 8.2673,
+        "median_red_stops": 8.0,
+        "expected_signal_wait_s": 194.66,
+        "median_signal_wait_s": 191.86,
+        "p95_signal_wait_s": 299.622,
+        "schedule_distance_s": 100.952,
+        "robustness": 0.476499
+      },
+      {
+        "candidate_id": "91e37189a4",
+        "departure_local": "2026-08-15T20:31:14-04:00",
+        "score": 0.497582,
+        "p_arrive_in_window": 0.702273,
+        "p_early": 0.079545,
+        "p_late": 0.218182,
+        "median_arrival_local": "2026-08-15T21:23:20.791480-04:00",
+        "p05_arrival_local": "2026-08-15T21:13:59.782605-04:00",
+        "p95_arrival_local": "2026-08-15T21:41:22.303283-04:00",
+        "mean_green_fraction": 0.462995,
+        "p_green_fraction_ge_target": 0.008182,
+        "p_all_green": 0.0,
+        "expected_red_stops": 8.5468,
+        "median_red_stops": 9.0,
+        "expected_signal_wait_s": 199.473,
+        "median_signal_wait_s": 199.072,
+        "p95_signal_wait_s": 298.807,
+        "schedule_distance_s": 103.442,
+        "robustness": 0.462191
+      },
+      {
+        "candidate_id": "4d17e5d53b",
+        "departure_local": "2026-08-15T20:30:28-04:00",
+        "score": 0.482729,
+        "p_arrive_in_window": 0.691818,
+        "p_early": 0.088182,
+        "p_late": 0.22,
+        "median_arrival_local": "2026-08-15T21:23:12.390275-04:00",
+        "p05_arrival_local": "2026-08-15T21:13:37.038089-04:00",
+        "p95_arrival_local": "2026-08-15T21:42:17.115192-04:00",
+        "mean_green_fraction": 0.441497,
+        "p_green_fraction_ge_target": 0.007727,
+        "p_all_green": 0.0,
+        "expected_red_stops": 8.8095,
+        "median_red_stops": 9.0,
+        "expected_signal_wait_s": 218.693,
+        "median_signal_wait_s": 218.457,
+        "p95_signal_wait_s": 324.739,
+        "schedule_distance_s": 115.638,
+        "robustness": 0.442224
+      }
+    ],
+    "pathway": [
+      {
+        "signal": "Times Sq / Broadway & W 46 St",
+        "median_eta_local": "2026-08-15T20:31:21-04:00",
+        "p_green": 0.863182,
+        "p_yellow": 0.006364,
+        "p_red": 0.130455,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "7th Ave & W 45 St",
+        "median_eta_local": "2026-08-15T20:31:48.653516-04:00",
+        "p_green": 0.204545,
+        "p_yellow": 0.006364,
+        "p_red": 0.789091,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "7th Ave & W 44 St",
+        "median_eta_local": "2026-08-15T20:32:33.582011-04:00",
+        "p_green": 0.673636,
+        "p_yellow": 0.047727,
+        "p_red": 0.278636,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "7th Ave & W 43 St",
+        "median_eta_local": "2026-08-15T20:33:02.444343-04:00",
+        "p_green": 0.589545,
+        "p_yellow": 0.040909,
+        "p_red": 0.369545,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "7th Ave & W 42 St",
+        "median_eta_local": "2026-08-15T20:33:36.986991-04:00",
+        "p_green": 0.525909,
+        "p_yellow": 0.045909,
+        "p_red": 0.428182,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "7th Ave & W 41 St",
+        "median_eta_local": "2026-08-15T20:34:33.216955-04:00",
+        "p_green": 0.582727,
+        "p_yellow": 0.039545,
+        "p_red": 0.377727,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "7th Ave & W 40 St",
+        "median_eta_local": "2026-08-15T20:35:05.384473-04:00",
+        "p_green": 0.615909,
+        "p_yellow": 0.041818,
+        "p_red": 0.342273,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "W 40 St & 6th Ave",
+        "median_eta_local": "2026-08-15T20:36:29.972636-04:00",
+        "p_green": 0.45,
+        "p_yellow": 0.027273,
+        "p_red": 0.522727,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "W 40 St & 5th Ave",
+        "median_eta_local": "2026-08-15T20:37:56.027242-04:00",
+        "p_green": 0.449091,
+        "p_yellow": 0.040909,
+        "p_red": 0.51,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "E 40 St & Madison Ave",
+        "median_eta_local": "2026-08-15T20:39:33.997302-04:00",
+        "p_green": 0.376818,
+        "p_yellow": 0.033636,
+        "p_red": 0.589545,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "E 40 St & Park Ave",
+        "median_eta_local": "2026-08-15T20:41:09.459855-04:00",
+        "p_green": 0.344091,
+        "p_yellow": 0.030909,
+        "p_red": 0.625,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "E 40 St & Lexington Ave",
+        "median_eta_local": "2026-08-15T20:42:46.084283-04:00",
+        "p_green": 0.496364,
+        "p_yellow": 0.025909,
+        "p_red": 0.477727,
+        "modal_state": "GREEN",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "E 40 St & 3rd Ave",
+        "median_eta_local": "2026-08-15T20:44:08.238356-04:00",
+        "p_green": 0.344545,
+        "p_yellow": 0.030909,
+        "p_red": 0.624545,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "E 40 St & 2nd Ave",
+        "median_eta_local": "2026-08-15T20:45:41.919972-04:00",
+        "p_green": 0.442727,
+        "p_yellow": 0.049091,
+        "p_red": 0.508182,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "2nd Ave & E 39 St",
+        "median_eta_local": "2026-08-15T20:46:06.986672-04:00",
+        "p_green": 0.436364,
+        "p_yellow": 0.016364,
+        "p_red": 0.547273,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "2nd Ave & E 38 St",
+        "median_eta_local": "2026-08-15T20:46:29.457450-04:00",
+        "p_green": 0.317727,
+        "p_yellow": 0.05,
+        "p_red": 0.632273,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      },
+      {
+        "signal": "2nd Ave & E 37 St / Midtown Tunnel approach",
+        "median_eta_local": "2026-08-15T20:47:11.772176-04:00",
+        "p_green": 0.361364,
+        "p_yellow": 0.031818,
+        "p_red": 0.606818,
+        "modal_state": "RED",
+        "recommended_behavior": "Obey the physical signal; simulation is advisory only."
+      }
+    ],
+    "environment": {
+      "pressure": 0.42919999999999997,
+      "coherence": 0.7248,
+      "hazard": 0.1352,
+      "confidence": 0.5598749302065038,
+      "contradiction": 0.5010987926547019,
+      "modality_entropy": 0.8190428081554771
+    },
+    "quantum": {
+      "rgb": [
+        0.4127417826778463,
+        0.7129104902289106,
+        0.2812047285703465
+      ],
+      "z0": -0.7936468860265624,
+      "z1": -0.4993095846576866,
+      "combined": 0.16204401726049394,
+      "entropic_score": 0.11632144892371941,
+      "state_entropy_bits": 0.4653764220928265,
+      "purity": 0.8218240855551391,
+      "phase_uncertainty_s": 10.374337159792152
+    },
+    "metadata": {
+      "mode": "simulation_only",
+      "planner": "PathwayToGreenPlanner",
+      "search_bounds": {
+        "earliest": "2026-08-15T20:15:00-04:00",
+        "latest": "2026-08-15T20:45:00-04:00"
+      },
+      "coarse_candidates_evaluated": 31,
+      "refined_candidates_evaluated": 77,
+      "final_candidates_evaluated": 6,
+      "green_target_fraction": 0.75,
+      "clock_twin": {
+        "sources": [
+          "idealized_llm_clock"
+        ],
+        "mean_clock_jitter_s": 1.1727343727597463,
+        "mean_abs_drift_ppm": 41.369684484461175,
+        "assumption": "Virtual signal-clock estimates are treated as high-quality timing inputs for this simulation test."
+      },
+      "safety": "Only departure time is optimized. The driver must obey the physical traffic signal and posted traffic laws."
+    }
+  },
+  "advice": {
+    "recommended_candidate_id": "ab27fdb679",
+    "recommended_departure_local": "2026-08-15T20:31:21-04:00",
+    "summary": "Simulation-selected departure maximizing arrival-window fit and green-light probability under modeled uncertainty.",
+    "schedule_assessment": {
+      "p_arrive_in_window": 0.7159090909090909,
+      "median_arrival_local": "2026-08-15T21:23:23.089933-04:00",
+      "p05_arrival_local": "2026-08-15T21:14:25.219813-04:00",
+      "p95_arrival_local": "2026-08-15T21:40:50.561211-04:00"
+    },
+    "green_pathway_assessment": {
+      "mean_green_fraction": 0.47497326203208556,
+      "p_green_fraction_ge_target": 0.01,
+      "p_all_green": 0.0,
+      "expected_red_stops": 8.36,
+      "median_signal_wait_s": 195.08559261911148,
+      "robustness": 0.46998154659203834
+    },
+    "uncertainty_note": "All signal states are simulated probabilities, not live controller telemetry.",
+    "safety_note": "Obey every physical signal and posted traffic law; do not speed to preserve a modeled green wave.",
+    "alternative_candidate_ids": [
+      "7b186fbf7e",
+      "991b30835c",
+      "91e37189a4",
+      "4d17e5d53b"
+    ]
+  }
+}
