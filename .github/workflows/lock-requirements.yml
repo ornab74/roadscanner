@@ -22,7 +22,7 @@ jobs:
         shell: bash
 
     env:
-      NODE_VERSION: "24"
+      NODE_VERSION: "24.22.1"
       LIBOQS_VERSION: "0.14.0"
       LIBOQS_SHA256: "5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea"
       LIBOQS_PYTHON_VERSION: "0.16.0"
@@ -49,7 +49,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Verify Node.js runtime
-        run: node -e "if (process.versions.node.split('.')[0] !== '24') process.exit(1); console.log(process.version)"
+        run: node -e "if (process.versions.node !== '24.22.1') process.exit(1); console.log(process.version)"
 
       - name: Install supported lock tooling
         run: |
