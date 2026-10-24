@@ -434,7 +434,9 @@ cryptography==50.0.0 \
     --hash=sha256:f59e38625469987d7ef6d495323c55e7db6c212eaf6112267e0d3b565a2e9c9f \
     --hash=sha256:f89831ef99dd7dd169ab06d63a831adb9e20a87aac6d380266bbda5823349169 \
     --hash=sha256:fd9192b7b70c573d7f214eb1ae35e00d359f6f5e4b27c7e21e30de1fc6204645
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   fido2
 diastatic-malt==2.15.2 \
     --hash=sha256:7eb90d8c30b7ff16b4e84c3a65de2ff7f5b7b9d0f5cdea23918e747ff7fb5320 \
     --hash=sha256:85429257b356030f101c31b2c7d506c4829f21bd865aed796766f900d7908407
@@ -443,6 +445,10 @@ diskcache==5.6.3 \
     --hash=sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc \
     --hash=sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19
     # via llama-cpp-python
+fido2==2.2.1 \
+    --hash=sha256:85787428a94c3f8eaf72f0ff30afba983b559a1b1b795c93318c81b4ad4062c4 \
+    --hash=sha256:ed397da981b9ab133da6ead7309e41f924b566b749956129efe286fae097749f
+    # via -r requirements.in
 flask[async]==3.1.3 \
     --hash=sha256:0ef0e52b8a9cd932855379197dd8f94047b359ca0a78695144304cb45f87c9eb \
     --hash=sha256:f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c
