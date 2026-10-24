@@ -788,6 +788,10 @@ for _persistent_dir in {
 DB_FILE = DB_PATH
 RATE_LIMIT_COUNT = 13
 RATE_LIMIT_WINDOW = timedelta(minutes=15)
+LOGIN_RATE_WINDOW_SECONDS = 15 * 60
+LOGIN_ACCOUNT_FAILURE_LIMIT = 5
+LOGIN_IP_FAILURE_LIMIT = 20
+LOGIN_LOCK_SECONDS = 15 * 60
 
 config_lock = threading.Lock()
 EXPIRATION_HOURS = 65
@@ -809,8 +813,28 @@ def apply_csp(response):
                   "font-src 'self' data:; "
                   "img-src 'self' data:; "
                   "object-src 'none'; "
-                  "base-uri 'self'; ")
+                  "base-uri 'self'; "
+                  "frame-ancestors 'none'; ")
     response.headers['Content-Security-Policy'] = csp_policy
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = (
+        'geolocation=(self), camera=(), microphone=(), payment=(), '
+        'usb=(), accelerometer=(), gyroscope=(), magnetometer=()'
+    )
+    sensitive_endpoint = request.endpoint in {
+        "login", "register", "dashboard", "logout", "view_report",
+        "settings", "user_settings", "user_language_prompt_preview",
+        "set_language_route", "start_scan_route", "reverse_geocode_route",
+    }
+    if (
+        'username' in session
+        or sensitive_endpoint
+        or request.path.startswith(("/admin", "/api", "/settings"))
+    ):
+        response.headers['Cache-Control'] = 'no-store, private, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
     if (
         request.path.startswith(("/admin", "/api", "/settings"))
         or request.endpoint in {"login", "register", "settings", "user_settings", "dashboard", "logout", "blog_admin"}
@@ -1369,6 +1393,35 @@ APP_BUTTON_POLISH_CSS = """
   cursor:not-allowed;
   filter:saturate(.7);
 }
+.qrs-logout-form{
+  display:block;
+  margin:0;
+}
+.qrs-logout-button{
+  appearance:none;
+  border:0;
+  background:transparent;
+  cursor:pointer;
+  font:inherit;
+}
+.sidebar .qrs-logout-button{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  width:100%;
+  min-height:44px;
+  margin:6px 0;
+  padding:0 14px;
+  color:var(--muted, var(--qrs-control-muted));
+  text-align:left;
+  border:1px solid transparent;
+  border-radius:12px;
+}
+.sidebar .qrs-logout-button:hover{
+  color:var(--ink, var(--qrs-control-ink));
+  background:rgba(255,255,255,.08);
+  border-color:var(--line, var(--qrs-control-stroke));
+}
 body.bg-dark, body.text-light{
   background:
     radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%),
@@ -1813,6 +1866,7 @@ def robots_txt():
         "Allow: /seo-preview.png",
         "Allow: /seo-preview.svg",
         "Allow: /site.webmanifest",
+        "Allow: /.well-known/security.txt",
         "Disallow: /admin/",
         "Disallow: /api/",
         "Disallow: /dashboard",
@@ -1828,6 +1882,30 @@ def robots_txt():
     resp.headers["Cache-Control"] = "public, max-age=3600"
     resp.set_etag(hashlib.sha256(body.encode("utf-8")).hexdigest())
     return resp
+
+
+@app.get("/.well-known/security.txt")
+@app.get("/security.txt")
+def security_txt():
+    contact = os.getenv(
+        "SECURITY_CONTACT_URL",
+        "https://github.com/ornab74/roadscanner/security/advisories/new",
+    ).strip()
+    if not contact.startswith(("https://", "mailto:")):
+        contact = "https://github.com/ornab74/roadscanner/security/advisories/new"
+    expires = (datetime.now(timezone.utc) + timedelta(days=180)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    body = "\n".join([
+        f"Contact: {contact}",
+        f"Expires: {expires}",
+        f"Canonical: {_canonical_url('/.well-known/security.txt')}",
+        "Preferred-Languages: en",
+        "",
+    ])
+    response = Response(body, content_type="text/plain; charset=utf-8")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @app.get("/sitemap.xml")
@@ -3619,6 +3697,19 @@ def create_tables():
             )
         """)
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS login_rate_limits (
+                bucket TEXT PRIMARY KEY,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                window_started INTEGER NOT NULL,
+                locked_until INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_login_rate_limits_updated_at
+            ON login_rate_limits(updated_at)
+        """)
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS invite_codes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 code TEXT UNIQUE NOT NULL,
@@ -5394,8 +5485,10 @@ ADMIN_SHELL_CSS = """
 body.qrs-admin-shell{ margin:0; background:radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%), linear-gradient(135deg, #090d14, #111827 54%, #090d14) !important; color:var(--ink) !important; font-family:'Roboto',sans-serif; }
 .qrs-sidebar{ position:fixed; inset:0 auto 0 0; width:232px; padding:24px 14px; background:rgba(7,12,20,.82); border-right:1px solid var(--line); backdrop-filter:blur(16px) saturate(145%); -webkit-backdrop-filter:blur(16px) saturate(145%); z-index:20; }
 .qrs-sidebar .navbar-brand{ display:flex; align-items:center; justify-content:center; height:48px; margin:0 8px 22px; color:var(--ink); border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)); font-family:'Orbitron',sans-serif; font-size:1.15rem; text-decoration:none; }
-.qrs-sidebar a.qrs-nav-link{ display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; margin:6px 0; color:var(--muted); text-decoration:none; border:1px solid transparent; border-radius:12px; transition:background-color .16s ease, color .16s ease, transform .16s ease, border-color .16s ease; }
-.qrs-sidebar a.qrs-nav-link:hover,.qrs-sidebar a.qrs-nav-link.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line); transform:translateX(1px); text-decoration:none; }
+.qrs-sidebar .qrs-nav-link{ display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:0 14px; margin:6px 0; color:var(--muted); text-decoration:none; border:1px solid transparent; border-radius:12px; transition:background-color .16s ease, color .16s ease, transform .16s ease, border-color .16s ease; }
+.qrs-sidebar .qrs-nav-link:hover,.qrs-sidebar .qrs-nav-link.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line); transform:translateX(1px); text-decoration:none; }
+.qrs-sidebar .qrs-logout-form{ margin:0; }
+.qrs-sidebar .qrs-logout-button{ background:transparent; cursor:pointer; font:inherit; text-align:left; }
 .qrs-sidebar i{ width:18px; text-align:center; color:var(--accent); }
 .qrs-admin-content{ margin-left:232px; min-height:100vh; padding:28px; }
 .qrs-admin-card{ background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.055)) !important; color:var(--ink) !important; border:1px solid var(--line) !important; border-radius:18px !important; box-shadow:0 24px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.05); }
@@ -5427,7 +5520,15 @@ def qrs_user_sidebar_html(active: str = "dashboard") -> Markup:
             _sidebar_link("admin_blog_backup_page", "Blog Backup", "fas fa-database", active, "blog_backup"),
             _sidebar_link("admin_local_llm_page", "Local Llama", "fas fa-microchip", active, "local_llm"),
         ])
-    links.append(_sidebar_link("logout", "Logout", "fas fa-sign-out-alt", active, "logout"))
+    links.append(
+        Markup(
+            '<form method="post" action="{}" class="qrs-logout-form">'
+            '<input type="hidden" name="csrf_token" value="{}">'
+            '<button type="submit" class="qrs-nav-link qrs-logout-button">'
+            '<i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span>'
+            '</button></form>'
+        ).format(url_for("logout"), generate_csrf())
+    )
     return (
         Markup('<aside class="qrs-sidebar" aria-label="User navigation"><a class="navbar-brand" href="{}">QRS</a>')
         .format(url_for("dashboard"))
@@ -6113,16 +6214,26 @@ def ensure_fp():
     if not fp:
         uid = (session.get('username') or os.urandom(6).hex())
         fp = format(_stable_seed(uid), 'x')
-        resp = make_response()
         setattr(request, "_qrs_fp_to_set", fp)
         setattr(request, "_qrs_uid", uid)
     else:
+        # Reissue existing cookies so deployments made before the hardened
+        # attributes migrate without waiting for the one-year cookie to expire.
+        setattr(request, "_qrs_fp_to_set", fp)
         setattr(request, "_qrs_uid", fp)
 
 def _attach_cookie(resp):
     fp = getattr(request, "_qrs_fp_to_set", None)
     if fp:
-        resp.set_cookie("qrs_fp", fp, samesite="Lax", max_age=60*60*24*365)
+        resp.set_cookie(
+            "qrs_fp",
+            fp,
+            secure=True,
+            httponly=True,
+            samesite="Lax",
+            path="/",
+            max_age=60 * 60 * 24 * 365,
+        )
     return resp
 
 def _safe_json_parse(txt: str):
@@ -8183,6 +8294,111 @@ def validate_invite_code_format(invite_code_with_hmac,
     except ValueError:
         return False
 
+
+def _login_rate_bucket(kind: str, value: str) -> str:
+    key = _require_secret_bytes(SECRET_KEY)
+    digest = hmac.new(
+        key,
+        f"login-rate:{kind}:{value}".encode("utf-8", errors="replace"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{kind}:{digest}"
+
+
+def _login_rate_buckets(username: str) -> tuple[tuple[str, int], tuple[str, int]]:
+    account = sanitize_input(username).strip()
+    client_address = str(request.remote_addr or "unknown").strip()
+    return (
+        (_login_rate_bucket("account", account), LOGIN_ACCOUNT_FAILURE_LIMIT),
+        (_login_rate_bucket("ip", client_address), LOGIN_IP_FAILURE_LIMIT),
+    )
+
+
+def login_retry_after(username: str) -> int:
+    now = int(time.time())
+    buckets = [bucket for bucket, _limit in _login_rate_buckets(username)]
+    placeholders = ",".join("?" for _ in buckets)
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        rows = db.execute(
+            f"SELECT locked_until FROM login_rate_limits WHERE bucket IN ({placeholders})",
+            buckets,
+        ).fetchall()
+    return max((max(0, int(row[0] or 0) - now) for row in rows), default=0)
+
+
+def reserve_login_attempt(username: str) -> tuple[bool, int]:
+    """Atomically admit one login attempt and return (blocked, retry_after)."""
+    now = int(time.time())
+    oldest_window = now - LOGIN_RATE_WINDOW_SECONDS
+    bucket_specs = _login_rate_buckets(username)
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "DELETE FROM login_rate_limits WHERE updated_at < ?",
+            (now - 24 * 60 * 60,),
+        )
+        rows_by_bucket = {}
+        for bucket, _attempt_limit in bucket_specs:
+            row = db.execute(
+                "SELECT failure_count, window_started, locked_until "
+                "FROM login_rate_limits WHERE bucket = ?",
+                (bucket,),
+            ).fetchone()
+            rows_by_bucket[bucket] = row
+
+        retry_after = max(
+            (
+                max(0, int(row[2] or 0) - now)
+                for row in rows_by_bucket.values()
+                if row
+            ),
+            default=0,
+        )
+        if retry_after:
+            db.commit()
+            return True, retry_after
+
+        # Reserve both the account and IP attempt while holding SQLite's write
+        # lock. This prevents concurrent workers from all reaching Argon2 before
+        # the configured limit becomes visible.
+        for bucket, attempt_limit in bucket_specs:
+            row = rows_by_bucket[bucket]
+            if row and int(row[1] or 0) >= oldest_window:
+                failure_count = int(row[0] or 0) + 1
+                window_started = int(row[1])
+            else:
+                failure_count = 1
+                window_started = now
+            locked_until = (
+                now + LOGIN_LOCK_SECONDS
+                if failure_count >= attempt_limit
+                else 0
+            )
+            db.execute(
+                """
+                INSERT INTO login_rate_limits
+                    (bucket, failure_count, window_started, locked_until, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(bucket) DO UPDATE SET
+                    failure_count = excluded.failure_count,
+                    window_started = excluded.window_started,
+                    locked_until = excluded.locked_until,
+                    updated_at = excluded.updated_at
+                """,
+                (bucket, failure_count, window_started, locked_until, now),
+            )
+            retry_after = max(retry_after, max(0, locked_until - now))
+        db.commit()
+    return False, retry_after
+
+
+def clear_login_account_failures(username: str) -> None:
+    account = sanitize_input(username).strip()
+    bucket = _login_rate_bucket("account", account)
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("DELETE FROM login_rate_limits WHERE bucket = ?", (bucket,))
+        db.commit()
+
 def authenticate_user(username, password):
     username = sanitize_input(username)
     password = sanitize_password(password)
@@ -9123,7 +9339,12 @@ def home():
         <li class="nav-item"><a class="nav-link" href="{{ url_for('blog_index') }}">{{ home_text.nav_blog }}</a></li>
         {% if 'username' in session %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">{{ home_text.nav_dashboard }}</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">{{ home_text.nav_logout }}</a></li>
+          <li class="nav-item">
+            <form method="post" action="{{ url_for('logout') }}" class="qrs-logout-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="nav-link qrs-logout-button">{{ home_text.nav_logout }}</button>
+            </form>
+          </li>
         {% else %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">{{ home_text.nav_login }}</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('register') }}">{{ home_text.nav_register }}</a></li>
@@ -9536,16 +9757,24 @@ def home():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error_message = ""
+    response_status = 200
+    retry_after = 0
     form = LoginForm()
     if form.validate_on_submit():
         username = form.username.data
         password = form.password.data
-        if authenticate_user(username, password):
-            session['username'] = username
+        blocked, retry_after = reserve_login_attempt(username)
+        if blocked:
+            error_message = "Invalid username or password. Please try again."
+            response_status = 429
+        elif authenticate_user(username, password):
+            clear_login_account_failures(username)
             return redirect(url_for('dashboard'))
         else:
             error_message = "Invalid username or password. Please try again."
-    return render_template_string("""
+            if retry_after:
+                response_status = 429
+    rendered = render_template_string("""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9664,6 +9893,10 @@ def login():
     """,
         form=form,
         error_message=error_message)
+    response = make_response(rendered, response_status)
+    if retry_after:
+        response.headers["Retry-After"] = str(retry_after)
+    return response
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -9977,7 +10210,10 @@ def user_settings():
         <a href="{{ url_for('admin_blog_backup_page') }}"><i class="fas fa-database" aria-hidden="true"></i> <span>Blog Backup</span></a>
         <a href="{{ url_for('admin_local_llm_page') }}"><i class="fas fa-microchip" aria-hidden="true"></i> <span>Local Llama</span></a>
         {% endif %}
-        <a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span></a>
+        <form method="post" action="{{ url_for('logout') }}" class="qrs-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="qrs-logout-button"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span></button>
+        </form>
     </div>
 
     <main class="content">
@@ -10239,9 +10475,10 @@ def settings():
             <i class="fas fa-cogs" aria-hidden="true"></i> <span>Settings</span>
         </a>
         {% endif %}
-        <a href="{{ url_for('logout') }}" class="nav-link">
-            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span>
-        </a>
+        <form method="post" action="{{ url_for('logout') }}" class="qrs-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="qrs-logout-button"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span></button>
+        </form>
     </div>
 
     <div class="content">
@@ -10320,10 +10557,9 @@ def settings():
 
 
 
-@app.route('/logout')
+@app.post('/logout')
 def logout():
-    session.pop('username', None)
-    session.pop('is_admin', None)
+    session.clear()
     return redirect(url_for('home'))
 
 
@@ -11391,9 +11627,10 @@ def dashboard():
             <i class="fas fa-microchip" aria-hidden="true"></i> <span>Local Llama</span>
         </a>
         {% endif %}
-        <a href="{{ url_for('logout') }}">
-            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span>
-        </a>
+        <form method="post" action="{{ url_for('logout') }}" class="qrs-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="qrs-logout-button"><i class="fas fa-sign-out-alt" aria-hidden="true"></i> <span>Logout</span></button>
+        </form>
     </div>
 
     <main class="content">
