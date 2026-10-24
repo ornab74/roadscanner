@@ -9,6 +9,7 @@ permissions:
   contents: write
 
 env:
+  NODE_VERSION: '24'
   PYTHON_VERSION: '3.12'
   LIBOQS_VERSION: '0.14.0'
   LIBOQS_SHA256: '5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea'
@@ -21,10 +22,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+
+      - name: Set up supported Node.js runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify Node.js runtime
+        run: node -e "if (process.versions.node.split('.')[0] !== '24') process.exit(1); console.log(process.version)"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0, Node 24
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -97,7 +106,7 @@ jobs:
           cp SHA256SUMS dist/
           (cd dist && sha256sum *.whl >> SHA256SUMS)
           cp "liboqs-${LIBOQS_VERSION}-debian-py312-x86_64.tar.gz" dist/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
         with:
           name: roadscanner-linux-amd64-native
           path: |
@@ -113,12 +122,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Verify Node.js runtime
+        run: node -e "if (process.versions.node.split('.')[0] !== '24') process.exit(1); console.log(process.version)"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2, Node 24
         with:
           name: roadscanner-linux-amd64-native
           path: release-assets
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3, Node 24
         with:
           tag_name: ${{ github.ref_name }}
           files: release-assets/*

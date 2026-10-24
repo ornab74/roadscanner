@@ -21,7 +21,7 @@ MANIFEST = ROOT / "lock.manifest.json"
 SIG = ROOT / "lock.manifest.pqsig"
 PUB = ROOT / "pq_pubkey.b64"
 ALG = "ML-DSA-44"
-PIN_RE = re.compile(r"^([A-Za-z0-9_.-]+)==([^\s\\]+)")
+PIN_RE = re.compile(r"^([A-Za-z0-9_.-]+)(?:\[[A-Za-z0-9_,.-]+\])?==([^\s\\]+)")
 
 
 def normalized(name: str) -> str:

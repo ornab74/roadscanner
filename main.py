@@ -21,6 +21,7 @@ from flask_wtf.csrf import generate_csrf
 from wtforms import StringField, PasswordField, SubmitField, TextAreaField, SelectField
 from wtforms.validators import DataRequired, Length
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.backends import default_backend
 from argon2 import PasswordHasher
@@ -120,6 +121,8 @@ from flask.sessions import SecureCookieSessionInterface
 from flask.json.tag import TaggedJSONSerializer
 from itsdangerous import URLSafeTimedSerializer, BadSignature, BadTimeSignature
 import zlib as _zlib
+from markupsafe import Markup
+from urllib.parse import urljoin, urlsplit
 
 zstd: Any = None
 _HAS_ZSTD = False
@@ -1610,8 +1613,21 @@ def _xml_escape(value: Any) -> str:
     return _html.escape("" if value is None else str(value), quote=True)
 
 
-def _json_ld(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+def _json_ld_script_text(data: Any) -> str:
+    """Serialize JSON-LD while escaping HTML script delimiters."""
+    encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return (
+        encoded.replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
+def _json_ld(data: Any) -> Markup:
+    """Return JSON-LD explicitly encoded for a script element."""
+    return Markup(_json_ld_script_text(data))
 
 
 def _seo_page_rank(nodes: list[str], edges: Mapping[str, list[str]]) -> Dict[str, float]:
@@ -3825,6 +3841,11 @@ for _anchor_attr_set in (_REPORT_ALLOWED_ATTRS.get('a'), _REPORT_ALLOWED_ATTRS.g
 def sanitize_html(html: str) -> str:
     return _clean_html_fragment(html or "", tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS)
 
+
+def trusted_html_fragment(html: str) -> Markup:
+    """Sanitize rich text and explicitly mark only that result as trusted HTML."""
+    return Markup(sanitize_html(html))
+
 def sanitize_text(s: str, max_len: int) -> str:
     s = _clean_text_fragment(s or "")
     s = re.sub(r'\s+', ' ', s).strip()
@@ -3944,11 +3965,11 @@ def blog_get_by_slug(slug: str, allow_any_status: bool=False) -> Optional[dict]:
     raw_tags = blog_decrypt(row[6]) if row[6] else ""
 
     if content_format == "markdown":
-        rendered_content = sanitize_html(markdown(raw_content or ""))
-        rendered_summary = sanitize_html(markdown(raw_summary or ""))
+        rendered_content = trusted_html_fragment(markdown(raw_content or ""))
+        rendered_summary = trusted_html_fragment(markdown(raw_summary or ""))
     else:
-        rendered_content = sanitize_html(raw_content or "")
-        rendered_summary = sanitize_html(raw_summary or "")
+        rendered_content = trusted_html_fragment(raw_content or "")
+        rendered_summary = trusted_html_fragment(raw_summary or "")
 
     post = {
         "id": row[0],
@@ -3984,9 +4005,9 @@ def blog_list_published(limit: int = 25, offset: int = 0) -> list[dict]:
         raw_tags = blog_decrypt(r[5]) if r[5] else ""
 
         if content_format == "markdown":
-            summary_html = sanitize_html(markdown(raw_summary or ""))
+            summary_html = trusted_html_fragment(markdown(raw_summary or ""))
         else:
-            summary_html = sanitize_html(raw_summary or "")
+            summary_html = trusted_html_fragment(raw_summary or "")
 
         out.append({
             "id": r[0], "slug": r[1],
@@ -4023,9 +4044,9 @@ def blog_list_featured(limit: int = 6) -> list[dict]:
         raw_tags = blog_decrypt(r[5]) if r[5] else ""
 
         if content_format == "markdown":
-            summary_html = sanitize_html(markdown(raw_summary or ""))
+            summary_html = trusted_html_fragment(markdown(raw_summary or ""))
         else:
-            summary_html = sanitize_html(raw_summary or "")
+            summary_html = trusted_html_fragment(raw_summary or "")
 
         out.append(
             {
@@ -4319,7 +4340,7 @@ def blog_index():
   <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
-  <script type="application/ld+json">{{ blog_schema|safe }}</script>
+  <script type="application/ld+json">{{ blog_schema }}</script>
   <style>
     :root{ --accent: {{ accent }}; }
     body{ background:#0b0f17; color:#eaf5ff; font-family:'Roboto',sans-serif; }
@@ -4352,7 +4373,7 @@ def blog_index():
         <div class="post">
           <h3 class="mb-1"><a rel="bookmark" href="{{ url_for('blog_view', slug=p['slug']) }}">{{ p['title'] or '(untitled)' }}</a></h3>
           <div class="meta mb-2"><time datetime="{{ seo_iso_datetime(p['created_at']) }}">{{ p['created_at'] }}</time></div>
-          {% if p['summary'] %}<div class="mb-2">{{ p['summary']|safe }}</div>{% endif %}
+          {% if p['summary'] %}<div class="mb-2">{{ p['summary'] }}</div>{% endif %}
           {% if p['tags'] %}
             <div class="mb-1">
               {% for t in p['tags'].split(',') if t %}
@@ -4517,7 +4538,7 @@ def blog_view(slug: str):
   <link href="{{ url_for('static', filename='css/roboto.css') }}" rel="stylesheet" integrity="sha256-Sc7BtUKoWr6RBuNTT0MmuQjqGVQwYBK+21lB58JwUVE=" crossorigin="anonymous">
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00=" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
-  <script type="application/ld+json">{{ post_schema|safe }}</script>
+  <script type="application/ld+json">{{ post_schema }}</script>
   <style>
     :root{ --accent: {{ accent }}; }
     body{ background:#0b0f17; color:#eaf5ff; font-family:'Roboto',sans-serif; }
@@ -4557,8 +4578,8 @@ def blog_view(slug: str):
         <span class="badge badge-warning">PREVIEW ({{ post['status'] }})</span>
       {% endif %}
     </div>
-    {% if post['summary'] %}<div class="mb-3">{{ post['summary']|safe }}</div>{% endif %}
-    <div class="content">{{ post['content']|safe }}</div>
+    {% if post['summary'] %}<div class="mb-3">{{ post['summary'] }}</div>{% endif %}
+    <div class="content">{{ post['content'] }}</div>
     {% if related_posts %}
       <section class="mt-4 pt-3" style="border-top:1px solid #ffffff22">
         <h2 class="h5 mb-3">Related QRoadScan articles</h2>
@@ -4567,7 +4588,7 @@ def blog_view(slug: str):
             <div class="col-md-4 mb-3">
               <a rel="bookmark" href="{{ url_for('blog_view', slug=related['slug']) }}">{{ related.get('title') or 'QRoadScan article' }}</a>
               {% if related.get('summary') %}
-                <p class="meta mt-2 mb-0">{{ related.get('summary')|safe }}</p>
+                <p class="meta mt-2 mb-0">{{ related.get('summary') }}</p>
               {% endif %}
             </div>
           {% endfor %}
@@ -5268,6 +5289,20 @@ def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple
     posts = payload.get("posts")
     if not isinstance(posts, list):
         raise ValueError("missing_posts")
+    if len(posts) > 1000:
+        raise ValueError("too_many_posts")
+
+    def normalized_timestamp(value: Any, fallback: str) -> str:
+        raw = str(value or "").strip()
+        if not raw or len(raw) > 64:
+            return fallback
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return parsed.strftime("%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError, OverflowError):
+            return fallback
 
     inserted = 0
     updated = 0
@@ -5276,26 +5311,36 @@ def restore_blog_posts_from_json(payload: dict, default_author_id: int) -> tuple
         for item in posts:
             if not isinstance(item, dict):
                 continue
-            slug = (item.get("slug") or "").strip()
-            if not slug:
+            slug = (str(item.get("slug") or "")).strip().lower()
+            if not _valid_slug(slug):
                 continue
-            title = item.get("title") or ""
-            content = item.get("content") or ""
-            summary = item.get("summary") or ""
+            title = sanitize_text(str(item.get("title") or ""), 160)
+            content = str(item.get("content") or "")[:200_000]
+            summary = str(item.get("summary") or "")[:20_000]
             content_format = (str(item.get("content_format") or "html")).strip().lower()
-            tags = item.get("tags") or ""
-            status = (item.get("status") or "draft").strip()
-            created_at = item.get("created_at") or time.strftime("%Y-%m-%d %H:%M:%S")
-            updated_at = item.get("updated_at") or created_at
+            if content_format == "md":
+                content_format = "markdown"
+            if content_format not in {"html", "markdown"}:
+                content_format = "html"
+            if content_format == "html":
+                content = sanitize_html(content)
+                summary = sanitize_html(summary)
+            tags = sanitize_tags_csv(str(item.get("tags") or ""))
+            status = str(item.get("status") or "draft").strip().lower()
+            if status not in {"draft", "published", "archived"}:
+                status = "draft"
+            now = time.strftime("%Y-%m-%d %H:%M:%S")
+            created_at = normalized_timestamp(item.get("created_at"), now)
+            updated_at = normalized_timestamp(item.get("updated_at"), created_at)
 
             author_id = item.get("author_id")
             if not isinstance(author_id, int) or author_id <= 0:
                 author_id = int(default_author_id)
 
-            title_enc = blog_encrypt("title", str(title))
-            content_enc = blog_encrypt("content", str(content))
-            summary_enc = blog_encrypt("summary", str(summary))
-            tags_enc = blog_encrypt("tags", str(tags))
+            title_enc = blog_encrypt("title", title)
+            content_enc = blog_encrypt("content", content)
+            summary_enc = blog_encrypt("summary", summary)
+            tags_enc = blog_encrypt("tags", tags)
 
             cur.execute("SELECT id FROM blog_posts WHERE slug = ?", (slug,))
             existing = cur.fetchone()
@@ -5364,12 +5409,14 @@ body.qrs-admin-shell{ margin:0; background:radial-gradient(760px 460px at 88% -1
 """
 
 
-def _sidebar_link(endpoint: str, label: str, icon: str, active: str, key: str) -> str:
+def _sidebar_link(endpoint: str, label: str, icon: str, active: str, key: str) -> Markup:
     cls = "qrs-nav-link active" if active == key else "qrs-nav-link"
-    return f'<a href="{url_for(endpoint)}" class="{cls}"><i class="{icon}" aria-hidden="true"></i> <span>{label}</span></a>'
+    return Markup(
+        '<a href="{}" class="{}"><i class="{}" aria-hidden="true"></i> <span>{}</span></a>'
+    ).format(url_for(endpoint), cls, icon, label)
 
 
-def qrs_user_sidebar_html(active: str = "dashboard") -> str:
+def qrs_user_sidebar_html(active: str = "dashboard") -> Markup:
     links = [
         _sidebar_link("dashboard", "Dashboard", "fas fa-home", active, "dashboard"),
         _sidebar_link("user_settings", "User Settings", "fas fa-user-cog", active, "user_settings"),
@@ -5381,7 +5428,12 @@ def qrs_user_sidebar_html(active: str = "dashboard") -> str:
             _sidebar_link("admin_local_llm_page", "Local Llama", "fas fa-microchip", active, "local_llm"),
         ])
     links.append(_sidebar_link("logout", "Logout", "fas fa-sign-out-alt", active, "logout"))
-    return '<aside class="qrs-sidebar" aria-label="User navigation"><a class="navbar-brand" href="{}">QRS</a>{}</aside>'.format(url_for("dashboard"), "".join(links))
+    return (
+        Markup('<aside class="qrs-sidebar" aria-label="User navigation"><a class="navbar-brand" href="{}">QRS</a>')
+        .format(url_for("dashboard"))
+        + Markup("").join(links)
+        + Markup("</aside>")
+    )
 
 @app.route('/admin/blog/backup', methods=['GET'])
 def admin_blog_backup_page():
@@ -5406,10 +5458,10 @@ def admin_blog_backup_page():
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}" integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
-  {{ admin_shell_css|safe }}
+  {{ admin_shell_css }}
 </head>
 <body class="qrs-admin-shell bg-dark text-light">
-{{ sidebar_html|safe }}
+{{ sidebar_html }}
 <main class="qrs-admin-content">
   <div class="container-fluid py-2">
     <h2 class="qrs-admin-title">Blog Backup / Restore</h2>
@@ -5426,7 +5478,7 @@ def admin_blog_backup_page():
 <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
 </body>
 </html>
-""", csrf_token=csrf_token, status=status, admin_shell_css=ADMIN_SHELL_CSS, sidebar_html=qrs_user_sidebar_html("blog_backup"))
+""", csrf_token=csrf_token, status=status, admin_shell_css=Markup(ADMIN_SHELL_CSS), sidebar_html=qrs_user_sidebar_html("blog_backup"))
 
 @app.route('/admin/blog/backup/export', methods=['POST'])
 def admin_blog_backup_export():
@@ -5464,12 +5516,18 @@ def admin_blog_backup_restore():
         return "No file provided", 400
 
     try:
-        payload = json.loads(f.read().decode("utf-8"))
+        raw = f.stream.read(5 * 1024 * 1024 + 1)
+        if len(raw) > 5 * 1024 * 1024:
+            return "Backup file too large", 413
+        payload = json.loads(raw.decode("utf-8"))
     except Exception:
         return "Invalid JSON", 400
 
     admin_id = get_user_id(session.get("username", "")) or 1
-    inserted, updated = restore_blog_posts_from_json(payload, default_author_id=int(admin_id))
+    try:
+        inserted, updated = restore_blog_posts_from_json(payload, default_author_id=int(admin_id))
+    except ValueError:
+        return "Invalid backup data", 400
     flash(f"Restore complete. Inserted={inserted}, Updated={updated}", "success")
     return redirect(url_for("admin_blog_backup_page"))
 
@@ -5502,10 +5560,10 @@ def admin_local_llm_page():
   <link href="{{ url_for('static', filename='css/orbitron.css') }}" rel="stylesheet" integrity="sha256-3mvPl5g2WhVLrUV4xX3KE8AV8FgrOz38KmWLqKXVh00" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fontawesome.min.css') }}" integrity="sha256-rx5u3IdaOCszi7Jb18XD9HSn8bNiEgAqWJbdBvIYYyU=" crossorigin="anonymous">
-  {{ admin_shell_css|safe }}
+  {{ admin_shell_css }}
 </head>
 <body class="qrs-admin-shell bg-dark text-light">
-{{ sidebar_html|safe }}
+{{ sidebar_html }}
 <main class="qrs-admin-content">
   <div class="container-fluid py-2">
     <h2 class="qrs-admin-title">Local Llama Model Manager</h2>
@@ -5526,7 +5584,7 @@ def admin_local_llm_page():
 <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
 </body>
 </html>
-""", csrf_token=csrf_token, status=status, admin_shell_css=ADMIN_SHELL_CSS, sidebar_html=qrs_user_sidebar_html("local_llm"))
+""", csrf_token=csrf_token, status=status, admin_shell_css=Markup(ADMIN_SHELL_CSS), sidebar_html=qrs_user_sidebar_html("local_llm"))
 
 def _validate_form_csrf_or_400():
     token = request.form.get("csrf_token") or _csrf_from_request()
@@ -6340,9 +6398,32 @@ def _llama_models_dir() -> "Path":
 LLAMA_MODEL_REPO = os.getenv("LLAMA_MODEL_REPO", "https://huggingface.co/tensorblock/llama3-small-GGUF/resolve/main/")
 LLAMA_MODEL_FILE = os.getenv("LLAMA_MODEL_FILE", "llama3-small-Q3_K_M.gguf")
 LLAMA_EXPECTED_SHA256 = os.getenv("LLAMA_EXPECTED_SHA256", "8e4f4856fb84bafb895f1eb08e6c03e4be613ead2d942f91561aeac742a619aa")
+try:
+    LLAMA_MODEL_MAX_BYTES = max(1, int(os.getenv("LLAMA_MODEL_MAX_BYTES", str(8 * 1024**3))))
+except ValueError:
+    LLAMA_MODEL_MAX_BYTES = 8 * 1024**3
+
+
+def _llama_valid_model_filename() -> str:
+    name = str(LLAMA_MODEL_FILE or "")
+    if (
+        not name
+        or name != Path(name).name
+        or name in {".", ".."}
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.gguf", name, re.IGNORECASE)
+    ):
+        raise ValueError("invalid_llama_model_filename")
+    return name
+
+
+def _llama_expected_digest() -> str:
+    digest = str(LLAMA_EXPECTED_SHA256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("invalid_llama_expected_sha256")
+    return digest
 
 def _llama_model_path() -> "Path":
-    return _llama_models_dir() / LLAMA_MODEL_FILE
+    return _llama_models_dir() / _llama_valid_model_filename()
 
 def _llama_encrypted_path() -> "Path":
     mp = _llama_model_path()
@@ -6357,14 +6438,20 @@ def _llama_get_or_create_key() -> bytes:
         if kp.exists():
             d = kp.read_bytes()
             if len(d) >= 32:
+                os.chmod(kp, 0o600)
                 return d[:32]
     except Exception:
         pass
     key = AESGCM.generate_key(bit_length=256)
     try:
-        kp.write_bytes(key)
-    except Exception:
-        pass
+        fd = os.open(kp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as key_file:
+            key_file.write(key)
+    except FileExistsError:
+        existing = kp.read_bytes()
+        if len(existing) < 32:
+            raise ValueError("invalid_llama_model_key")
+        key = existing[:32]
     return key
 
 def _llama_sha256_file(path: "Path") -> str:
@@ -6374,15 +6461,50 @@ def _llama_sha256_file(path: "Path") -> str:
             h.update(chunk)
     return h.hexdigest()
 
-def _llama_encrypt_bytes(data: bytes, key: bytes) -> bytes:
-    aes = AESGCM(key)
-    nonce = os.urandom(12)
-    return nonce + aes.encrypt(nonce, data, None)
 
-def _llama_decrypt_bytes(data: bytes, key: bytes) -> bytes:
-    aes = AESGCM(key)
-    nonce, ct = data[:12], data[12:]
-    return aes.decrypt(nonce, ct, None)
+def _llama_verify_plaintext(path: "Path") -> tuple[bool, str]:
+    try:
+        if not path.is_file():
+            return False, "no_plaintext_model"
+        if path.stat().st_size > LLAMA_MODEL_MAX_BYTES:
+            return False, "model_too_large"
+        actual = _llama_sha256_file(path)
+        if not hmac.compare_digest(actual.lower(), _llama_expected_digest()):
+            return False, f"sha256_mismatch:{actual}"
+        return True, actual
+    except Exception as exc:
+        return False, f"model_verification_failed:{exc}"
+
+def _llama_encrypt_file(source: "Path", destination: "Path", key: bytes) -> None:
+    nonce = os.urandom(12)
+    encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+    with source.open("rb") as plaintext, destination.open("xb") as encrypted:
+        encrypted.write(nonce)
+        for chunk in iter(lambda: plaintext.read(1024 * 1024), b""):
+            encrypted.write(encryptor.update(chunk))
+        encrypted.write(encryptor.finalize())
+        encrypted.write(encryptor.tag)
+
+
+def _llama_decrypt_file(source: "Path", destination: "Path", key: bytes) -> None:
+    encrypted_size = source.stat().st_size
+    if encrypted_size < 28:
+        raise ValueError("invalid_encrypted_model")
+    with source.open("rb") as encrypted:
+        nonce = encrypted.read(12)
+        encrypted.seek(-16, os.SEEK_END)
+        tag = encrypted.read(16)
+        encrypted.seek(12)
+        remaining = encrypted_size - 28
+        decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce, tag)).decryptor()
+        with destination.open("xb") as plaintext:
+            while remaining:
+                chunk = encrypted.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("truncated_encrypted_model")
+                remaining -= len(chunk)
+                plaintext.write(decryptor.update(chunk))
+            plaintext.write(decryptor.finalize())
 
 def llama_local_ready() -> bool:
     try:
@@ -6402,13 +6524,21 @@ def llama_encrypt_plaintext() -> tuple[bool, str]:
     mp = _llama_model_path()
     if not mp.exists():
         return False, "no_plaintext_model"
+    verified, verification = _llama_verify_plaintext(mp)
+    if not verified:
+        return False, verification
     key = _llama_get_or_create_key()
     enc_path = _llama_encrypted_path()
+    temporary = enc_path.with_name(f".{enc_path.name}.{secrets.token_hex(8)}.part")
     try:
-        enc_path.write_bytes(_llama_encrypt_bytes(mp.read_bytes(), key))
+        _llama_encrypt_file(mp, temporary, key)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, enc_path)
         return True, "encrypted"
     except Exception as e:
         return False, f"encrypt_failed:{e}"
+    finally:
+        temporary.unlink(missing_ok=True)
 
 def llama_decrypt_to_plaintext() -> tuple[bool, str]:
     if Path is None:
@@ -6416,12 +6546,22 @@ def llama_decrypt_to_plaintext() -> tuple[bool, str]:
     enc_path = _llama_encrypted_path()
     if not enc_path.exists():
         return False, "no_encrypted_model"
+    if enc_path.stat().st_size > LLAMA_MODEL_MAX_BYTES + 28:
+        return False, "model_too_large"
     key = _llama_get_or_create_key()
     mp = _llama_model_path()
+    temporary = mp.with_name(f".{mp.name}.{secrets.token_hex(8)}.part")
     try:
-        mp.write_bytes(_llama_decrypt_bytes(enc_path.read_bytes(), key))
+        _llama_decrypt_file(enc_path, temporary, key)
+        verified, verification = _llama_verify_plaintext(temporary)
+        if not verified:
+            temporary.unlink(missing_ok=True)
+            return False, verification
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, mp)
         return True, "decrypted"
     except Exception as e:
+        temporary.unlink(missing_ok=True)
         return False, f"decrypt_failed:{e}"
 
 def llama_delete_plaintext() -> tuple[bool, str]:
@@ -6454,6 +6594,10 @@ def llama_load() -> Optional[Any]:
             ok, _ = llama_decrypt_to_plaintext()
             if not ok:
                 return None
+        verified, reason = _llama_verify_plaintext(_llama_model_path())
+        if not verified:
+            logger.error("Refusing to load unverified local model: %s", reason)
+            return None
         try:
             _LLAMA_MODEL = llama_factory(model_path=str(_llama_model_path()), n_ctx=2048, n_threads=max(1, (os.cpu_count() or 4)//2))
         except Exception as e:
@@ -6984,24 +7128,55 @@ def llama_download_model_httpx() -> tuple[bool, str]:
 
     if Path is None:
         return False, "path_unavailable"
-    url = LLAMA_MODEL_REPO + LLAMA_MODEL_FILE
-    dest = _llama_model_path()
     try:
-        with httpx.stream("GET", url, follow_redirects=True, timeout=None) as r:
+        filename = _llama_valid_model_filename()
+        expected_digest = _llama_expected_digest()
+        base_url = str(LLAMA_MODEL_REPO or "").strip()
+        base_parts = urlsplit(base_url)
+        if base_parts.scheme.lower() != "https" or not base_parts.hostname:
+            return False, "model_repo_must_be_https"
+        url = urljoin(base_url.rstrip("/") + "/", filename)
+        dest = _llama_model_path()
+    except Exception as exc:
+        return False, f"invalid_model_configuration:{exc}"
+
+    temporary = dest.with_name(f".{dest.name}.{secrets.token_hex(8)}.part")
+    try:
+        timeout = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)
+        with httpx.stream(
+            "GET",
+            url,
+            headers={"Accept-Encoding": "identity"},
+            follow_redirects=True,
+            timeout=timeout,
+        ) as r:
             r.raise_for_status()
+            if urlsplit(str(r.url)).scheme.lower() != "https":
+                return False, "insecure_model_redirect"
+            content_length = r.headers.get("content-length")
+            if content_length and int(content_length) > LLAMA_MODEL_MAX_BYTES:
+                return False, "model_too_large"
             h = hashlib.sha256()
-            with dest.open("wb") as f:
+            received = 0
+            with temporary.open("xb") as f:
                 for chunk in r.iter_bytes(chunk_size=1024 * 1024):
                     if not chunk:
-                        break
+                        continue
+                    received += len(chunk)
+                    if received > LLAMA_MODEL_MAX_BYTES:
+                        return False, "model_too_large"
                     f.write(chunk)
                     h.update(chunk)
         sha = h.hexdigest()
-        if LLAMA_EXPECTED_SHA256 and sha.lower() != LLAMA_EXPECTED_SHA256.lower():
+        if not hmac.compare_digest(sha.lower(), expected_digest):
             return False, f"sha256_mismatch:{sha}"
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, dest)
         return True, f"downloaded:{sha}"
     except Exception as e:
         return False, f"download_failed:{e}"
+    finally:
+        temporary.unlink(missing_ok=True)
 
 _GROK_CLIENT = None
 _GROK_BASE_URL = "https://api.x.ai/v1"
@@ -8791,10 +8966,10 @@ def home():
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" integrity="sha256-Ww++W3rXBfapN8SZitAvc9jw2Xb+Ixt0rvDsmWmQyTo=" crossorigin="anonymous">
 
   <script type="application/ld+json">
-  {{ home_schema|safe }}
+  {{ home_schema }}
   </script>
   <script type="application/ld+json">
-  {{ home_blog_schema|safe }}
+  {{ home_blog_schema }}
   </script>
 
   <style>
@@ -10243,7 +10418,7 @@ def view_report(report_id):
         tags=_REPORT_ALLOWED_TAGS,
         attributes=_REPORT_ALLOWED_ATTRS,
     )
-    report_html_escaped = report_html.replace('\\', '\\\\')
+    report_html_escaped = Markup(report_html)
     csrf_token = generate_csrf()
     report_language = normalize_language_key(report.get('language', 'en'))
     ui_messages = get_ui_messages(report_language)
@@ -10367,7 +10542,7 @@ def view_report(report_id):
                     0%
                 </div>
             </div>
-            <div id="reportMarkdown">{{ report_html_escaped | safe }}</div>
+            <div id="reportMarkdown">{{ report_html_escaped }}</div>
             <h4>{{ ui_messages.route_details }}</h4>
             <p><span class="report-text-bold">{{ ui_messages.date }}:</span> {{ report['timestamp'] }}</p>
             <p><span class="report-text-bold">{{ ui_messages.location }}:</span> {{ report['latitude'] }}, {{ report['longitude'] }}</p>

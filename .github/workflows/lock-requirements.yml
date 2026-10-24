@@ -22,6 +22,7 @@ jobs:
         shell: bash
 
     env:
+      NODE_VERSION: "24"
       LIBOQS_VERSION: "0.14.0"
       LIBOQS_SHA256: "5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea"
       LIBOQS_PYTHON_VERSION: "0.16.0"
@@ -40,7 +41,15 @@ jobs:
       # Git must exist before Checkout. Otherwise actions/checkout falls back to
       # an archive download, which has no .git directory for the commit step.
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+
+      - name: Set up supported Node.js runtime
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify Node.js runtime
+        run: node -e "if (process.versions.node.split('.')[0] !== '24') process.exit(1); console.log(process.version)"
 
       - name: Install supported lock tooling
         run: |
@@ -89,7 +98,12 @@ jobs:
       - name: Install liboqs-python
         run: |
           set -euo pipefail
-          python -m pip install --no-cache-dir "liboqs-python==${LIBOQS_PYTHON_VERSION}"
+          cat > /tmp/liboqs-python.requirements.txt <<'EOF'
+          liboqs-python==0.16.0 \
+              --hash=sha256:50bb11a9767b88f68099cedef8de09f798f31eaba1aa18b483988bfcd50df440 \
+              --hash=sha256:ee01445ccfbeab8dced956a642ce1eb5ba69438caba7ec291eea14083627d5c0
+          EOF
+          python -m pip install --no-cache-dir --require-hashes -r /tmp/liboqs-python.requirements.txt
           python - <<'PY'
           import oqs
           enabled = set(oqs.get_enabled_sig_mechanisms())
@@ -141,7 +155,7 @@ jobs:
           fi
 
       - name: Upload lock + PQ materials
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
         with:
           name: pq-locked-requirements
           path: |
