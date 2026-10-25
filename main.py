@@ -20,6 +20,18 @@ from flask_wtf import FlaskForm, CSRFProtect
 from flask_wtf.csrf import generate_csrf
 from wtforms import StringField, PasswordField, SubmitField, TextAreaField, SelectField
 from wtforms.validators import DataRequired, Length
+from fido2.server import Fido2Server
+from fido2.webauthn import (
+    AttestationConveyancePreference,
+    AttestedCredentialData,
+    AuthenticationResponse,
+    AuthenticatorData,
+    PublicKeyCredentialRpEntity,
+    PublicKeyCredentialUserEntity,
+    RegistrationResponse,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+)
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -792,6 +804,12 @@ LOGIN_RATE_WINDOW_SECONDS = 15 * 60
 LOGIN_ACCOUNT_FAILURE_LIMIT = 5
 LOGIN_IP_FAILURE_LIMIT = 20
 LOGIN_LOCK_SECONDS = 15 * 60
+PASSKEY_CEREMONY_TTL_SECONDS = 5 * 60
+PASSKEY_RECENT_AUTH_SECONDS = 10 * 60
+PASSKEY_MAX_CREDENTIALS_PER_USER = 10
+PASSKEY_MAX_RESPONSE_BYTES = 256 * 1024
+PASSKEY_OPTION_RATE_LIMIT = 30
+PASSKEY_OPTION_RATE_WINDOW_SECONDS = 60
 
 config_lock = threading.Lock()
 EXPIRATION_HOURS = 65
@@ -820,7 +838,8 @@ def apply_csp(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     response.headers['Permissions-Policy'] = (
         'geolocation=(self), camera=(), microphone=(), payment=(), '
-        'usb=(), accelerometer=(), gyroscope=(), magnetometer=()'
+        'usb=(), accelerometer=(), gyroscope=(), magnetometer=(), '
+        'publickey-credentials-create=(self), publickey-credentials-get=(self)'
     )
     sensitive_endpoint = request.endpoint in {
         "login", "register", "dashboard", "logout", "view_report",
@@ -3626,6 +3645,13 @@ def create_tables():
         user_cols = {row[1] for row in cursor.fetchall()}
         if "preferred_language" not in user_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN preferred_language TEXT")
+        if "webauthn_user_handle" not in user_cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN webauthn_user_handle BLOB")
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_users_webauthn_user_handle
+            ON users(webauthn_user_handle)
+            WHERE webauthn_user_handle IS NOT NULL
+        """)
         try:
             encrypted_default_language = encrypt_data("en") or "en"
             cursor.execute(
@@ -3708,6 +3734,41 @@ def create_tables():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_login_rate_limits_updated_at
             ON login_rate_limits(updated_at)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webauthn_credentials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                credential_id BLOB NOT NULL UNIQUE,
+                credential_data BLOB NOT NULL,
+                sign_count INTEGER NOT NULL DEFAULT 0,
+                label TEXT NOT NULL,
+                transports TEXT NOT NULL DEFAULT '[]',
+                backup_eligible INTEGER NOT NULL DEFAULT 0,
+                backup_state INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user_id
+            ON webauthn_credentials(user_id)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS webauthn_ceremonies (
+                ceremony_id TEXT PRIMARY KEY,
+                purpose TEXT NOT NULL,
+                user_id INTEGER,
+                state_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_webauthn_ceremonies_expires_at
+            ON webauthn_ceremonies(expires_at)
         """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS invite_codes (
@@ -6158,6 +6219,13 @@ def delete_user_data(user_id):
             overwrite_entropy_logs_by_passnum(cursor, user_id, passes=7)
             cursor.execute("DELETE FROM entropy_logs WHERE pass_num = ?", (user_id, ))
 
+            cursor.execute("DELETE FROM webauthn_credentials WHERE user_id = ?", (user_id, ))
+            cursor.execute("DELETE FROM webauthn_ceremonies WHERE user_id = ?", (user_id, ))
+            cursor.execute(
+                "UPDATE users SET webauthn_user_handle = NULL WHERE id = ?",
+                (user_id,),
+            )
+
             db.commit()
             logger.debug(f"Securely deleted all data for user_id {user_id}")
 
@@ -8216,10 +8284,7 @@ def register_user(username, password, invite_code=None):
                 exc_info=True)
             return False, "An unexpected error occurred during registration."
 
-    session.clear()
-    session['username'] = username
-    session['is_admin'] = False
-    session.modified = True
+    _establish_authenticated_session(username, False, "password")
     logger.debug(
         f"Session updated for user '{username}'. Admin status: {session['is_admin']}."
     )
@@ -8392,12 +8457,338 @@ def reserve_login_attempt(username: str) -> tuple[bool, int]:
     return False, retry_after
 
 
+def reserve_passkey_option_request() -> int:
+    """Rate-limit anonymous WebAuthn challenge creation by client IP."""
+    now = int(time.time())
+    bucket = _login_rate_bucket(
+        "passkey-options-ip",
+        str(request.remote_addr or "unknown").strip(),
+    )
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT failure_count, window_started, locked_until "
+            "FROM login_rate_limits WHERE bucket = ?",
+            (bucket,),
+        ).fetchone()
+        if row and int(row[2] or 0) > now:
+            retry_after = int(row[2]) - now
+            db.commit()
+            return retry_after
+        if row and int(row[1] or 0) >= now - PASSKEY_OPTION_RATE_WINDOW_SECONDS:
+            request_count = int(row[0] or 0) + 1
+            window_started = int(row[1])
+        else:
+            request_count = 1
+            window_started = now
+        locked_until = (
+            now + PASSKEY_OPTION_RATE_WINDOW_SECONDS
+            if request_count >= PASSKEY_OPTION_RATE_LIMIT
+            else 0
+        )
+        db.execute(
+            """
+            INSERT INTO login_rate_limits
+                (bucket, failure_count, window_started, locked_until, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(bucket) DO UPDATE SET
+                failure_count = excluded.failure_count,
+                window_started = excluded.window_started,
+                locked_until = excluded.locked_until,
+                updated_at = excluded.updated_at
+            """,
+            (bucket, request_count, window_started, locked_until, now),
+        )
+        db.commit()
+    return 0
+
+
 def clear_login_account_failures(username: str) -> None:
     account = sanitize_input(username).strip()
     bucket = _login_rate_bucket("account", account)
     with sqlite3.connect(DB_FILE, timeout=5.0) as db:
         db.execute("DELETE FROM login_rate_limits WHERE bucket = ?", (bucket,))
         db.commit()
+
+
+def _establish_authenticated_session(
+    username: str,
+    is_admin: bool,
+    method: str,
+    *,
+    credential_db_id: Optional[int] = None,
+) -> None:
+    session.clear()
+    session["username"] = username
+    session["is_admin"] = bool(is_admin)
+    session["auth_time"] = int(time.time())
+    session["auth_method"] = method
+    if credential_db_id is not None:
+        session["passkey_credential_id"] = int(credential_db_id)
+    session.modified = True
+
+
+def _has_recent_authentication() -> bool:
+    if "username" not in session:
+        return False
+    try:
+        authenticated_at = int(session.get("auth_time", 0))
+    except (TypeError, ValueError):
+        return False
+    return 0 <= int(time.time()) - authenticated_at <= PASSKEY_RECENT_AUTH_SECONDS
+
+
+def _passkey_origin_and_rp_id() -> tuple[str, str]:
+    configured_origin = (
+        os.getenv("WEBAUTHN_ORIGIN")
+        or os.getenv("PUBLIC_BASE_URL")
+        or "https://ride.qroadscan.com"
+    ).strip().rstrip("/")
+    parsed = urlsplit(configured_origin)
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if (
+        not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise RuntimeError("WEBAUTHN_ORIGIN must be an origin without a path")
+    if parsed.scheme != "https" and not (
+        parsed.scheme == "http" and hostname in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise RuntimeError("WEBAUTHN_ORIGIN must use HTTPS")
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    rp_id = os.getenv("WEBAUTHN_RP_ID", hostname).strip().lower().rstrip(".")
+    if not rp_id or rp_id != hostname:
+        raise RuntimeError("WEBAUTHN_RP_ID must exactly match the WebAuthn origin host")
+    return origin, rp_id
+
+
+def _passkey_server() -> Fido2Server:
+    expected_origin, rp_id = _passkey_origin_and_rp_id()
+
+    def verify_origin(candidate: str) -> bool:
+        return isinstance(candidate, str) and hmac.compare_digest(candidate, expected_origin)
+
+    return Fido2Server(
+        PublicKeyCredentialRpEntity(
+            id=rp_id,
+            name=os.getenv("WEBAUTHN_RP_NAME", "QRoadScan"),
+        ),
+        attestation=AttestationConveyancePreference.NONE,
+        verify_origin=verify_origin,
+    )
+
+
+def _get_or_create_webauthn_user_handle(user_id: int) -> bytes:
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT webauthn_user_handle FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            db.rollback()
+            raise ValueError("User not found")
+        if row[0]:
+            handle = bytes(row[0])
+            db.commit()
+            return handle
+        handle = secrets.token_bytes(32)
+        db.execute(
+            "UPDATE users SET webauthn_user_handle = ? WHERE id = ?",
+            (handle, user_id),
+        )
+        db.commit()
+        return handle
+
+
+def _webauthn_display_name(username: str) -> str:
+    """Return a valid WebAuthn user name without changing the account name."""
+    display_name = str(username).encode("utf-8")[:64].decode("utf-8", "ignore")
+    return display_name or "User"
+
+
+def _passkey_credentials_for_user(user_id: int) -> list[AttestedCredentialData]:
+    credentials: list[AttestedCredentialData] = []
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        rows = db.execute(
+            "SELECT credential_data FROM webauthn_credentials WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        ).fetchall()
+    for row in rows:
+        try:
+            credentials.append(AttestedCredentialData(bytes(row[0])))
+        except Exception:
+            logger.exception("Stored WebAuthn credential data is invalid for user_id=%s", user_id)
+    return credentials
+
+
+def _passkey_summaries_for_user(user_id: int) -> list[Dict[str, Any]]:
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        rows = db.execute(
+            """
+            SELECT id, label, transports, backup_eligible, backup_state,
+                   created_at, last_used_at
+            FROM webauthn_credentials
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    summaries = []
+    for row in rows:
+        try:
+            transports = json.loads(row[2] or "[]")
+        except Exception:
+            transports = []
+        summaries.append({
+            "id": int(row[0]),
+            "label": str(row[1]),
+            "transports": transports if isinstance(transports, list) else [],
+            "backup_eligible": bool(row[3]),
+            "backup_state": bool(row[4]),
+            "created_at": str(row[5]),
+            "last_used_at": str(row[6]) if row[6] else "Never",
+        })
+    return summaries
+
+
+def _passkey_ceremony_session_key(purpose: str) -> str:
+    if purpose not in {"register", "authenticate"}:
+        raise ValueError("Invalid WebAuthn ceremony purpose")
+    return f"_passkey_{purpose}_ceremony"
+
+
+def _store_passkey_ceremony(
+    purpose: str,
+    state: Mapping[str, Any],
+    *,
+    user_id: Optional[int],
+) -> None:
+    session_key = _passkey_ceremony_session_key(purpose)
+    old_ceremony_id = session.pop(session_key, None)
+    ceremony_id = secrets.token_urlsafe(32)
+    now = int(time.time())
+    state_json = json.dumps(dict(state), separators=(",", ":"))
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM webauthn_ceremonies WHERE expires_at <= ?", (now,))
+        if isinstance(old_ceremony_id, str):
+            db.execute(
+                "DELETE FROM webauthn_ceremonies WHERE ceremony_id = ?",
+                (old_ceremony_id,),
+            )
+        db.execute(
+            """
+            INSERT INTO webauthn_ceremonies
+                (ceremony_id, purpose, user_id, state_json, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ceremony_id,
+                purpose,
+                user_id,
+                state_json,
+                now,
+                now + PASSKEY_CEREMONY_TTL_SECONDS,
+            ),
+        )
+        db.commit()
+    session[session_key] = ceremony_id
+    session.modified = True
+
+
+def _consume_passkey_ceremony(
+    purpose: str,
+    *,
+    expected_user_id: Optional[int],
+) -> Optional[Dict[str, Any]]:
+    session_key = _passkey_ceremony_session_key(purpose)
+    ceremony_id = session.pop(session_key, None)
+    session.modified = True
+    if not isinstance(ceremony_id, str) or not (32 <= len(ceremony_id) <= 128):
+        return None
+    now = int(time.time())
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            """
+            SELECT purpose, user_id, state_json, expires_at
+            FROM webauthn_ceremonies
+            WHERE ceremony_id = ?
+            """,
+            (ceremony_id,),
+        ).fetchone()
+        db.execute(
+            "DELETE FROM webauthn_ceremonies WHERE ceremony_id = ? OR expires_at <= ?",
+            (ceremony_id, now),
+        )
+        db.commit()
+    if not row or row[0] != purpose or int(row[3]) <= now:
+        return None
+    row_user_id = int(row[1]) if row[1] is not None else None
+    if row_user_id != expected_user_id:
+        return None
+    try:
+        state = json.loads(row[2])
+    except Exception:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def _passkey_request_json() -> Optional[Dict[str, Any]]:
+    request.max_content_length = PASSKEY_MAX_RESPONSE_BYTES
+    content_length = request.content_length
+    if content_length is not None and content_length > PASSKEY_MAX_RESPONSE_BYTES:
+        return None
+    data = _request_json_dict(silent=True)
+    return data if data else None
+
+
+def _commit_passkey_use(
+    credential_db_id: int,
+    new_sign_count: int,
+    authenticator_data: AuthenticatorData,
+) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT sign_count, backup_eligible FROM webauthn_credentials WHERE id = ?",
+            (credential_db_id,),
+        ).fetchone()
+        if not row:
+            db.rollback()
+            return False
+        current_sign_count = int(row[0] or 0)
+        if int(bool(row[1])) != int(authenticator_data.is_backup_eligible()):
+            db.rollback()
+            return False
+        if (
+            (current_sign_count != 0 or new_sign_count != 0)
+            and new_sign_count <= current_sign_count
+        ):
+            db.rollback()
+            return False
+        db.execute(
+            """
+            UPDATE webauthn_credentials
+            SET sign_count = ?, backup_eligible = ?, backup_state = ?, last_used_at = ?
+            WHERE id = ?
+            """,
+            (
+                new_sign_count,
+                int(authenticator_data.is_backup_eligible()),
+                int(authenticator_data.is_backed_up()),
+                now,
+                credential_db_id,
+            ),
+        )
+        db.commit()
+    return True
 
 def authenticate_user(username, password):
     username = sanitize_input(username)
@@ -8420,9 +8811,11 @@ def authenticate_user(username, password):
                         (new_hash, username))
                     db.commit()
 
-                session.clear()
-                session['username'] = username
-                session['is_admin'] = bool(is_admin)
+                _establish_authenticated_session(
+                    username,
+                    bool(is_admin),
+                    "password",
+                )
 
                 return True
             except VerifyMismatchError:
@@ -9754,6 +10147,275 @@ def home():
         home_blog_schema=home_blog_schema,
     )
 
+def _passkey_auth_failure(retry_after: int = 0):
+    response = jsonify({"ok": False, "error": "Security key authentication failed."})
+    if retry_after:
+        response.status_code = 429
+        response.headers["Retry-After"] = str(retry_after)
+    else:
+        response.status_code = 401
+    return response
+
+
+@app.post("/api/passkeys/register/options")
+def passkey_registration_options():
+    username = session.get("username")
+    if not username:
+        return jsonify({"ok": False, "error": "Login required."}), 401
+    if not _has_recent_authentication():
+        return jsonify({
+            "ok": False,
+            "error": "Sign out and sign in again before registering a security key.",
+        }), 403
+    user_id = get_user_id(username)
+    if not user_id:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        count = int(db.execute(
+            "SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()[0])
+    if count >= PASSKEY_MAX_CREDENTIALS_PER_USER:
+        return jsonify({
+            "ok": False,
+            "error": "The maximum number of security keys is already registered.",
+        }), 409
+    try:
+        user_handle = _get_or_create_webauthn_user_handle(user_id)
+        webauthn_name = _webauthn_display_name(username)
+        server = _passkey_server()
+        options, state = server.register_begin(
+            PublicKeyCredentialUserEntity(
+                id=user_handle,
+                name=webauthn_name,
+                display_name=webauthn_name,
+            ),
+            credentials=_passkey_credentials_for_user(user_id),
+            resident_key_requirement=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        )
+        _store_passkey_ceremony("register", state, user_id=user_id)
+    except Exception:
+        logger.exception("Unable to start WebAuthn registration for user_id=%s", user_id)
+        return jsonify({"ok": False, "error": "Could not start security key registration."}), 500
+    return jsonify(dict(options))
+
+
+@app.post("/api/passkeys/register/complete")
+def passkey_registration_complete():
+    username = session.get("username")
+    if not username:
+        return jsonify({"ok": False, "error": "Login required."}), 401
+    if not _has_recent_authentication():
+        return jsonify({
+            "ok": False,
+            "error": "Sign out and sign in again before registering a security key.",
+        }), 403
+    user_id = get_user_id(username)
+    if not user_id:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+    state = _consume_passkey_ceremony("register", expected_user_id=user_id)
+    if state is None:
+        return jsonify({"ok": False, "error": "Registration expired. Please try again."}), 400
+    data = _passkey_request_json()
+    credential_payload = data.get("credential") if data else None
+    if not isinstance(credential_payload, dict):
+        return jsonify({"ok": False, "error": "Invalid security key response."}), 400
+    label = sanitize_input(data.get("label") or "Security key").strip()[:64]
+    if not label:
+        label = "Security key"
+    try:
+        registration = RegistrationResponse.from_dict(credential_payload)
+        authenticator_data = _passkey_server().register_complete(state, registration)
+        credential_data = authenticator_data.credential_data
+        if credential_data is None:
+            raise ValueError("Missing attested credential data")
+        transports_value = credential_payload.get("response", {}).get("transports", [])
+        allowed_transports = {"usb", "nfc", "ble", "smart-card", "hybrid", "internal"}
+        transports = (
+            [str(value) for value in transports_value if str(value) in allowed_transports]
+            if isinstance(transports_value, list)
+            else []
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+            db.execute("BEGIN IMMEDIATE")
+            user_row = db.execute(
+                "SELECT webauthn_user_handle FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            if not user_row or not user_row[0]:
+                raise ValueError("Missing WebAuthn user handle")
+            count = int(db.execute(
+                "SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()[0])
+            if count >= PASSKEY_MAX_CREDENTIALS_PER_USER:
+                db.rollback()
+                return jsonify({
+                    "ok": False,
+                    "error": "The maximum number of security keys is already registered.",
+                }), 409
+            db.execute(
+                """
+                INSERT INTO webauthn_credentials
+                    (user_id, credential_id, credential_data, sign_count, label,
+                     transports, backup_eligible, backup_state, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    bytes(credential_data.credential_id),
+                    bytes(credential_data),
+                    int(authenticator_data.counter),
+                    label,
+                    json.dumps(transports, separators=(",", ":")),
+                    int(authenticator_data.is_backup_eligible()),
+                    int(authenticator_data.is_backed_up()),
+                    now,
+                ),
+            )
+            credential_db_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+            db.commit()
+    except sqlite3.IntegrityError:
+        logger.warning("Duplicate WebAuthn credential rejected for user_id=%s", user_id)
+        return jsonify({"ok": False, "error": "This security key is already registered."}), 409
+    except Exception:
+        logger.exception("WebAuthn registration verification failed for user_id=%s", user_id)
+        return jsonify({"ok": False, "error": "Security key registration failed."}), 400
+    return jsonify({
+        "ok": True,
+        "credential": {"id": credential_db_id, "label": label},
+    }), 201
+
+
+@app.post("/api/passkeys/authenticate/options")
+def passkey_authentication_options():
+    retry_after = reserve_passkey_option_request()
+    if retry_after:
+        response = jsonify({"ok": False, "error": "Too many security key requests."})
+        response.status_code = 429
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+    try:
+        options, state = _passkey_server().authenticate_begin(
+            credentials=None,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        )
+        _store_passkey_ceremony("authenticate", state, user_id=None)
+    except Exception:
+        logger.exception("Unable to start WebAuthn authentication")
+        return jsonify({"ok": False, "error": "Could not start security key authentication."}), 500
+    return jsonify(dict(options))
+
+
+@app.post("/api/passkeys/authenticate/complete")
+def passkey_authentication_complete():
+    state = _consume_passkey_ceremony("authenticate", expected_user_id=None)
+    if state is None:
+        return jsonify({"ok": False, "error": "Authentication expired. Please try again."}), 400
+    data = _passkey_request_json()
+    credential_payload = data.get("credential") if data else None
+    if not isinstance(credential_payload, dict):
+        _blocked, retry_after = reserve_login_attempt("passkey:unknown")
+        return _passkey_auth_failure(retry_after)
+    try:
+        authentication = AuthenticationResponse.from_dict(credential_payload)
+        credential_id = bytes(authentication.raw_id)
+        if not credential_id or len(credential_id) > 1024:
+            raise ValueError("Invalid credential ID")
+    except Exception:
+        _blocked, retry_after = reserve_login_attempt("passkey:unknown")
+        return _passkey_auth_failure(retry_after)
+
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        row = db.execute(
+            """
+            SELECT c.id, c.user_id, c.credential_data, c.sign_count,
+                   u.username, u.is_admin, u.webauthn_user_handle
+            FROM webauthn_credentials AS c
+            JOIN users AS u ON u.id = c.user_id
+            WHERE c.credential_id = ?
+            """,
+            (credential_id,),
+        ).fetchone()
+    if not row:
+        _blocked, retry_after = reserve_login_attempt("passkey:unknown")
+        return _passkey_auth_failure(retry_after)
+
+    credential_db_id = int(row[0])
+    username = str(row[4])
+    blocked, retry_after = reserve_login_attempt(username)
+    if blocked:
+        return _passkey_auth_failure(retry_after)
+    try:
+        stored_user_handle = bytes(row[6]) if row[6] else b""
+        response_user_handle = authentication.response.user_handle
+        if (
+            not stored_user_handle
+            or response_user_handle is None
+            or not hmac.compare_digest(stored_user_handle, bytes(response_user_handle))
+        ):
+            raise ValueError("WebAuthn user handle mismatch")
+        stored_credential = AttestedCredentialData(bytes(row[2]))
+        verified_credential = _passkey_server().authenticate_complete(
+            state,
+            [stored_credential],
+            authentication,
+        )
+        if not hmac.compare_digest(
+            bytes(verified_credential.credential_id),
+            credential_id,
+        ):
+            raise ValueError("WebAuthn credential mismatch")
+        authenticator_data = authentication.response.authenticator_data
+        if not _commit_passkey_use(
+            credential_db_id,
+            int(authenticator_data.counter),
+            authenticator_data,
+        ):
+            raise ValueError("WebAuthn signature counter did not advance")
+    except Exception:
+        logger.warning(
+            "WebAuthn authentication verification failed for user_id=%s",
+            row[1],
+            exc_info=True,
+        )
+        return _passkey_auth_failure(retry_after)
+
+    clear_login_account_failures(username)
+    _establish_authenticated_session(
+        username,
+        bool(row[5]),
+        "passkey",
+        credential_db_id=credential_db_id,
+    )
+    return jsonify({"ok": True, "redirect": url_for("dashboard")})
+
+
+@app.post("/settings/passkeys/<int:credential_db_id>/delete")
+def delete_passkey(credential_db_id: int):
+    username = session.get("username")
+    if not username:
+        return redirect(url_for("login"))
+    if not _has_recent_authentication():
+        return "Sign out and sign in again before removing a security key.", 403
+    user_id = get_user_id(username)
+    if not user_id:
+        return redirect(url_for("login"))
+    with sqlite3.connect(DB_FILE, timeout=5.0) as db:
+        cursor = db.execute(
+            "DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?",
+            (credential_db_id, user_id),
+        )
+        db.commit()
+    if cursor.rowcount:
+        flash("Security key removed.", "success")
+    else:
+        flash("Security key not found.", "warning")
+    return redirect(url_for("user_settings") + "#security")
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error_message = ""
@@ -9827,6 +10489,11 @@ def login():
             background-color: #33ff33; 
             border-color: #33ff33; 
         }
+        .auth-divider{ display:flex; align-items:center; gap:12px; margin:18px 0; color:#d5e5f5; font-size:.85rem; }
+        .auth-divider::before,.auth-divider::after{ content:""; height:1px; flex:1; background:rgba(255,255,255,.24); }
+        .btn-passkey{ width:100%; min-height:46px; border:1px solid rgba(255,255,255,.38); color:#fff; background:rgba(5,15,30,.34); font-weight:800; border-radius:8px; }
+        .btn-passkey:hover{ color:#fff; background:rgba(73,194,255,.18); border-color:#49c2ff; }
+        .passkey-status{ min-height:1.4rem; margin:.7rem 0 0; color:#e5f4ff; font-size:.9rem; text-align:center; }
         a { text-decoration: none; }
         a:hover { text-decoration: underline; color: #66ff66; }
         @media (max-width: 768px) {
@@ -9859,7 +10526,7 @@ def login():
             {% if error_message %}
             <p class="error-message text-center">{{ error_message }}</p>
             {% endif %}
-            <form method="POST" novalidate>
+            <form method="POST" id="passwordLoginForm" novalidate>
                 {{ form.hidden_tag() }}
                 <div class="form-group">
                     {{ form.username.label }}
@@ -9871,12 +10538,76 @@ def login():
                 </div>
                 {{ form.submit(class="btn btn-primary btn-block") }}
             </form>
+            <div class="auth-divider"><span>or</span></div>
+            <button type="button" id="passkeyLoginButton" class="btn btn-passkey">
+                <i class="fas fa-key" aria-hidden="true"></i> Use a passkey or security key
+            </button>
+            <p id="passkeyStatus" class="passkey-status" role="status" aria-live="polite"></p>
             <p class="mt-3 text-center">Don't have an account? <a href="{{ url_for('register') }}">Register here</a></p>
         </div>
     </div>
 
 
     <script>
+    const passkeyCsrf = {{ passkey_csrf | tojson }};
+
+    function base64urlToBytes(value) {
+        const padding = '='.repeat((4 - (value.length % 4)) % 4);
+        const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/') + padding);
+        return Uint8Array.from(binary, char => char.charCodeAt(0));
+    }
+
+    function bytesToBase64url(value) {
+        if (value === null || value === undefined) return null;
+        const bytes = new Uint8Array(value);
+        let binary = '';
+        bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+        return btoa(binary).replace(/[+]/g, '-').replace(/[/]/g, '_').replace(/=+$/g, '');
+    }
+
+    function prepareRequestOptions(options) {
+        const publicKey = options.publicKey;
+        publicKey.challenge = base64urlToBytes(publicKey.challenge);
+        if (Array.isArray(publicKey.allowCredentials)) {
+            publicKey.allowCredentials = publicKey.allowCredentials.map(item => ({
+                ...item,
+                id: base64urlToBytes(item.id)
+            }));
+        }
+        return publicKey;
+    }
+
+    function serializeAssertion(credential) {
+        return {
+            id: credential.id,
+            rawId: bytesToBase64url(credential.rawId),
+            type: credential.type,
+            authenticatorAttachment: credential.authenticatorAttachment || null,
+            clientExtensionResults: credential.getClientExtensionResults(),
+            response: {
+                clientDataJSON: bytesToBase64url(credential.response.clientDataJSON),
+                authenticatorData: bytesToBase64url(credential.response.authenticatorData),
+                signature: bytesToBase64url(credential.response.signature),
+                userHandle: bytesToBase64url(credential.response.userHandle)
+            }
+        };
+    }
+
+    async function postPasskeyJson(url, body) {
+        const response = await fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': passkeyCsrf
+            },
+            body: JSON.stringify(body || {})
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || 'Security key request failed.');
+        return payload;
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         var toggler = document.querySelector('.navbar-toggler');
         var nav = document.getElementById('navbarNav');
@@ -9886,13 +10617,46 @@ def login():
                 toggler.setAttribute('aria-expanded', isShown ? 'true' : 'false');
             });
         }
+
+        const button = document.getElementById('passkeyLoginButton');
+        const status = document.getElementById('passkeyStatus');
+        if (!window.PublicKeyCredential || !navigator.credentials) {
+            button.disabled = true;
+            status.textContent = 'Passkeys are not supported by this browser.';
+            return;
+        }
+        button.addEventListener('click', async function () {
+            button.disabled = true;
+            status.textContent = 'Waiting for your passkey or security key…';
+            try {
+                const options = await postPasskeyJson(
+                    '{{ url_for("passkey_authentication_options") }}',
+                    {}
+                );
+                const credential = await navigator.credentials.get({
+                    publicKey: prepareRequestOptions(options)
+                });
+                if (!credential) throw new Error('No security key response was returned.');
+                const result = await postPasskeyJson(
+                    '{{ url_for("passkey_authentication_complete") }}',
+                    { credential: serializeAssertion(credential) }
+                );
+                window.location.assign(result.redirect || '{{ url_for("dashboard") }}');
+            } catch (error) {
+                status.textContent = error && error.message
+                    ? error.message
+                    : 'Security key authentication failed.';
+                button.disabled = false;
+            }
+        });
     });
     </script>
 </body>
 </html>
     """,
         form=form,
-        error_message=error_message)
+        error_message=error_message,
+        passkey_csrf=generate_csrf())
     response = make_response(rendered, response_status)
     if retry_after:
         response.headers["Retry-After"] = str(retry_after)
@@ -10142,6 +10906,8 @@ def user_settings():
     current_language = get_user_preferred_language(user_id)
     prompt_preview = language_prompt_block(current_language, "openai")
     audit_history = get_user_language_audit_history(user_id)
+    passkeys = _passkey_summaries_for_user(user_id)
+    recent_authentication = _has_recent_authentication()
     message = ""
 
     if request.method == 'GET':
@@ -10192,12 +10958,19 @@ def user_settings():
         label{ font-weight:900; color:var(--ink); }
         .message{ color:var(--accent2); font-weight:900; }
         .security-note{ border:1px solid rgba(115,240,207,.26); background:rgba(115,240,207,.08); border-radius:14px; padding:14px; color:var(--ink); }
+        .passkey-list{ display:grid; gap:12px; margin:18px 0; }
+        .passkey-item{ display:flex; align-items:center; justify-content:space-between; gap:16px; padding:15px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.055); }
+        .passkey-item strong{ display:block; color:var(--ink); }
+        .passkey-meta{ color:var(--muted); font-size:.84rem; margin-top:3px; }
+        .passkey-enroll{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:end; margin-top:18px; }
+        .passkey-status{ min-height:1.4rem; margin-top:10px; color:var(--accent2); font-weight:800; }
+        .reauth-warning{ border:1px solid rgba(255,193,7,.42); background:rgba(255,193,7,.10); border-radius:14px; padding:14px; color:#ffe9a8; }
         .settings-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
         .settings-stat{ border:1px solid var(--line); border-radius:14px; padding:12px; background:rgba(255,255,255,.06); }
         .settings-stat span{ display:block; color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; font-weight:900; }
         .settings-stat strong{ display:block; margin-top:4px; color:var(--ink); }
         .prompt-preview{ min-height:220px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.86rem; white-space:pre-wrap; }
-        @media (max-width:768px){ .sidebar{width:70px; padding:18px 10px;} .sidebar a{justify-content:center; padding:0;} .sidebar a span{display:none;} .content{margin-left:70px; padding:16px;} }
+        @media (max-width:768px){ .sidebar{width:70px; padding:18px 10px;} .sidebar a{justify-content:center; padding:0;} .sidebar a span{display:none;} .content{margin-left:70px; padding:16px;} .passkey-item{align-items:flex-start; flex-direction:column;} .passkey-enroll{grid-template-columns:1fr;} }
     </style>
 </head>
 <body>
@@ -10220,12 +10993,18 @@ def user_settings():
         <div class="settings-shell">
             <section class="settings-hero">
                 <h2>User Settings</h2>
-                <p>Set your default report language. The dashboard scan language selector will use this saved encrypted preference automatically.</p>
+                <p>Manage report language and phishing-resistant sign-in credentials for this account.</p>
             </section>
             <section class="settings-card">
+                {% with flashed_messages = get_flashed_messages(with_categories=true) %}
+                {% for category, flashed_message in flashed_messages %}
+                <div class="alert alert-{{ 'success' if category == 'success' else 'warning' }}" role="status">{{ flashed_message }}</div>
+                {% endfor %}
+                {% endwith %}
                 <ul class="nav nav-tabs" role="tablist">
                     <li class="nav-item"><a class="nav-link active" id="language-tab" data-toggle="tab" href="#language" role="tab" aria-controls="language" aria-selected="true"><i class="fas fa-language" aria-hidden="true"></i> Language</a></li>
                     <li class="nav-item"><a class="nav-link" id="language-qa-tab" data-toggle="tab" href="#language-qa" role="tab" aria-controls="language-qa" aria-selected="false"><i class="fas fa-check-circle" aria-hidden="true"></i> Language QA</a></li>
+                    <li class="nav-item"><a class="nav-link" id="security-tab" data-toggle="tab" href="#security" role="tab" aria-controls="security" aria-selected="false"><i class="fas fa-key" aria-hidden="true"></i> Security Keys</a></li>
                 </ul>
                 <div class="tab-content">
                     <div class="tab-pane fade show active" id="language" role="tabpanel" aria-labelledby="language-tab">
@@ -10281,6 +11060,51 @@ def user_settings():
                         <p class="status-copy mt-3">No language QA audits yet. Run a scan to populate this history.</p>
                         {% endif %}
                     </div>
+                    <div class="tab-pane fade" id="security" role="tabpanel" aria-labelledby="security-tab">
+                        <h3>Passkeys and hardware security keys</h3>
+                        <p class="status-copy">
+                            Register a FIDO2 passkey or hardware security key, then use it from the login page instead of your password.
+                            Password login remains available for this account{% if session.get('is_admin') %}, including administrator access{% endif %}.
+                        </p>
+                        {% if not recent_authentication %}
+                        <div class="reauth-warning mt-3">
+                            Sign out and sign in again before adding or removing a key. This protects key management from an old unattended session.
+                        </div>
+                        {% endif %}
+                        <div class="passkey-list" aria-label="Registered security keys">
+                            {% for passkey in passkeys %}
+                            <div class="passkey-item">
+                                <div>
+                                    <strong><i class="fas fa-key" aria-hidden="true"></i> {{ passkey.label }}</strong>
+                                    <div class="passkey-meta">
+                                        Added {{ passkey.created_at }} · Last used {{ passkey.last_used_at }}
+                                        {% if passkey.backup_eligible %} · Synced passkey{% else %} · Device-bound credential{% endif %}
+                                        {% if passkey.transports %} · {{ passkey.transports | join(', ') }}{% endif %}
+                                    </div>
+                                </div>
+                                <form method="post" action="{{ url_for('delete_passkey', credential_db_id=passkey.id) }}" onsubmit="return confirm('Remove this security key?');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" {% if not recent_authentication %}disabled{% endif %}>Remove</button>
+                                </form>
+                            </div>
+                            {% else %}
+                            <div class="security-note">No passkeys or hardware security keys are registered yet.</div>
+                            {% endfor %}
+                        </div>
+                        <div class="passkey-enroll">
+                            <div>
+                                <label for="passkeyLabel">Key name</label>
+                                <input id="passkeyLabel" class="form-control" maxlength="64" value="My security key" autocomplete="off">
+                            </div>
+                            <button type="button" id="registerPasskeyButton" class="btn btn-primary" {% if not recent_authentication %}disabled{% endif %}>
+                                <i class="fas fa-plus" aria-hidden="true"></i> Register key
+                            </button>
+                        </div>
+                        <p id="passkeyStatus" class="passkey-status" role="status" aria-live="polite"></p>
+                        <div class="security-note mt-3">
+                            Registration requires user verification, a discoverable credential, an exact <code>ride.qroadscan.com</code> origin match, and a one-time five-minute challenge. For administrators, keep two hardware keys in separate secure locations while retaining a strong recovery password.
+                        </div>
+                    </div>
                 </div>
             </section>
         </div>
@@ -10290,6 +11114,67 @@ def user_settings():
     <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}" integrity="sha256-ecWZ3XYM7AwWIaGvSdmipJ2l1F4bN9RXW6zgpeAiZYI=" crossorigin="anonymous"></script>
     <script>
         const csrfToken = {{ csrf_token | tojson }};
+
+        function base64urlToBytes(value) {
+            const padding = '='.repeat((4 - (value.length % 4)) % 4);
+            const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/') + padding);
+            return Uint8Array.from(binary, char => char.charCodeAt(0));
+        }
+
+        function bytesToBase64url(value) {
+            if (value === null || value === undefined) return null;
+            const bytes = new Uint8Array(value);
+            let binary = '';
+            bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+            return btoa(binary).replace(/[+]/g, '-').replace(/[/]/g, '_').replace(/=+$/g, '');
+        }
+
+        function prepareCreationOptions(options) {
+            const publicKey = options.publicKey;
+            publicKey.challenge = base64urlToBytes(publicKey.challenge);
+            publicKey.user.id = base64urlToBytes(publicKey.user.id);
+            if (Array.isArray(publicKey.excludeCredentials)) {
+                publicKey.excludeCredentials = publicKey.excludeCredentials.map(item => ({
+                    ...item,
+                    id: base64urlToBytes(item.id)
+                }));
+            }
+            return publicKey;
+        }
+
+        function serializeRegistration(credential) {
+            const transports = typeof credential.response.getTransports === 'function'
+                ? credential.response.getTransports()
+                : [];
+            return {
+                id: credential.id,
+                rawId: bytesToBase64url(credential.rawId),
+                type: credential.type,
+                authenticatorAttachment: credential.authenticatorAttachment || null,
+                clientExtensionResults: credential.getClientExtensionResults(),
+                response: {
+                    clientDataJSON: bytesToBase64url(credential.response.clientDataJSON),
+                    attestationObject: bytesToBase64url(credential.response.attestationObject),
+                    transports: transports
+                }
+            };
+        }
+
+        async function postPasskeyJson(url, body) {
+            const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify(body || {})
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.error || 'Security key request failed.');
+            return payload;
+        }
+
         async function refreshPromptPreview(language) {
             try {
                 const response = await fetch(`{{ url_for('user_language_prompt_preview') }}?language=${encodeURIComponent(language)}&provider=openai`, {
@@ -10311,6 +11196,41 @@ def user_settings():
         document.getElementById('preferred_language')?.addEventListener('change', (event) => {
             refreshPromptPreview(event.target.value);
         });
+
+        const registerPasskeyButton = document.getElementById('registerPasskeyButton');
+        const passkeyStatus = document.getElementById('passkeyStatus');
+        if (window.location.hash === '#security') {
+            document.getElementById('security-tab')?.click();
+        }
+        if (registerPasskeyButton && (!window.PublicKeyCredential || !navigator.credentials)) {
+            registerPasskeyButton.disabled = true;
+            passkeyStatus.textContent = 'Passkeys are not supported by this browser.';
+        }
+        registerPasskeyButton?.addEventListener('click', async () => {
+            registerPasskeyButton.disabled = true;
+            passkeyStatus.textContent = 'Waiting for your passkey provider or hardware security key…';
+            try {
+                const options = await postPasskeyJson(
+                    '{{ url_for("passkey_registration_options") }}',
+                    {}
+                );
+                const credential = await navigator.credentials.create({
+                    publicKey: prepareCreationOptions(options)
+                });
+                if (!credential) throw new Error('No security key response was returned.');
+                const label = document.getElementById('passkeyLabel').value.trim() || 'Security key';
+                await postPasskeyJson(
+                    '{{ url_for("passkey_registration_complete") }}',
+                    { label: label, credential: serializeRegistration(credential) }
+                );
+                window.location.assign('{{ url_for("user_settings") }}?passkey=added#security');
+            } catch (error) {
+                passkeyStatus.textContent = error && error.message
+                    ? error.message
+                    : 'Security key registration failed.';
+                registerPasskeyButton.disabled = false;
+            }
+        });
     </script>
 </body>
 </html>
@@ -10320,6 +11240,8 @@ def user_settings():
         current_language=current_language,
         prompt_preview=prompt_preview,
         audit_history=audit_history,
+        passkeys=passkeys,
+        recent_authentication=recent_authentication,
         csrf_token=generate_csrf(),
         language_label=language_label,
         language_locale=language_locale,
