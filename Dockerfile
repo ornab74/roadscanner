@@ -3,11 +3,15 @@ FROM ${PYTHON_IMAGE} AS builder
 
 ARG LIBOQS_VERSION=0.14.0
 ARG LIBOQS_SHA256=5b0df6138763b3fc4e385d58dbb2ee7c7c508a64a413d76a917529e3a9a207ea
+ARG BUILD_JOBS=1
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS} \
+    MAKEFLAGS=-j${BUILD_JOBS} \
+    MAX_JOBS=${BUILD_JOBS} \
     OQS_INSTALL_PATH=/usr/local \
     LD_LIBRARY_PATH=/usr/local/lib \
     QRS_DATA_DIR=/var/data
@@ -29,7 +33,7 @@ RUN curl --proto '=https' --tlsv1.2 --fail --location --retry 5 \
       -DOQS_USE_OPENSSL=OFF \
       -DOQS_BUILD_ONLY_LIB=ON \
       -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
- && cmake --build /tmp/liboqs-build --parallel \
+ && cmake --build /tmp/liboqs-build --parallel "${BUILD_JOBS}" \
  && cmake --install /tmp/liboqs-build \
  && rm -rf /tmp/liboqs.tar.gz /tmp/liboqs-src /tmp/liboqs-build
 
