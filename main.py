@@ -191,10 +191,16 @@ for state_name, state_info in US_STATES_DICT.items():
             US_STATES_BY_ABBREV[abbrev] = state_name
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# Production-safe by default: DEBUG output can disclose operational details.
+# Set ROADSCANNER_LOG_LEVEL=DEBUG only temporarily when actively diagnosing.
+_LOG_LEVEL_NAME = os.getenv("ROADSCANNER_LOG_LEVEL", "INFO").upper()
+_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
+if not isinstance(_LOG_LEVEL, int):
+    _LOG_LEVEL = logging.INFO
+logger.setLevel(_LOG_LEVEL)
 STRICT_PQ2_ONLY = True
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel(_LOG_LEVEL)
 
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
