@@ -2526,8 +2526,8 @@ After the production installer has checked out the repository at
 `/srv/roadscanner`, update that checkout and install the audit prerequisites:
 
 ```bash
-sudo -u roadscanner git -C /srv/roadscanner fetch origin main
-sudo -u roadscanner git -C /srv/roadscanner checkout --detach origin/main
+sudo git -C /srv/roadscanner fetch origin main
+sudo git -C /srv/roadscanner checkout --detach origin/main
 sudo apt-get update
 sudo apt-get install -y python3-venv
 ```
