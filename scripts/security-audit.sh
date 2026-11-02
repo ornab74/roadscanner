@@ -106,7 +106,7 @@ if id roadscanner >/dev/null 2>&1; then
             HOME="$(getent passwd roadscanner | cut -d: -f6)" \
             XDG_RUNTIME_DIR="/run/user/$UIDN" \
             DOCKER_HOST="unix:///run/user/$UIDN/docker.sock" docker inspect "$name" \
-            --format 'Image={{.Config.Image}} User={{.Config.User}} ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} Ports={{json .HostConfig.PortBindings}}'
+            --format 'Image={{.Config.Image}} User={{.Config.User}} ReadonlyRootfs={{.HostConfig.ReadonlyRootfs}} CapDrop={{json .HostConfig.CapDrop}} SecurityOpt={{json .HostConfig.SecurityOpt}} AppArmorProfile={{.AppArmorProfile}} Ports={{json .HostConfig.PortBindings}}'
         fi
       done
     else
