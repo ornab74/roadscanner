@@ -2594,7 +2594,13 @@ until the running kernel is confirmed to contain Canonical's backport.
 The repository now has automated dependency, source-code, configuration, and
 secret scanning plus a read-only host posture audit. These tools report
 actionable findings; they do not prove the application is vulnerability-free.
-No application-code or dependency version was changed as part of this security
-scanning setup because no scanner result had yet confirmed a specific
-application vulnerability, and changing the signed dependency lock without a
-verified replacement would risk breaking the production build.
+The source review found one production-hardening issue: the application logger
+and console handler were forced to DEBUG. The default is now INFO, with
+temporary diagnostic verbosity available through `ROADSCANNER_LOG_LEVEL=DEBUG`.
+This reduces unnecessary diagnostic detail in production logs; it is a
+hardening improvement, not proof that a specific exploit existed.
+
+No dependency version was changed. The Python dependency file is hash-locked
+and authenticated by the ML-DSA manifest, so package upgrades must be driven by
+actual `pip-audit`/Trivy findings and regenerated through the signed-lock
+workflow rather than by an unreviewed bulk upgrade.
