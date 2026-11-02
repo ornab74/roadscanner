@@ -2507,3 +2507,94 @@ sudo bash <(curl -Ss https://get.netdata.cloud/kickstart.sh)
 ---
 
 ## <a name="security"></a>7. Security Model + Hardening Commandments + Threat Model
+
+
+---
+
+## Security maintenance and vulnerability scanning
+
+Roadscanner's deployment uses rootless Docker, a dedicated service account,
+encrypted systemd credentials, a loopback-only application port, container
+capability drops, a read-only container root filesystem, and a Cloudflare Tunnel.
+The host's AppArmor policy is managed by Ubuntu/Docker; do not assume that
+AppArmor is enforcing a container profile merely because the host has AppArmor
+enabled. Verify the actual runtime settings.
+
+### Run the repository and host security audit
+
+After the production installer has checked out the repository at
+`/srv/roadscanner`, update that checkout and install the audit prerequisites:
+
+```bash
+sudo -u roadscanner git -C /srv/roadscanner fetch origin main
+sudo -u roadscanner git -C /srv/roadscanner checkout --detach origin/main
+sudo apt-get update
+sudo apt-get install -y python3-venv
+```
+
+Install Trivy from its official installation instructions:
+https://trivy.dev/latest/getting-started/installation/
+
+Then run the read-only audit:
+
+```bash
+sudo install -d -m 0750 -o root -g root /var/log/roadscanner/security-audits
+sudo REPORT_DIR=/var/log/roadscanner/security-audits \
+  bash /srv/roadscanner/scripts/security-audit.sh
+```
+
+The audit:
+- runs `pip-audit` against the exact hash-locked Python dependency file;
+- runs Trivy for vulnerable dependencies, Dockerfile/IaC misconfiguration,
+  and exposed secrets;
+- reports host AppArmor status and rootless Docker security settings for the
+  Roadscanner and Cloudflare containers;
+- lists pending Ubuntu package updates and reboot-required state;
+- reports the running kernel and the current CVE-2026-98432 stopgap setting.
+
+The audit is intentionally read-only. It does not automatically upgrade
+packages, rebuild/restart production containers, alter firewall rules, rotate
+credentials, or rewrite the signed Python lock. It exits non-zero if a scanner
+is missing or reports findings. Review the report before applying changes.
+
+### Continuous repository scanning
+
+GitHub Actions now runs:
+- `pip-audit` against `requirements.txt`;
+- CodeQL's extended Python security queries;
+- Trivy filesystem vulnerability, misconfiguration, and secret scanning.
+
+Dependabot proposes weekly updates for Python dependencies, Docker base images,
+and GitHub Actions. These are reviewable pull requests, not unattended production
+updates. This matters because `requirements.txt` is hash-locked and its
+provenance is authenticated by the repository's ML-DSA signed lock manifest:
+dependency changes must go through the existing lock-generation and signature
+workflow. Do not edit the lock file by hand or bulk-upgrade packages on a live
+server.
+
+### CVE-2026-98432: kernel update and reboot
+
+The kernel vulnerability is separate from Roadscanner's Python application
+and Docker image. A container rebuild cannot fix a vulnerability in the host
+kernel. The current response helper is at
+[`scripts/cve-2026-98432-remediate.sh`](scripts/cve-2026-98432-remediate.sh).
+
+Check Canonical's live tracker before planning remediation:
+https://ubuntu.com/security/CVE-2026-98432
+
+A normal Ubuntu kernel package installation does not patch the kernel already
+running in memory. A corrected kernel must be installed and then booted during
+a maintenance window. The setting `net.ipv4.tcp_migrate_req=0`, if available,
+only disables a narrow request-migration trigger; it is **not** a complete fix
+for the underlying IPv4 TCP use-after-free. Do not report the host as fixed
+until the running kernel is confirmed to contain Canonical's backport.
+
+### What has and has not been fixed
+
+The repository now has automated dependency, source-code, configuration, and
+secret scanning plus a read-only host posture audit. These tools report
+actionable findings; they do not prove the application is vulnerability-free.
+No application-code or dependency version was changed as part of this security
+scanning setup because no scanner result had yet confirmed a specific
+application vulnerability, and changing the signed dependency lock without a
+verified replacement would risk breaking the production build.
