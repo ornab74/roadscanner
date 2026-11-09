@@ -1,3 +1,9 @@
+# Chromograph v0.6 — deployment/audit candidate
+
+The `codex/cloudflare-v06-audit` branch contains the complete merged Python app, reproducible tests and a security-focused handoff. Start with [the self-deployment guide](docs/deployment/CLOUDFLARE_SELF_DEPLOY.md), [Daybreak audit instructions](docs/deployment/DAYBREAK_HANDOFF.md), and [the v0.6 migration](docs/chromograph/MIGRATION_v06.md). No Cloudflare deployment or production security certification is claimed. The original instructions below are retained for reference and must be reconciled with the new guide.
+
+---
+
 <img width="1218" height="813" alt="image" src="https://github.com/user-attachments/assets/7a3c9837-fdfd-4bbb-9f13-da1d4b8ad4b0" />
 
 https://qroadscan.com
@@ -2604,3 +2610,4 @@ No dependency version was changed. The Python dependency file is hash-locked
 and authenticated by the ML-DSA manifest, so package upgrades must be driven by
 actual `pip-audit`/Trivy findings and regenerated through the signed-lock
 workflow rather than by an unreviewed bulk upgrade.
+

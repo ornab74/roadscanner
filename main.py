@@ -13193,5 +13193,3005 @@ async def reverse_geocode_route():
     return jsonify({"street_name": location}), 200
 
 
+# BEGIN ROADSCANNER CHROMOGRAPH-X SINGLE-FILE V0.3
+# Generated from the tested Chromograph-X v0.2 modules.
+# Classical phase models, NOT a quantum device or a randomness source.
+# --- Inlined colorsearch.py (CX namespace) ---
+from math import sqrt as _cx_sqrt, cos as _cx_cos, pi as _cx_pi, atan2 as _cx_atan2
+import re as _cx_re
+_cx__HEX = _cx_re.compile('^#[0-9a-fA-F]{6}$')
+
+def _cx_valid_rgb(value: str) -> bool:
+    return isinstance(value, str) and _cx__HEX.fullmatch(value) is not None
+
+def _cx_channels(value: str) -> tuple[float, float, float]:
+    if not _cx_valid_rgb(value):
+        raise ValueError('Invalid RGB color')
+    return tuple((int(value[i:i + 2], 16) / 255 for i in (1, 3, 5)))
+
+def _cx__linear(c: float) -> float:
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+def _cx_oklab(value: str) -> tuple[float, float, float]:
+    """Convert sRGB to OKLab for perceptual reranking."""
+    r, g, b = map(_cx__linear, _cx_channels(value))
+    l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b) ** (1 / 3)
+    m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b) ** (1 / 3)
+    s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b) ** (1 / 3)
+    return (0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s)
+
+def _cx_quantum_inspired_similarity(query: str, candidate: str) -> float:
+    """Classical rank score in [0,1], combining four color 'flavors'."""
+    q, c = (_cx_channels(query), _cx_channels(candidate))
+    rgb_closeness = max(0.0, 1 - _cx_sqrt(sum(((a - b) ** 2 for a, b in zip(q, c))) / 3))
+    phase_overlap = sum(((1 + _cx_cos(_cx_pi * (a - b))) / 2 for a, b in zip(q, c))) / 3
+    qo, co = (_cx_oklab(query), _cx_oklab(candidate))
+    perceptual = max(0.0, 1 - min(1, _cx_sqrt(sum(((a - b) ** 2 for a, b in zip(qo, co)))) / 0.7))
+    lightness = 1 - abs(qo[0] - co[0])
+    return round(max(0.0, min(1.0, 0.25 * rgb_closeness + 0.25 * phase_overlap + 0.35 * perceptual + 0.15 * lightness)), 6)
+
+def _cx_rerank(records: list[dict], rgb_query: str) -> list[dict]:
+    if not _cx_valid_rgb(rgb_query):
+        raise ValueError('Invalid rgb parameter')
+    for row in records:
+        row['rgb_score'] = _cx_quantum_inspired_similarity(rgb_query, row.get('rgb_feature', '#808080'))
+    return sorted(records, key=lambda row: (-row['rgb_score'], row['record_id']))
+
+# --- Inlined chromograph.py (CX namespace) ---
+import hashlib as _cx_hashlib
+import math as _cx_math
+from datetime import datetime as _cx_datetime, timezone as _cx_timezone
+_cx_SCHEMA_VERSION = 'chromograph-x128-v1'
+_cx_DIMENSIONS = 128
+_cx_WEATHER_KEYS = ('precipitation_mm', 'rain_mm', 'showers_mm', 'temperature_c', 'apparent_temperature_c', 'cloud_cover_percent', 'wind_speed_kph', 'wind_gust_kph', 'visibility_km', 'precipitation_probability_percent', 'radar_activity', 'radar_coverage', 'radar_trend')
+_cx_SCALES = (10.0, 10.0, 10.0, 45.0, 45.0, 100.0, 90.0, 120.0, 20.0, 100.0, 1.0, 1.0, 1.0)
+
+def _cx_clamp(x: float, low: float=0.0, high: float=1.0) -> float:
+    return min(high, max(low, float(x)))
+
+def _cx__safe(v, default=0.0) -> float:
+    try:
+        n = float(v)
+        return n if _cx_math.isfinite(n) else default
+    except (TypeError, ValueError):
+        return default
+
+def _cx__clock(timestamp: str | None) -> tuple[float, ...]:
+    if timestamp:
+        t = _cx_datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        if t.tzinfo is None:
+            raise ValueError('timestamp must include timezone')
+        t = t.astimezone(_cx_timezone.utc)
+    else:
+        t = _cx_datetime(2026, 1, 1, tzinfo=_cx_timezone.utc)
+    day_phase = 2 * _cx_math.pi * (t.hour * 3600 + t.minute * 60 + t.second) / 86400
+    week_phase = 2 * _cx_math.pi * (t.weekday() + t.hour / 24) / 7
+    year_phase = 2 * _cx_math.pi * (t.timetuple().tm_yday - 1) / 366
+    return (_cx_math.sin(day_phase), _cx_math.cos(day_phase), _cx_math.sin(week_phase), _cx_math.cos(week_phase), _cx_math.sin(year_phase), _cx_math.cos(year_phase), 1.0 if 6 <= t.hour < 20 else 0.0, _cx_clamp(t.weekday() / 6))
+
+def _cx__hsv(c: tuple[float, float, float]) -> tuple[float, float, float]:
+    import colorsys as _cx_colorsys
+    return _cx_colorsys.rgb_to_hsv(*c)
+
+def _cx_validate_context(public: dict) -> dict:
+    """Strict allowlist avoids saving exact GPS/private text in the D1 index."""
+    if not isinstance(public, dict):
+        raise ValueError('context must be an object')
+    if set(public) - {'rgb', 'weather', 'timestamp_utc'}:
+        raise ValueError('unrecognized or private search field')
+    rgb = public.get('rgb', '#808080')
+    if not _cx_valid_rgb(rgb):
+        raise ValueError('invalid rgb')
+    w = public.get('weather')
+    if w is not None:
+        if not isinstance(w, dict) or set(w) - set(_cx_WEATHER_KEYS):
+            raise ValueError('weather contains unknown field')
+        if len(w) > len(_cx_WEATHER_KEYS):
+            raise ValueError('oversized weather')
+        for key, value in w.items():
+            if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool) or (not _cx_math.isfinite(value)) or (abs(value) > 1000000.0)):
+                raise ValueError('weather requires finite numbers')
+    stamp = public.get('timestamp_utc')
+    if stamp is not None and (not isinstance(stamp, str) or len(stamp) > 40):
+        raise ValueError('invalid timestamp')
+    if stamp is not None:
+        _cx__clock(stamp)
+    return {'rgb': rgb.lower(), 'weather': w or {}, 'timestamp_utc': stamp}
+
+def _cx__base(context: dict) -> tuple[float, ...]:
+    rgb = _cx_channels(context['rgb'])
+    L, a, b = _cx_oklab(context['rgb'])
+    h, s, v = _cx__hsv(rgb)
+    color = (*rgb, L, _cx_clamp(a + 0.5), _cx_clamp(b + 0.5), h, s, v)
+    weather = context.get('weather') or {}
+    wx = tuple((_cx_clamp(_cx__safe(weather.get(key)) / scale) if key not in ('radar_trend',) else _cx_clamp(0.5 + _cx__safe(weather.get(key)) * 0.5) for key, scale in zip(_cx_WEATHER_KEYS, _cx_SCALES)))
+    clock = _cx__clock(context.get('timestamp_utc'))
+    mask = (1.0 if weather else 0.0, 1.0 if 'radar_activity' in weather else 0.0)
+    result = (*color, *wx, *clock, *mask)
+    assert len(result) == 32, len(result)
+    return tuple(result)
+
+def _cx__weights(k: int, j: int) -> float:
+    digest = _cx_hashlib.blake2s(f'{_cx_SCHEMA_VERSION}|{k}|{j}'.encode(), digest_size=4).digest()
+    return int.from_bytes(digest, 'big') / (2 ** 32 - 1) * 2 - 1
+_cx__PROJECTION = tuple((tuple((_cx__weights(k, j) for j in range(32))) for k in range(32)))
+
+def _cx_encode(public: dict) -> dict:
+    ctx = _cx_validate_context(public)
+    base = _cx__base(ctx)
+    crosses = [_cx_clamp(0.5 + 2 * (base[i] - 0.5) * (base[(i * 11 + 7) % 32] - 0.5)) for i in range(32)]
+    phases = []
+    for k, row in enumerate(_cx__PROJECTION):
+        theta = 2 * _cx_math.pi * sum(((x - 0.5) * weight for x, weight in zip(base, row))) / 4
+        phases.extend((_cx_math.sin(theta), _cx_math.cos(theta)))
+    vector = [round(x, 7) for x in (*base, *crosses, *phases)]
+    assert len(vector) == _cx_DIMENSIONS
+    return {'version': _cx_SCHEMA_VERSION, 'vector': vector, 'weather_present': bool(ctx['weather']), 'rgb': ctx['rgb'], 'weather_fields': sorted(ctx['weather']), 'timestamp_present': ctx['timestamp_utc'] is not None}
+
+def _cx_cosine(a: list[float], b: list[float]) -> float:
+    if len(a) != _cx_DIMENSIONS or len(b) != _cx_DIMENSIONS:
+        raise ValueError('vector dimensions do not match')
+    dot = sum((x * y for x, y in zip(a, b)))
+    norms = _cx_math.sqrt(sum((x * x for x in a)) * sum((y * y for y in b)))
+    return max(-1.0, min(1.0, dot / norms)) if norms else 0.0
+
+def _cx_similarity(query: dict, stored: dict) -> dict:
+    q, s = (_cx_encode(query), _cx_encode(stored))
+    color_score = _cx_quantum_inspired_similarity(q['rgb'], s['rgb'])
+    phase = (1 + _cx_cosine(q['vector'], s['vector'])) / 2
+    weather_is_comparable = q['weather_present'] and s['weather_present']
+    score = 0.6 * color_score + 0.4 * phase if weather_is_comparable else color_score
+    return {'score': round(_cx_clamp(score), 6), 'color_score': color_score, 'phase_score': round(phase, 6), 'weather_comparable': weather_is_comparable, 'algorithm': _cx_SCHEMA_VERSION}
+
+def _cx_budget(cpu_percent=None, ram_percent=None) -> dict:
+    """Telemetry adjusts *compute load*, not crypto keys or safety thresholds."""
+    load = max(_cx_clamp(_cx__safe(cpu_percent) / 100), _cx_clamp(_cx__safe(ram_percent) / 100))
+    if load >= 0.85:
+        return {'max_candidates': 100, 'radar_frames': 1, 'mode': 'conserve'}
+    if load >= 0.65:
+        return {'max_candidates': 250, 'radar_frames': 2, 'mode': 'balanced'}
+    return {'max_candidates': 500, 'radar_frames': 3, 'mode': 'full'}
+
+# --- Inlined radar_png.py (CX namespace) ---
+import struct as _cx_struct
+import zlib as _cx_zlib
+from collections import Counter as _cx_Counter
+_cx__SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+def _cx__paeth(a, b, c):
+    p = a + b - c
+    da, db, dc = (abs(p - a), abs(p - b), abs(p - c))
+    return a if da <= db and da <= dc else b if db <= dc else c
+
+def _cx__parse_png(data: bytes):
+    if not isinstance(data, bytes) or not data.startswith(_cx__SIGNATURE) or len(data) > 800000:
+        raise ValueError('invalid or oversized PNG')
+    offset = len(_cx__SIGNATURE)
+    width = height = ctype = None
+    palette = None
+    transparency = b''
+    compressed = bytearray()
+    while offset + 12 <= len(data):
+        size = int.from_bytes(data[offset:offset + 4], 'big')
+        if size > 800000 or offset + 12 + size > len(data):
+            raise ValueError('invalid PNG chunk length')
+        typ = data[offset + 4:offset + 8]
+        chunk = data[offset + 8:offset + 8 + size]
+        expected_crc = int.from_bytes(data[offset + 8 + size:offset + 12 + size], 'big')
+        if _cx_zlib.crc32(typ + chunk) & 4294967295 != expected_crc:
+            raise ValueError('PNG CRC failed')
+        offset += size + 12
+        if typ == b'IHDR':
+            if size != 13:
+                raise ValueError('invalid header size')
+            width, height, bits, ctype, compression, filt, interlace = _cx_struct.unpack('>IIBBBBB', chunk)
+            if not (1 <= width <= 512 and 1 <= height <= 512 and (bits == 8) and (ctype in (2, 3, 6)) and (compression == 0) and (filt == 0) and (interlace == 0)):
+                raise ValueError('unsupported PNG format')
+        elif typ == b'PLTE':
+            palette = [tuple(chunk[i:i + 3]) for i in range(0, len(chunk), 3)]
+        elif typ == b'tRNS':
+            transparency = bytes(chunk)
+        elif typ == b'IDAT':
+            compressed.extend(chunk)
+            if len(compressed) > 800000:
+                raise ValueError('oversized PNG stream')
+        elif typ == b'IEND':
+            break
+    if width is None or ctype is None:
+        raise ValueError('PNG missing IHDR')
+    bpp = {2: 3, 3: 1, 6: 4}[ctype]
+    stride = width * bpp
+    expected = height * (stride + 1)
+    inflator = _cx_zlib.decompressobj()
+    decoded = inflator.decompress(bytes(compressed), expected + 1)
+    if len(decoded) > expected or inflator.unconsumed_tail:
+        raise ValueError('PNG decompression exceeds limit')
+    decoded += inflator.flush()
+    if len(decoded) != expected or not inflator.eof:
+        raise ValueError('malformed PNG image data')
+    previous = bytearray(stride)
+    pixel_rows = []
+    position = 0
+    for _ in range(height):
+        filter_method = decoded[position]
+        current = bytearray(decoded[position + 1:position + 1 + stride])
+        position += stride + 1
+        if filter_method not in (0, 1, 2, 3, 4):
+            raise ValueError('unsupported PNG scanline filter')
+        if filter_method:
+            for i, val in enumerate(current):
+                left = current[i - bpp] if i >= bpp else 0
+                above = previous[i]
+                upper_left = previous[i - bpp] if i >= bpp else 0
+                if filter_method == 1:
+                    correction = left
+                elif filter_method == 2:
+                    correction = above
+                elif filter_method == 3:
+                    correction = (left + above) // 2
+                else:
+                    correction = _cx__paeth(left, above, upper_left)
+                current[i] = val + correction & 255
+        pixel_rows.append(current)
+        previous = current
+    return (width, height, ctype, bpp, pixel_rows, palette, transparency)
+
+def _cx_analyze_tile(png: bytes, center_fraction: float=0.35) -> dict:
+    width, height, ctype, bpp, rows, palette, transparency = _cx__parse_png(png)
+    if not 0.05 <= center_fraction <= 1.0:
+        raise ValueError('invalid center fraction')
+    left, right = (int(width * (1 - center_fraction) / 2), int(width * (1 + center_fraction) / 2))
+    top, bottom = (int(height * (1 - center_fraction) / 2), int(height * (1 + center_fraction) / 2))
+    nontransparent = 0
+    total = 0
+    rgb_sums = [0.0, 0.0, 0.0]
+    color_counts = _cx_Counter()
+    for y in range(top, max(top + 1, bottom), 2):
+        row = rows[y]
+        for x in range(left, max(left + 1, right), 2):
+            idx = x * bpp
+            if ctype == 6:
+                red, green, blue, alpha = row[idx:idx + 4]
+            elif ctype == 2:
+                red, green, blue = row[idx:idx + 3]
+                alpha = 255
+            else:
+                p = row[idx]
+                if palette is None or p >= len(palette):
+                    raise ValueError('palette index without color')
+                red, green, blue = palette[p]
+                alpha = transparency[p] if p < len(transparency) else 255
+            total += 1
+            if alpha > 24:
+                nontransparent += 1
+                rgb_sums[0] += red * alpha / 255
+                rgb_sums[1] += green * alpha / 255
+                rgb_sums[2] += blue * alpha / 255
+                color_counts[red // 32, green // 32, blue // 32] += 1
+    activity = nontransparent / total if total else 0.0
+    if nontransparent:
+        avg = tuple((round(v / nontransparent / 255, 4) for v in rgb_sums))
+        hex_color = '#' + ''.join((f'{min(255, round(v * 255)):02x}' for v in avg))
+    else:
+        avg, hex_color = (None, None)
+    return {'activity': round(activity, 5), 'sample_count': total, 'colored_sample_count': nontransparent, 'average_rgb': avg, 'dominant_rgb_bin': list(color_counts.most_common(1)[0][0]) if color_counts else None, 'average_color_hex': hex_color, 'width': width, 'height': height, 'has_signal': nontransparent > 0, 'signal_semantics': 'nontransparent_radar_tile_coverage_proxy_not_mm_per_hour'}
+
+# --- Inlined weather_sources.py (CX namespace) ---
+from datetime import datetime as _cx_datetime, timezone as _cx_timezone
+from math import atan as _cx_atan, cos as _cx_cos, floor as _cx_floor, log as _cx_log, pi as _cx_pi, radians as _cx_radians, sinh as _cx_sinh, tan as _cx_tan
+from urllib.parse import urlencode as _cx_urlencode, urlparse as _cx_urlparse
+import re as _cx_re
+_cx_RAIN_META = 'https://api.rainviewer.com/public/weather-maps.json'
+_cx_OPEN_METEO_HOST = 'https://api.open-meteo.com'
+_cx_FRAME_PATH = _cx_re.compile('^/v2/radar/[0-9]{8,12}$')
+_cx_SAFE_RAIN_HOSTS = {'tilecache.rainviewer.com'}
+
+def _cx_validate_coords(lat, lon):
+    try:
+        lat, lon = (float(lat), float(lon))
+    except (ValueError, TypeError):
+        raise ValueError('invalid coordinates')
+    if not -85.05112878 <= lat <= 85.05112878 or not -180 <= lon <= 180:
+        raise ValueError('coordinates outside supported map range')
+    return (lat, lon)
+
+def _cx_tile_xyz(lat, lon, zoom=7):
+    lat, lon = _cx_validate_coords(lat, lon)
+    if not isinstance(zoom, int) or not 0 <= zoom <= 7:
+        raise ValueError('RainViewer zoom limited to 7')
+    n = 1 << zoom
+    x = min(n - 1, max(0, int(_cx_floor((lon + 180) / 360 * n))))
+    lat_rad = _cx_radians(lat)
+    y = min(n - 1, max(0, int(_cx_floor((1 - _cx_log(_cx_tan(lat_rad) + 1 / _cx_cos(lat_rad)) / _cx_pi) * n / 2))))
+    return (x, y, zoom)
+
+def _cx_weather_url(lat, lon):
+    lat, lon = _cx_validate_coords(lat, lon)
+    query = {'latitude': f'{lat:.5f}', 'longitude': f'{lon:.5f}', 'timezone': 'UTC', 'current': ','.join(('temperature_2m', 'apparent_temperature', 'precipitation', 'rain', 'showers', 'weather_code', 'cloud_cover', 'wind_speed_10m', 'wind_gusts_10m')), 'hourly': 'visibility,precipitation_probability,precipitation', 'forecast_days': '1', 'wind_speed_unit': 'kmh'}
+    return _cx_OPEN_METEO_HOST + '/v1/forecast?' + _cx_urlencode(query)
+
+def _cx__parse_utc(value):
+    if not isinstance(value, str) or not value:
+        raise ValueError('missing weather timestamp')
+    t = _cx_datetime.fromisoformat(value.replace('Z', '+00:00'))
+    return t.replace(tzinfo=_cx_timezone.utc) if t.tzinfo is None else t.astimezone(_cx_timezone.utc)
+
+def _cx_parse_weather(data: dict) -> dict:
+    current = data.get('current') or {}
+    hourly = data.get('hourly') or {}
+    if not current or not current.get('time'):
+        raise ValueError('incomplete Open-Meteo current observation')
+    now = _cx__parse_utc(current['time'])
+    times = hourly.get('time') or []
+    nearest = None
+    if times:
+        nearest = min(range(len(times)), key=lambda i: abs((_cx__parse_utc(times[i]) - now).total_seconds()))
+
+    def val(k):
+        raw = current.get(k)
+        return float(raw) if raw is not None else None
+
+    def hourly_val(k):
+        v = hourly.get(k) or []
+        return float(v[nearest]) if nearest is not None and nearest < len(v) and (v[nearest] is not None) else None
+    visibility = hourly_val('visibility')
+    result = {'temperature_c': val('temperature_2m'), 'apparent_temperature_c': val('apparent_temperature'), 'precipitation_mm': val('precipitation'), 'rain_mm': val('rain'), 'showers_mm': val('showers'), 'weather_code': current.get('weather_code'), 'cloud_cover_percent': val('cloud_cover'), 'wind_speed_kph': val('wind_speed_10m'), 'wind_gust_kph': val('wind_gusts_10m'), 'visibility_km': visibility / 1000 if visibility is not None else None, 'precipitation_probability_percent': hourly_val('precipitation_probability'), 'updated_at': now.isoformat(), 'source': 'open-meteo', 'time_semantics': 'UTC current model, nearest hourly visibility/probability'}
+    return result
+
+def _cx_select_rain_frames(data: dict, max_frames: int=2, now_epoch: int | None=None) -> list[dict]:
+    host = data.get('host')
+    parsed = _cx_urlparse(str(host))
+    if parsed.scheme != 'https' or parsed.hostname not in _cx_SAFE_RAIN_HOSTS or parsed.port is not None or parsed.username or parsed.password or (parsed.path not in ('', '/')) or parsed.query or parsed.fragment:
+        raise ValueError('invalid RainViewer host')
+    frames = (data.get('radar') or {}).get('past') or []
+    valid = []
+    for entry in frames:
+        if not isinstance(entry, dict):
+            continue
+        stamp, path = (entry.get('time'), entry.get('path'))
+        if not isinstance(stamp, int) or not isinstance(path, str) or (not _cx_FRAME_PATH.fullmatch(path)):
+            continue
+        if now_epoch is not None and (stamp > now_epoch + 600 or stamp < now_epoch - 10800):
+            continue
+        valid.append({'time': stamp, 'path': path})
+    if not 1 <= max_frames <= 3:
+        raise ValueError('max_frames must be 1 to 3')
+    valid = sorted({x['time']: x for x in valid}.values(), key=lambda x: x['time'])
+    return valid[-max_frames:]
+
+def _cx_tile_url(metadata: dict, frame: dict, lat, lon, zoom=7):
+    selected = _cx_select_rain_frames({'host': metadata['host'], 'radar': {'past': [frame]}})
+    if not selected:
+        raise ValueError('no valid radar frame')
+    x, y, zoom = _cx_tile_xyz(lat, lon, zoom)
+    return f"{metadata['host'].rstrip('/')}{frame['path']}/256/{zoom}/{x}/{y}/2/0_0.png"
+
+def _cx_combine_radar(samples: list[dict], now_epoch: int) -> dict:
+    if not samples:
+        return {'available': False, 'activity': None, 'reason': 'no_radar_frames', 'source': 'rainviewer'}
+    latest = samples[-1]
+    activity = latest['stats']['activity']
+    trend = activity - samples[0]['stats']['activity'] if len(samples) > 1 else None
+    age = max(0, now_epoch - latest['time'])
+    return {'available': True, 'activity': activity, 'radar_coverage': activity, 'trend': round(trend, 6) if trend is not None else None, 'age_seconds': age, 'frames': len(samples), 'sampled_rgb': latest['stats']['average_color_hex'], 'current_frame_utc': _cx_datetime.fromtimestamp(latest['time'], tz=_cx_timezone.utc).isoformat(), 'stale': age > 1800, 'source': 'rainviewer', 'interpretation': 'color/alpha activity proxy, NOT precipitation rate or nowcast'}
+
+# --- Inlined weather_circuit.py (CX namespace) ---
+import math as _cx_math
+import json as _cx_json
+import hashlib as _cx_hashlib
+from datetime import datetime as _cx_datetime, timezone as _cx_timezone
+_cx_DEFAULT_LIMITS = {'max_wind_gust_kph': 55.0, 'max_precipitation_mm': 2.5, 'min_visibility_km': 4.0, 'max_radar_activity': 0.65}
+
+def _cx_circuit(weather: dict, radar: dict | None, timestamp_utc: str, cpu_percent=None, ram_percent=None, limits=None) -> dict:
+    w = weather or {}
+    r = radar or {}
+    lim = dict(_cx_DEFAULT_LIMITS)
+    if limits:
+        if set(limits) - set(lim):
+            raise ValueError('unsupported safety threshold')
+        lim.update({k: float(v) for k, v in limits.items()})
+    if any((not _cx_math.isfinite(v) or v <= 0 for v in lim.values())):
+        raise ValueError('limits must be positive and finite')
+    stamp = _cx_datetime.fromisoformat(timestamp_utc.replace('Z', '+00:00'))
+    if stamp.tzinfo is None:
+        raise ValueError('timestamp_utc requires timezone')
+    stamp = stamp.astimezone(_cx_timezone.utc)
+    clock = 2 * _cx_math.pi * (stamp.hour * 3600 + stamp.minute * 60 + stamp.second) / 86400
+    p = _cx_clamp(_cx__safe(w.get('precipitation_mm')) / lim['max_precipitation_mm'])
+    gust = _cx_clamp(_cx__safe(w.get('wind_gust_kph')) / lim['max_wind_gust_kph'])
+    visibility_km = w.get('visibility_km')
+    vis_risk = _cx_clamp((lim['min_visibility_km'] - _cx__safe(visibility_km, 20.0)) / lim['min_visibility_km'])
+    radar_activity = r.get('activity')
+    radar_risk = _cx_clamp(_cx__safe(radar_activity)) if radar_activity is not None else None
+    phase_precip = _cx_math.cos(clock + _cx_math.pi * p)
+    phase_wind = _cx_math.sin(clock + _cx_math.pi * gust)
+    phase_visibility = _cx_math.cos(clock * 2 + _cx_math.pi * vis_risk)
+    phase_radar = _cx_math.sin(clock - _cx_math.pi * radar_risk) if radar_risk is not None else 0.0
+    interference = _cx_clamp(0.5 + 0.125 * (phase_precip + phase_wind + phase_visibility + phase_radar))
+    cpu = _cx_clamp(_cx__safe(cpu_percent) / 100)
+    ram = _cx_clamp(_cx__safe(ram_percent) / 100)
+    telemetry_present = cpu_percent is not None or ram_percent is not None
+    wx_wave = complex(_cx_math.cos(clock + p * _cx_math.pi), _cx_math.sin(clock + p * _cx_math.pi))
+    wind_wave = complex(_cx_math.cos(clock + gust * _cx_math.pi), _cx_math.sin(clock + gust * _cx_math.pi))
+    radar_wave = complex(_cx_math.cos(clock + _cx_math.pi * (radar_risk or 0)), _cx_math.sin(clock + _cx_math.pi * (radar_risk or 0)))
+    runtime_wave = complex(_cx_math.cos(clock + _cx_math.pi * cpu), _cx_math.sin(clock + _cx_math.pi * ram))
+    amplitudes = [wx_wave, wind_wave, radar_wave]
+    if telemetry_present:
+        amplitudes.append(runtime_wave)
+    coherence = abs(sum(amplitudes)) ** 2 / len(amplitudes) ** 2
+    audit = {'weather': w, 'radar_activity': radar_risk, 'timestamp': stamp.isoformat(), 'cpu': cpu_percent, 'ram': ram_percent, 'version': 'chronospectral-v1'}
+    audit_digest = _cx_hashlib.sha3_256(_cx_json.dumps(audit, sort_keys=True, default=str, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+    reasons = []
+    if w.get('wind_gust_kph') is not None and float(w['wind_gust_kph']) >= lim['max_wind_gust_kph']:
+        reasons.append('gust_threshold_exceeded')
+    if w.get('precipitation_mm') is not None and float(w['precipitation_mm']) >= lim['max_precipitation_mm']:
+        reasons.append('precipitation_threshold_exceeded')
+    if visibility_km is not None and float(visibility_km) <= lim['min_visibility_km']:
+        reasons.append('visibility_threshold_exceeded')
+    if reasons:
+        gate = 'NO_GO'
+    elif not all((w.get(k) is not None for k in ('wind_gust_kph', 'precipitation_mm', 'visibility_km'))):
+        gate = 'UNKNOWN'
+    elif radar_risk is not None and radar_risk >= lim['max_radar_activity']:
+        gate = 'CAUTION'
+        reasons.append('high_radar_color_activity_proxy')
+    elif radar_risk is None:
+        gate = 'CAUTION'
+        reasons.append('radar_missing_or_unavailable')
+    else:
+        gate = 'GO'
+    age_s = None
+    if w.get('updated_at'):
+        ts = _cx_datetime.fromisoformat(str(w['updated_at']).replace('Z', '+00:00'))
+        if ts.tzinfo:
+            age_s = max(0.0, (stamp - ts.astimezone(_cx_timezone.utc)).total_seconds())
+    if age_s is not None and age_s > 7200 and (gate != 'NO_GO'):
+        gate = 'UNKNOWN'
+        reasons.append('weather_stale')
+    return {'weather_gate': gate, 'reasons': reasons, 'interference_feature': round(interference, 6), 'interference_calibrated': False, 'chronospectral_coherence': round(_cx_clamp(coherence), 6), 'telemetry_present': telemetry_present, 'context_digest_sha3_256': audit_digest, 'context_digest_is_entropy': False, 'radar_activity_is_probability': False, 'weather_age_seconds': age_s, 'compute_budget': _cx_budget(cpu_percent, ram_percent), 'circuit': 'temporal-chroma-interference-v1'}
+
+# --- Inlined route_ai.py (CX namespace) ---
+import json as _cx_json
+import math as _cx_math
+_cx_VERDICTS = {'STRONG_TAKE', 'TAKE', 'BORDERLINE', 'SKIP', 'HARD_SKIP'}
+
+def _cx__numeric(v, name, low, high):
+    if not isinstance(v, (int, float)) or isinstance(v, bool) or (not _cx_math.isfinite(v)) or (not low <= v <= high):
+        raise ValueError('invalid ' + name)
+    return float(v)
+
+def _cx_public_decision_features(body: dict) -> dict:
+    if not isinstance(body, dict) or body.get('privacy_ack') is not True:
+        raise ValueError('explicit privacy_ack required before external AI')
+    offer = body.get('offer')
+    weather = body.get('weather')
+    if not isinstance(offer, dict) or not isinstance(weather, dict):
+        raise ValueError('offer and weather objects required')
+    pay = _cx__numeric(offer.get('pay'), 'pay', 0, 10000)
+    miles = _cx__numeric(offer.get('displayed_miles'), 'miles', 0, 1000)
+    minutes = offer.get('estimated_minutes')
+    minutes = _cx__numeric(minutes, 'minutes', 0, 720) if minutes is not None else None
+    count = _cx__numeric(offer.get('order_count', 1), 'order_count', 1, 20)
+    allowed_weather = {'precipitation_mm', 'rain_mm', 'showers_mm', 'temperature_c', 'apparent_temperature_c', 'cloud_cover_percent', 'wind_speed_kph', 'wind_gust_kph', 'visibility_km', 'precipitation_probability_percent', 'updated_at'}
+    wx = {}
+    for field in allowed_weather:
+        if field in weather and weather[field] is not None:
+            if field == 'updated_at':
+                if not isinstance(weather[field], str) or len(weather[field]) > 40:
+                    raise ValueError('invalid updated_at')
+                wx[field] = weather[field]
+            else:
+                wx[field] = _cx__numeric(weather[field], field, -10000, 10000)
+    radar = body.get('radar') or {}
+    rules = body.get('rules') or {}
+    if not isinstance(rules, dict):
+        raise ValueError('invalid rules')
+
+    def rule(k, d):
+        return _cx__numeric(rules.get(k, d), k, 0.01, 10000)
+    sanitized = {'pay': pay, 'displayed_miles': miles, 'estimated_minutes': minutes, 'order_count': int(count), 'weather': wx, 'minimum_payout': rule('minimum_payout', 8), 'minimum_dollars_per_mile': rule('minimum_dollars_per_mile', 1.75), 'target_hourly': rule('target_hourly', 22)}
+    return sanitized
+
+def _cx_finalize_decision(raw: dict, features: dict, gate: dict, model: str) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError('model returned non-object')
+    verdict = str(raw.get('verdict', 'BORDERLINE')).strip().upper().replace(' ', '_')
+    if verdict not in _cx_VERDICTS:
+        verdict = 'BORDERLINE'
+    if gate['weather_gate'] == 'NO_GO':
+        verdict = 'HARD_SKIP'
+    elif gate['weather_gate'] == 'UNKNOWN' and verdict in ('TAKE', 'STRONG_TAKE'):
+        verdict = 'BORDERLINE'
+
+    def bounded(k, default=0.5):
+        v = raw.get(k, default)
+        return max(0.0, min(1.0, float(v))) if isinstance(v, (int, float)) and _cx_math.isfinite(v) else default
+
+    def summary(k, default, limit):
+        val = raw.get(k)
+        return str(val)[:limit] if isinstance(val, str) and val else default
+    reasons = raw.get('reasons', [])
+    reasons = [str(x)[:140] for x in reasons if isinstance(x, str)][:6] if isinstance(reasons, list) else []
+    reasons.extend(gate['reasons'])
+    expected_minutes = raw.get('expected_minutes')
+    if not isinstance(expected_minutes, (int, float)) or not _cx_math.isfinite(expected_minutes) or expected_minutes <= 0:
+        expected_minutes = features['estimated_minutes'] or 0.0
+    expected_minutes = max(0.0, min(720.0, float(expected_minutes)))
+    hourly = features['pay'] * 60 / expected_minutes if expected_minutes else 0.0
+    final_score = 0.0 if gate['weather_gate'] == 'NO_GO' else min(0.5, bounded('score', 0.5)) if gate['weather_gate'] == 'UNKNOWN' else bounded('score', 0.5)
+    spoken = f"{verdict.replace('_', ' ')}. Weather {gate['weather_gate'].lower()}." if gate['weather_gate'] != 'GO' else summary('spoken_summary', f"{verdict.replace('_', ' ')}. Weather go.", 220)
+    return {'verdict': verdict, 'confidence': bounded('confidence', 0.5), 'score': final_score, 'headline': summary('headline', verdict.replace('_', ' '), 160), 'predicted_future': summary('predicted_future', 'Forecast is uncertain.', 400), 'primary_risk': summary('primary_risk', 'Weather and road conditions', 160), 'reasons': reasons[:6], 'expected_minutes': expected_minutes, 'expected_net_hourly': None, 'estimated_gross_hourly': round(hourly, 2), 'hourly_semantics': 'gross_only; net unavailable without costs', 'weather_gate': gate['weather_gate'], 'weather_reason': ', '.join(gate['reasons']) or 'No configured limit exceeded', 'weather_score': 1.0 if gate['weather_gate'] == 'GO' else 0.5 if gate['weather_gate'] == 'CAUTION' else 0.0, 'spoken_summary': spoken, 'model': model, 'model_advisory_only': True, 'telemetry_used_as_crypto_entropy': False, 'radar_probability_calibrated': False}
+# --- Flask bridge (kept in main.py, no plugin modules required) ---
+import copy as _cx_copy
+import hmac as _cx_hmac
+import os as _cx_os
+import time as _cx_time
+import json as _cx_json
+import hashlib as _cx_hashlib
+import datetime as _cx_datetime_module
+import threading as _cx_threading
+from urllib.parse import urljoin as _cx_urljoin
+
+_CX_WEATHER_TTL = 180
+_CX_CACHE = {}
+_CX_CACHE_LOCK = _cx_threading.RLock()
+_CX_BOOTSTRAP_LIMIT = 64 * 1024
+_CX_RECORD_LIMIT = 290 * 1024
+_CX_PATH_RX = _cx_re.compile(r'^/v1/(?:records(?:/[a-zA-Z0-9_-]{4,80}(?:/(?:revisions|versions))?)?|chromograph/(?:search|encode)|ai/embed-query)$')
+_CX_UPSTREAM_URL = _cx_os.environ.get('ROADSCANNER_CX_EDGE_URL', '').rstrip('/')
+
+
+def _cx_enabled():
+    return _cx_os.getenv('ROADSCANNER_CX_ENABLED', '0') == '1'
+
+
+def _cx_logged_in():
+    return bool(session.get('username'))
+
+
+def _cx_admin():
+    return bool(session.get('username')) and bool(session.get('is_admin'))
+
+
+def _cx_error(code, status=400):
+    r = jsonify({'error': code})
+    r.status_code = status
+    r.headers['Cache-Control'] = 'no-store'
+    return r
+
+
+def _cx_response(obj, status=200):
+    r = jsonify(obj)
+    r.status_code = status
+    r.headers['Cache-Control'] = 'no-store'
+    return r
+
+
+def _cx_payload(limit=_CX_BOOTSTRAP_LIMIT):
+    # Flask 3.1 supports per-request limits. For earlier Flask, check length.
+    request.max_content_length = limit
+    if request.content_length is not None and request.content_length > limit:
+        raise ValueError('payload_too_large')
+    obj = request.get_json(silent=True)
+    if not isinstance(obj, dict):
+        raise ValueError('object_json_required')
+    return obj
+
+
+def _cx_fetch_bytes(url, max_bytes=800_000, timeout=12):
+    # URLs are constructed by code from fixed allowlisted providers only.
+    # Streaming caps response bytes even if Content-Length is absent/forged.
+    import httpx as _cx_httpx
+    buf = bytearray()
+    with _cx_httpx.stream('GET', url, timeout=timeout, follow_redirects=False) as r:
+        r.raise_for_status()
+        for chunk in r.iter_bytes():
+            buf.extend(chunk)
+            if len(buf) > max_bytes:
+                raise ValueError('provider_payload_too_large')
+    return bytes(buf)
+
+
+def _cx_live_context(latitude, longitude, use_radar=True):
+    lat, lon = _cx_validate_coords(latitude, longitude)
+    # Quantize private GPS before contacting weather providers.
+    lat, lon = round(lat, 2), round(lon, 2)
+    cache_key = (lat, lon, bool(use_radar))
+    now = _cx_time.time()
+    with _CX_CACHE_LOCK:
+        cached = _CX_CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            return _cx_copy.deepcopy(cached[1])
+    weather = _cx_parse_weather(_cx_json.loads(_cx_fetch_bytes(
+        _cx_weather_url(lat, lon), 220_000, 14)))
+    radar = {'available': False, 'activity': None, 'reason': 'radar_disabled', 'source': 'rainviewer'}
+    if use_radar:
+        try:
+            metadata = _cx_json.loads(_cx_fetch_bytes(_cx_RAIN_META, 100_000, 10))
+            frames = _cx_select_rain_frames(metadata, max_frames=2, now_epoch=int(now))
+            samples = []
+            for frame in frames:
+                tile = _cx_fetch_bytes(_cx_tile_url(metadata, frame, lat, lon, zoom=7), 800_000, 10)
+                samples.append({'time': frame['time'], 'stats': _cx_analyze_tile(tile)})
+            radar = _cx_combine_radar(samples, int(now))
+            if radar.get('stale'):
+                radar['activity'] = None
+        except Exception as exc:
+            # Never infer zero rain from unavailable radar.
+            radar = {'available': False, 'activity': None,
+                     'reason': 'radar_provider_unavailable_or_unsupported', 'source': 'rainviewer'}
+            logger.info('Chromograph radar unavailable: %s', type(exc).__name__)
+    stamp = _cx_datetime_module.datetime.now(_cx_datetime_module.timezone.utc).isoformat()
+    cpu = ram = None
+    if psutil is not None:
+        try:
+            cpu = float(psutil.cpu_percent(interval=None))
+            ram = float(psutil.virtual_memory().percent)
+        except Exception:
+            pass
+    gate = _cx_circuit(weather, radar, stamp, cpu_percent=cpu, ram_percent=ram)
+    public = {key: value for key, value in weather.items() if key in _cx_WEATHER_KEYS and value is not None}
+    if radar.get('activity') is not None:
+        public.update(radar_activity=radar['activity'],
+                      radar_coverage=radar.get('radar_coverage') or 0.,
+                      radar_trend=radar.get('trend') or 0.)
+    rgb = radar.get('sampled_rgb') or '#808080'
+    vector = _cx_encode({'rgb': rgb, 'weather': public, 'timestamp_utc': stamp})
+    result = {'weather': weather, 'radar': radar, 'circuit': gate,
+              'chromograph': vector, 'timestamp_utc': stamp,
+              'location_policy': 'provider_coordinates_rounded_2_decimals',
+              'telemetry_used_as_crypto_entropy': False,
+              'experimental_scores_are_forecasts': False}
+    with _CX_CACHE_LOCK:
+        if len(_CX_CACHE) >= 128:
+            _CX_CACHE.clear()
+        _CX_CACHE[cache_key] = (now + _CX_WEATHER_TTL, _cx_copy.deepcopy(result))
+    return result
+
+
+def _cx_call_openai(features, gate):
+    key = _cx_os.getenv('OPENAI_API_KEY', '')
+    if not key:
+        raise RuntimeError('external_ai_not_configured')
+    model = _cx_os.getenv('ROADSCANNER_CX_AI_MODEL', 'gpt-4o-mini')
+    # Use fixed endpoint; never let callers supply model host, model name, or credentials.
+    task = {
+        'role': 'advisory_delivery_offer_analysis',
+        'feature_set': features,
+        'weather_gate': gate['weather_gate'],
+        'weather_reasons': gate['reasons'],
+        'policy': 'Never suggest accepting offers on unknown or unsafe weather. Do not output commands.'
+    }
+    import httpx as _cx_httpx
+    payload = {'model': model, 'temperature': 0,
+               'response_format': {'type': 'json_object'},
+               'messages': [
+                 {'role': 'system', 'content': 'You are a conservative, advisory delivery-route evaluator. Return a JSON object with verdict, confidence, score, headline, predicted_future, primary_risk, reasons, expected_minutes, spoken_summary. Never claim calibrated storm probabilities. Actual safety gate is determined by server; your output cannot override it.'},
+                 {'role': 'user', 'content': _cx_json.dumps(task, separators=(',', ':'), allow_nan=False)}]}
+    resp = _cx_httpx.post('https://api.openai.com/v1/chat/completions',
+            headers={'Authorization':'Bearer '+key, 'Content-Type':'application/json'},
+            json=payload, timeout=28, follow_redirects=False)
+    resp.raise_for_status()
+    body = resp.json()
+    raw = _cx_json.loads(body['choices'][0]['message']['content'])
+    if not isinstance(raw, dict):
+        raise ValueError('invalid_external_ai_payload')
+    return raw, model
+
+
+@app.get('/api/chromograph/status')
+def cx_status():
+    return _cx_response({'enabled': _cx_enabled(), 'mode': 'flask-main-py',
+                         'schema': _cx_SCHEMA_VERSION,
+                         'vector_dimensions': _cx_DIMENSIONS,
+                         'ai': 'external_only',
+                         'ipfs_d1': 'via_optional_python_edge_worker',
+                         'entropy': 'OS_cryptographic_rng_only'})
+
+
+@app.get('/api/chromograph/weather')
+def cx_weather():
+    if not _cx_enabled():
+        return _cx_error('feature_disabled', 404)
+    if not _cx_logged_in():
+        return _cx_error('login_required', 401)
+    try:
+        context = _cx_live_context(request.args['lat'], request.args['lon'],
+                                   request.args.get('radar', '1') != '0')
+        return _cx_response(context)
+    except (ValueError, KeyError):
+        return _cx_error('invalid_location', 400)
+    except Exception as exc:
+        logger.warning('Chromograph weather unavailable: %s', type(exc).__name__)
+        return _cx_error('weather_provider_unavailable', 503)
+
+
+@app.post('/api/chromograph/vectorize')
+def cx_vectorize():
+    if not _cx_enabled():
+        return _cx_error('feature_disabled', 404)
+    if not _cx_logged_in():
+        return _cx_error('login_required', 401)
+    try:
+        data = _cx_payload()
+        public = _cx_validate_context(data)
+        vec = _cx_encode(public)
+        return _cx_response(vec)
+    except ValueError:
+        return _cx_error('invalid_public_context', 400)
+    except Exception as exc:
+        logger.warning('Chromograph vector error %s', type(exc).__name__)
+        return _cx_error('vectorization_failed', 503)
+
+
+@app.post('/api/chromograph/search')
+def cx_search():
+    if not _cx_enabled():
+        return _cx_error('feature_disabled', 404)
+    if not _cx_logged_in():
+        return _cx_error('login_required', 401)
+    try:
+        data = _cx_payload()
+        query = _cx_validate_context(data['query'])
+        candidates = data['candidates']
+        if not isinstance(candidates, list) or len(candidates) > 500:
+            raise ValueError('invalid_candidates')
+        rows = []
+        for item in candidates:
+            if not isinstance(item, dict) or set(item) != {'record_id', 'public_context'}:
+                raise ValueError('invalid_candidate')
+            rid = item['record_id']
+            if not isinstance(rid, str) or not _cx_re.fullmatch('[A-Za-z0-9_-]{4,80}', rid):
+                raise ValueError('invalid_record_id')
+            score = _cx_similarity(query, _cx_validate_context(item['public_context']))
+            rows.append({'record_id':rid, **score})
+        rows.sort(key=lambda r: (-r['score'], r['record_id']))
+        limit = data.get('limit', 25)
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            raise ValueError('invalid_limit')
+        return _cx_response({'results': rows[:limit], 'scored': len(rows),
+                             'algorithm': _cx_SCHEMA_VERSION})
+    except (KeyError, ValueError, TypeError):
+        return _cx_error('invalid_search', 400)
+
+
+def _cx_relay_authenticated():
+    token = _cx_os.getenv('ROADSCANNER_CX_RELAY_TOKEN', '')
+    bearer = request.headers.get('Authorization', '')
+    return (len(token) >= 32 and bearer.startswith('Bearer ') and
+            _cx_hmac.compare_digest(bearer[7:], token))
+
+
+@app.post('/v1/route-engine/analyze')
+def cx_route_engine_analyze():
+    # CSRF exemption is safe here only because this endpoint NEVER uses browser
+    # session/cookie authentication. A dedicated bearer token is mandatory.
+    if not _cx_enabled() or _cx_os.getenv('ROADSCANNER_CX_EXTERNAL_AI_ENABLED') != '1':
+        return _cx_error('feature_disabled', 404)
+    if not _cx_relay_authenticated():
+        return _cx_error('unauthorized', 401)
+    try:
+        body = _cx_payload()
+        features = _cx_public_decision_features(body)
+        pos = body.get('current_position')
+        if not isinstance(pos, dict) or 'lat' not in pos or 'lon' not in pos:
+            return _cx_error('server_weather_location_required', 422)
+        context = _cx_live_context(pos['lat'], pos['lon'], use_radar=True)
+        # Trust server-observed weather; the Dart-supplied weather is not trusted.
+        features['weather'] = {k:v for k,v in context['weather'].items()
+                               if k in _cx_WEATHER_KEYS and v is not None}
+        gate = context['circuit']
+        raw, model = _cx_call_openai(features, gate)
+        decision = _cx_finalize_decision(raw, features, gate, model)
+        decision['radar_analysis'] = {'summary': 'RainViewer radar activity proxy, not a storm forecast',
+              'severity': context['radar'].get('activity') or 0.,
+              'storm_probability': None,
+              'route_impact': 'caution' if gate['weather_gate'] != 'GO' else 'observe',
+              'model': 'classical_chromograph_proxy'}
+        decision['context_fingerprint'] = gate['context_digest_sha3_256']
+        return _cx_response(decision)
+    except (ValueError, KeyError, TypeError):
+        return _cx_error('invalid_request_or_provider_data', 400)
+    except Exception as exc:
+        logger.warning('Chromograph external AI unavailable: %s', type(exc).__name__)
+        return _cx_error('external_analysis_unavailable', 503)
+
+
+# Existing Cloudflare Python Worker remains the D1/IPFS integration boundary.
+# This opt-in, admin-only proxy avoids direct Cloudflare API tokens inside Flask.
+# Never forward client Authorization, cookies, or arbitrary endpoints.
+@app.route('/api/chromograph/storage/<path:subpath>', methods=['GET', 'POST'])
+def cx_ipfs_d1_proxy(subpath):
+    if not _cx_enabled() or _cx_os.getenv('ROADSCANNER_CX_STORAGE_PROXY') != '1':
+        return _cx_error('feature_disabled', 404)
+    if not _cx_admin():
+        return _cx_error('admin_required', 403)
+    if not _CX_UPSTREAM_URL or not _cx_os.getenv('ROADSCANNER_CX_EDGE_TOKEN', ''):
+        return _cx_error('edge_worker_not_configured', 503)
+    path = '/v1/' + subpath.strip('/')
+    if not _CX_PATH_RX.fullmatch(path):
+        return _cx_error('unsupported_storage_route', 404)
+    if request.method == 'POST':
+        try:
+            body = _cx_payload(_CX_RECORD_LIMIT)
+        except ValueError:
+            return _cx_error('invalid_storage_json', 400)
+        # Worker performs the trusted QRS2 signature verification before pinning.
+        if path == '/v1/records' or path.endswith('/revisions'):
+            if 'envelope' not in body or not isinstance(body['envelope'], str):
+                return _cx_error('encrypted_qrs2_required', 400)
+            if not body['envelope'].startswith('PQ2.'):
+                return _cx_error('encrypted_qrs2_required', 400)
+        if path == '/v1/records':
+            body['owner_id'] = 'bootstrap'  # worker migration pilot is single tenant
+    else:
+        body = None
+    import httpx as _cx_httpx
+    url = _CX_UPSTREAM_URL + path
+    try:
+        with _cx_httpx.Client(timeout=25, follow_redirects=False) as client:
+            response = client.request(request.method, url,
+                headers={'Authorization':'Bearer '+_cx_os.environ['ROADSCANNER_CX_EDGE_TOKEN']},
+                json=body if body is not None else None)
+        if len(response.content) > _CX_RECORD_LIMIT + 1024:
+            return _cx_error('upstream_payload_too_large', 502)
+        parsed = response.json()
+        return _cx_response(parsed, response.status_code)
+    except Exception as exc:
+        logger.warning('Chromograph edge service unavailable: %s', type(exc).__name__)
+        return _cx_error('edge_service_unavailable', 503)
+
+
+# Flask-WTF ordinarily enforces cookie/session CSRF for POST requests. The
+# token-only Dart endpoint is exempt; it NEVER accepts browser sessions.
+csrf.exempt(cx_route_engine_analyze)
+# END ROADSCANNER CHROMOGRAPH-X SINGLE-FILE V0.3
+
+# BEGIN ROADSCANNER CHROMOGRAPH-X V0.4
+# All application code remains in main.py. Standard-library-only feature engine.
+# Color/phase/weather/telemetry are search context, NEVER cryptographic entropy.
+import collections as _cx4_collections
+import functools as _cx4_functools
+import bisect as _cx4_bisect
+import secrets as _cx4_secrets
+import statistics as _cx4_statistics
+
+_CX4_SCHEMA = 'chromograph-palette256-v2'
+_CX4_DIMS = 256
+_CX4_BOUNDS = {
+    'precipitation_mm': (0., 500.), 'rain_mm': (0., 500.),
+    'showers_mm': (0., 500.), 'temperature_c': (-100., 70.),
+    'apparent_temperature_c': (-120., 100.), 'cloud_cover_percent': (0., 100.),
+    'wind_speed_kph': (0., 500.), 'wind_gust_kph': (0., 600.),
+    'visibility_km': (0., 200.), 'precipitation_probability_percent': (0., 100.),
+    'radar_activity': (0., 1.), 'radar_coverage': (0., 1.), 'radar_trend': (-1., 1.),
+}
+_CX4_RANGES = {'precipitation_mm': 10., 'rain_mm': 10., 'showers_mm': 10.,
+    'temperature_c': 50., 'apparent_temperature_c': 50., 'cloud_cover_percent': 100.,
+    'wind_speed_kph': 100., 'wind_gust_kph': 100., 'visibility_km': 20.,
+    'precipitation_probability_percent': 100., 'radar_activity': 1.,
+    'radar_coverage': 1., 'radar_trend': 2.}
+_CX4_HOURLY = ('temperature_2m', 'apparent_temperature', 'precipitation', 'rain',
+    'showers', 'cloud_cover', 'wind_speed_10m', 'wind_gusts_10m', 'visibility',
+    'precipitation_probability')
+_CX4_MAP = dict(zip(_CX4_HOURLY, ('temperature_c', 'apparent_temperature_c',
+    'precipitation_mm', 'rain_mm', 'showers_mm', 'cloud_cover_percent',
+    'wind_speed_kph', 'wind_gust_kph', 'visibility_km', 'precipitation_probability_percent')))
+
+
+def _cx4_number(value, low, high):
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not low <= value <= high or not _cx_math.isfinite(value)):
+        raise ValueError('finite_number_out_of_range')
+    return float(value)
+
+
+def _cx4_utc(stamp):
+    if not isinstance(stamp, str) or len(stamp) > 40:
+        raise ValueError('timestamp_required')
+    parsed = _cx_datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        raise ValueError('timestamp_requires_offset')
+    return parsed.astimezone(_cx_timezone.utc)
+
+
+def _cx4_now():
+    return _cx_datetime.now(_cx_timezone.utc)
+
+
+def _cx_payload(limit=_CX_BOOTSTRAP_LIMIT):
+    from werkzeug.exceptions import RequestEntityTooLarge as _cx4_TooLarge
+    request.max_content_length=limit+1
+    if request.content_length is not None and request.content_length>limit:
+        raise _cx4_TooLarge()
+    if not request.is_json:
+        raise ValueError('json_content_type_required')
+    raw=request.__dict__.get('_cached_data')
+    if raw is None:
+        raw=request.stream.read(limit+1)
+    if len(raw)>limit:
+        raise _cx4_TooLarge()
+    def reject_constant(value):
+        raise ValueError('nonfinite_json_number')
+    try:
+        obj=_cx_json.loads(raw,parse_constant=reject_constant)
+    except (ValueError,RecursionError,UnicodeError) as exc:
+        raise ValueError('invalid_json') from exc
+    if not isinstance(obj,dict):
+        raise ValueError('object_json_required')
+    return obj
+
+
+def _cx4_canonical(obj):
+    return _cx_json.dumps(obj, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def _cx4_context(value):
+    """Only deliberately PUBLIC index fields. Never persist GPS or raw text."""
+    if not isinstance(value, dict) or set(value) - {'rgb', 'palette', 'weather', 'timestamp_utc', 'tags'}:
+        raise ValueError('invalid_public_context')
+    rgb = value.get('rgb', '#808080')
+    if not _cx_valid_rgb(rgb):
+        raise ValueError('invalid_rgb')
+    palette = value.get('palette', [{'rgb': rgb, 'weight': 1.}])
+    if not isinstance(palette, list) or not 1 <= len(palette) <= 8:
+        raise ValueError('palette_requires_1_to_8_colors')
+    merged = {}
+    for item in palette:
+        if not isinstance(item, dict) or set(item) - {'rgb', 'weight'} or not _cx_valid_rgb(item.get('rgb')):
+            raise ValueError('invalid_palette_color')
+        weight = _cx4_number(item.get('weight', 1.), 0., 1e6)
+        key = item['rgb'].lower()
+        merged[key] = merged.get(key, 0.) + weight
+    total = sum(merged.values())
+    if total <= 0:
+        raise ValueError('zero_palette_mass')
+    palette = [{'rgb': k, 'weight': v / total} for k, v in sorted(merged.items()) if v > 0]
+    weather = value.get('weather', {})
+    if not isinstance(weather, dict) or set(weather) - set(_CX4_BOUNDS):
+        raise ValueError('invalid_weather_fields')
+    weather = {k: _cx4_number(v, *_CX4_BOUNDS[k]) for k, v in weather.items() if v is not None}
+    stamp = value.get('timestamp_utc')
+    if stamp is not None:
+        stamp = _cx4_utc(stamp).isoformat()
+    tags = value.get('tags', [])
+    if not isinstance(tags, list) or len(tags) > 16 or any(
+            not isinstance(t, str) or not _cx_re.fullmatch(r'[A-Za-z0-9_-]{1,40}', t) for t in tags):
+        raise ValueError('invalid_public_tags')
+    return {'rgb': rgb.lower(), 'palette': palette, 'weather': weather,
+            'timestamp_utc': stamp, 'tags': sorted(set(t.lower() for t in tags))}
+
+
+def _cx4_v1_context(value):
+    if not isinstance(value,dict) or set(value)-{'rgb','weather','timestamp_utc'}:
+        raise ValueError('invalid_public_context')
+    upgraded=_cx4_context(value)
+    return {key:upgraded[key] for key in ('rgb','weather','timestamp_utc')}
+
+
+# Retain the original 128-D API with stricter numerical/missing-data checks.
+_cx_validate_context=_cx4_v1_context
+
+
+@_cx4_functools.lru_cache(maxsize=512)
+def _cx4_lab(rgb):
+    return _cx_oklab(rgb)
+
+
+def _cx4_palette_distance(a, b):
+    # Symmetric weighted nearest-color distance. NOT exact Earth Mover's Distance.
+    def directional(first, second):
+        return sum(p['weight'] * min(_cx_math.sqrt(sum((x-y)**2 for x,y in
+            zip(_cx4_lab(p['rgb']), _cx4_lab(q['rgb'])))) for q in second) for p in first)
+    nearest=(directional(a,b)+directional(b,a))/2
+    mean_a=[sum(p['weight']*_cx4_lab(p['rgb'])[i] for p in a) for i in range(3)]
+    mean_b=[sum(p['weight']*_cx4_lab(p['rgb'])[i] for p in b) for i in range(3)]
+    mass_moment=_cx_math.sqrt(sum((x-y)**2 for x,y in zip(mean_a,mean_b)))
+    return .7*nearest+.3*mass_moment
+
+
+def _cx4_projection(k, j):
+    raw = _cx_hashlib.blake2s(f'{_CX4_SCHEMA}:{k}:{j}'.encode(), digest_size=4).digest()
+    return int.from_bytes(raw, 'big') / (2**32-1) * 2 - 1
+
+
+_CX4_PROJECTION = tuple(tuple(_cx4_projection(i,j) for j in range(64)) for i in range(96))
+
+
+def _cx4_descriptor(context):
+    c = _cx4_context(context)
+    palette = c['palette']
+    labs = [(p['weight'], _cx4_lab(p['rgb'])) for p in palette]
+    mean = [sum(w*color[i] for w,color in labs) for i in range(3)]
+    variance = [sum(w*(color[i]-mean[i])**2 for w,color in labs) for i in range(3)]
+    r, g, b = _cx_channels(c['rgb'])
+    import colorsys as _cx4_colorsys
+    hue, sat, val = _cx4_colorsys.rgb_to_hsv(r,g,b)
+    # Gray pixels have no hue: suppress hue phase as saturation approaches zero.
+    color = [r,g,b,*mean,*variance, _cx_math.sin(hue*2*_cx_pi)*sat,
+             _cx_math.cos(hue*2*_cx_pi)*sat, sat,val,len(palette)/8,
+             -sum(p['weight']*_cx_math.log2(p['weight']) for p in palette)/3, 1.]
+    wx, mask = [], []
+    for key, (lo,hi) in _CX4_BOUNDS.items():
+        present = key in c['weather']
+        wx.append((c['weather'][key]-lo)/(hi-lo) if present else 0.)
+        mask.append(float(present))
+    wx += [0.] * (16-len(wx))
+    mask += [float(bool(c['tags'])), float(c['timestamp_utc'] is not None), 1.]
+    clock = [0.] * 16
+    if c['timestamp_utc']:
+        t = _cx4_utc(c['timestamp_utc'])
+        seconds = t.hour*3600+t.minute*60+t.second
+        year_days = 366 if (t.year%4==0 and (t.year%100!=0 or t.year%400==0)) else 365
+        phases = [seconds/86400, (t.weekday()+seconds/86400)/7,
+                  (t.timetuple().tm_yday-1+seconds/86400)/year_days, seconds/43200]
+        clock = [v for p in phases for v in (_cx_math.sin(p*2*_cx_pi),_cx_math.cos(p*2*_cx_pi))]
+        clock += [t.hour/23, t.weekday()/6, float(6<=t.hour<20), 1.,0.,0.,0.,0.]
+    base = [*color,*wx,*mask,*clock]
+    assert len(base)==64
+    phases = []
+    for row in _CX4_PROJECTION:
+        theta = sum(x*w for x,w in zip(base,row)) / 4
+        phases.extend((_cx_math.sin(theta),_cx_math.cos(theta)))
+    vector = [round(x,7) for x in (*base,*phases)]
+    fingerprint = _cx_hashlib.sha256((_CX4_SCHEMA+'\n'+_cx4_canonical(c)).encode()).hexdigest()
+    return {'schema':_CX4_SCHEMA, 'dimensions':256, 'vector':vector,
+        'public_context_digest':fingerprint, 'digest_is_entropy':False,
+        'weather_fields_present':sorted(c['weather']), 'timestamp_present':bool(c['timestamp_utc']),
+        'blocks':{'color':[0,16],'weather':[16,32],'presence':[32,48],
+                  'cyclic_time':[48,64],'phase':[64,256]}, 'context':c}
+
+
+def _cx4_embedding(value):
+    if value is None:
+        return None
+    if not isinstance(value,dict) or set(value)!={'model','values'}:
+        raise ValueError('invalid_public_embedding')
+    model, values = value['model'], value['values']
+    if not isinstance(model,str) or not _cx_re.fullmatch(r'[A-Za-z0-9._:/-]{1,96}',model):
+        raise ValueError('invalid_embedding_model')
+    if not isinstance(values,list) or not 2<=len(values)<=3072:
+        raise ValueError('invalid_embedding_dimensions')
+    vals = [_cx4_number(x,-1e6,1e6) for x in values]
+    norm = _cx_math.sqrt(sum(x*x for x in vals))
+    if norm==0:
+        raise ValueError('zero_embedding')
+    return {'model':model, 'values':[x/norm for x in vals]}
+
+
+def _cx4_channel_scores(q,c,qe=None,ce=None):
+    scores = {'palette': max(0.,1-_cx4_palette_distance(q['palette'],c['palette'])/.7)}
+    shared = sorted(set(q['weather']) & set(c['weather']))
+    if shared:
+        scores['weather'] = sum(1-min(1.,abs(q['weather'][k]-c['weather'][k])/_CX4_RANGES[k])
+                                 for k in shared)/len(shared)
+    if q['timestamp_utc'] and c['timestamp_utc']:
+        a,b = _cx4_utc(q['timestamp_utc']),_cx4_utc(c['timestamp_utc'])
+        sec = (a.hour*3600+a.minute*60+a.second)-(b.hour*3600+b.minute*60+b.second)
+        scores['time'] = (1+_cx_math.cos(2*_cx_pi*sec/86400))/2
+    if q['tags'] and c['tags']:
+        scores['tags'] = len(set(q['tags'])&set(c['tags']))/len(set(q['tags'])|set(c['tags']))
+    if qe and ce and qe['model']==ce['model'] and len(qe['values'])==len(ce['values']):
+        cosine = sum(x*y for x,y in zip(qe['values'],ce['values']))
+        scores['semantic'] = max(0.,min(1.,(cosine+1)/2))
+    return scores,shared
+
+
+def _cx4_search(body):
+    if not isinstance(body,dict) or set(body)-{'query','candidates','limit','diversity','query_embedding'}:
+        raise ValueError('invalid_search_fields')
+    query = _cx4_context(body.get('query'))
+    qe = _cx4_embedding(body.get('query_embedding'))
+    candidates = body.get('candidates')
+    if not isinstance(candidates,list) or not 1<=len(candidates)<=256:
+        raise ValueError('requires_1_to_256_candidates')
+    limit = body.get('limit',20)
+    if isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=100:
+        raise ValueError('invalid_limit')
+    diversity = _cx4_number(body.get('diversity',.15),0.,.5)
+    # Exact over the bounded supplied candidate set. Runtime telemetry never
+    # silently drops records or degrades safety data sampling.
+    rows,seen = [],set()
+    for item in candidates:
+        if not isinstance(item,dict) or set(item)-{'record_id','public_context','public_embedding'}:
+            raise ValueError('invalid_candidate_fields')
+        rid = item.get('record_id')
+        if not isinstance(rid,str) or not _cx_re.fullmatch(r'[A-Za-z0-9_-]{4,80}',rid) or rid in seen:
+            raise ValueError('invalid_or_duplicate_record_id')
+        seen.add(rid)
+        ctx = _cx4_context(item.get('public_context'))
+        ce = _cx4_embedding(item.get('public_embedding'))
+        scores,shared = _cx4_channel_scores(query,ctx,qe,ce)
+        rows.append({'record_id':rid,'context':ctx,'channels':scores,'shared_weather':shared})
+    # Each available evidence channel contributes equal-rank fusion; missing
+    # channels add zero, rather than pretending a perfect measurement match.
+    weights = {'palette':.4,'weather':.18,'time':.08,'tags':.12,'semantic':.22}
+    active = sorted(set().union(*(r['channels'] for r in rows)))
+    for row in rows:
+        row['fused_score']=0.
+    for channel in active:
+        eligible = sorted((r for r in rows if channel in r['channels']),
+                          key=lambda r:(-r['channels'][channel],r['record_id']))
+        # Equal measurements receive equal rank. ID only resolves final ties.
+        rank,prior = 0,None
+        for index,row in enumerate(eligible,1):
+            value=row['channels'][channel]
+            if prior is None or abs(value-prior)>1e-12:
+                rank=index
+            row['fused_score'] += weights[channel]/(60+rank)
+            prior=value
+    upper = sum(weights[k] for k in active)/61
+    for row in rows:
+        row['fused_score'] /= upper
+    remaining=list(rows)
+    selected=[]
+    penalties={r['record_id']:0. for r in rows}
+    while remaining and len(selected)<limit:
+        def marginal(row):
+            return (1-diversity)*row['fused_score']-diversity*penalties[row['record_id']]
+        best=min(remaining,key=lambda row:(-marginal(row),row['record_id']))
+        best['selection_score']=marginal(best)
+        remaining.remove(best)
+        selected.append(best)
+        # Incremental MMR: update each candidate's maximum redundancy once,
+        # avoiding repeated comparisons to all previously selected results.
+        if diversity:
+            for row in remaining:
+                similarity=max(0.,1-_cx4_palette_distance(row['context']['palette'],best['context']['palette'])/.7)
+                penalties[row['record_id']]=max(penalties[row['record_id']],similarity)
+    return {'schema':_CX4_SCHEMA,'method':'weighted_reciprocal_rank_fusion_with_palette_diversity',
+        'candidate_count':len(rows),'approximate':False,'scope':'supplied_candidates_only',
+        'diversity':diversity,'rank_score_is_probability':False,
+        'results':[{'record_id':r['record_id'],'rank_score':round(r['fused_score'],7),
+          'selection_score':round(r['selection_score'],7),
+          'explanation':{'channels':{k:round(v,6) for k,v in r['channels'].items()},
+             'shared_weather_fields':r['shared_weather'],
+             'missing_channels':sorted(set(active)-set(r['channels'])),
+             'semantic_comparable':'semantic' in r['channels']}}
+          for r in selected]}
+
+
+class _CX4Cache:
+    """Bounded byte LRU + duplicate-request coalescing. Monotonic TTL, no stale hits."""
+    def __init__(self, capacity=64, max_bytes=8*1024*1024, clock=None):
+        self.capacity,self.max_bytes=capacity,max_bytes
+        self.clock=clock or _cx_time.monotonic
+        self.data=_cx4_collections.OrderedDict()
+        self.lock=_cx_threading.RLock()
+        self.inflight={}
+        self.size=0
+        self.hits=self.misses=0
+
+    def get_or_load(self,key,loader,ttl=180):
+        with self.lock:
+            item=self.data.get(key)
+            if item and item[0]>self.clock():
+                self.data.move_to_end(key)
+                self.hits+=1
+                return item[1]
+            if item:
+                self.size-=len(item[1]);del self.data[key]
+            pending=self.inflight.get(key)
+            if pending is None:
+                # Distinct requests are bounded too, not just cached bytes.
+                if len(self.inflight)>=16:
+                    raise RuntimeError('provider_queue_full')
+                pending=_cx_threading.Event()
+                self.inflight[key]=pending
+                leader=True
+            else:
+                leader=False
+            self.misses+=1
+        if not leader:
+            if not pending.wait(8):
+                raise RuntimeError('provider_wait_timeout')
+            with self.lock:
+                item=self.data.get(key)
+                if not item or item[0]<=self.clock():
+                    raise RuntimeError('provider_load_failed')
+                self.hits+=1
+                return item[1]
+        try:
+            value=loader()
+            if not isinstance(value,bytes) or len(value)>self.max_bytes:
+                raise ValueError('invalid_cache_value')
+            with self.lock:
+                while self.data and (len(self.data)>=self.capacity or self.size+len(value)>self.max_bytes):
+                    _,old=self.data.popitem(last=False);self.size-=len(old[1])
+                self.data[key]=(self.clock()+ttl,value);self.size+=len(value)
+            return value
+        finally:
+            with self.lock:
+                self.inflight.pop(key,None)
+                pending.set()
+
+
+_CX4_PROVIDER_CACHE=_CX4Cache()
+_CX4_PROVIDER_LOCK=_cx_threading.RLock()
+_CX4_PROVIDER_STATES={}
+_CX4_PROVIDER_SEMAPHORE=_cx_threading.BoundedSemaphore(4)
+_CX4_BUCKETS=_cx4_collections.OrderedDict()
+_CX4_BUCKET_LOCK=_cx_threading.RLock()
+
+
+def _cx4_url_allowed(url):
+    p=_cx_urlparse(url)
+    if p.scheme!='https' or p.username or p.password or p.port or p.fragment:
+        return False
+    if p.hostname=='api.open-meteo.com':
+        return p.path=='/v1/forecast'
+    if p.hostname=='api.rainviewer.com':
+        return p.path=='/public/weather-maps.json' and not p.query
+    if p.hostname=='tilecache.rainviewer.com':
+        return bool(_cx_re.fullmatch(r'/v2/radar/[0-9]{8,12}/256/7/[0-9]{1,3}/[0-9]{1,3}/2/0_0\.png',p.path)) and not p.query
+    return False
+
+
+def _cx4_network_bytes(url,max_bytes=800_000,timeout=12):
+    if not _cx4_url_allowed(url):
+        raise ValueError('provider_url_not_allowlisted')
+    import httpx as _cx4_httpx
+    host=_cx_urlparse(url).hostname
+    with _CX4_PROVIDER_LOCK:
+        state=_CX4_PROVIDER_STATES.setdefault(host,{'failures':0,'open_until':0.,'calls':0})
+        if state['open_until']>_cx_time.monotonic():
+            raise RuntimeError('provider_circuit_open')
+    if not _CX4_PROVIDER_SEMAPHORE.acquire(blocking=False):
+        raise RuntimeError('provider_concurrency_limit')
+    try:
+        data=bytearray()
+        with _cx4_httpx.stream('GET',url,timeout=timeout,follow_redirects=False,
+                headers={'Accept':'application/json,image/png'}) as response:
+            response.raise_for_status()
+            for chunk in response.iter_bytes():
+                if len(data)+len(chunk)>max_bytes:
+                    raise ValueError('provider_payload_too_large')
+                data.extend(chunk)
+        with _CX4_PROVIDER_LOCK:
+            state['calls']+=1;state['failures']=0;state['open_until']=0.
+        return bytes(data)
+    except Exception:
+        with _CX4_PROVIDER_LOCK:
+            state['calls']+=1;state['failures']+=1
+            if state['failures']>=3:
+                state['open_until']=_cx_time.monotonic()+30
+        raise
+    finally:
+        _CX4_PROVIDER_SEMAPHORE.release()
+
+
+def _cx4_fetch(url,max_bytes=800_000,timeout=12,ttl=180):
+    if not _cx4_url_allowed(url):
+        raise ValueError('provider_url_not_allowlisted')
+    return _CX4_PROVIDER_CACHE.get_or_load((url,max_bytes),
+          lambda:_cx4_network_bytes(url,max_bytes,timeout),ttl)
+
+
+def _cx4_allow(key,capacity=20.,refill=.2):
+    now=_cx_time.monotonic()
+    with _CX4_BUCKET_LOCK:
+        tokens,at=_CX4_BUCKETS.pop(key,(capacity,now))
+        tokens=min(capacity,tokens+max(0.,now-at)*refill)
+        permitted=tokens>=1
+        _CX4_BUCKETS[key]=(tokens-1 if permitted else tokens,now)
+        while len(_CX4_BUCKETS)>1024:
+            _CX4_BUCKETS.popitem(last=False)
+    return permitted
+
+
+def _cx4_weather_value(key,value):
+    if value is None:
+        return None
+    try:
+        return _cx4_number(value,*_CX4_BOUNDS[key])
+    except ValueError:
+        return None
+
+
+# Validate all weather inputs BEFORE passing to the existing phase diagnostic.
+_cx4_original_circuit=_cx_circuit
+
+
+def _cx4_gate(weather,radar,stamp,cpu_percent=None,ram_percent=None,limits=None):
+    w=dict(weather or {})
+    invalid=[]
+    for key in _CX4_BOUNDS:
+        if key in w:
+            val=_cx4_weather_value(key,w[key])
+            if w[key] is not None and val is None:
+                invalid.append(key)
+            w[key]=val
+    if w.get('updated_at'):
+        try:
+            valid=_cx4_utc(w['updated_at'])
+            # A future valid time is only allowed in the separate route forecast engine.
+            if (valid-_cx4_utc(stamp)).total_seconds()>900:
+                invalid.append('future_current_weather')
+        except (ValueError,TypeError):
+            w.pop('updated_at',None);invalid.append('invalid_weather_timestamp')
+    rr=dict(radar or {})
+    if rr.get('stale') or rr.get('available') is False:
+        rr['activity']=None
+    if rr.get('activity') is not None:
+        rr['activity']=_cx4_weather_value('radar_activity',rr['activity'])
+    # Retain only strict numeric payload fields in canonical audit hashing.
+    ww={k:v for k,v in w.items() if k in _CX4_BOUNDS or k=='updated_at'}
+    c=_cx4_original_circuit(ww,rr,stamp,cpu_percent,ram_percent,limits)
+    if invalid:
+        if c['weather_gate']!='NO_GO':
+            c['weather_gate']='UNKNOWN'
+        c['reasons']+=['invalid_'+k for k in invalid]
+    c['safe_to_drive_claim']=False
+    c['data_semantics']='threshold_screening_not_certified_safety'
+    return c
+
+
+_cx_circuit=_cx4_gate
+
+
+def _cx4_forecast_url(coords):
+    if not 1<=len(coords)<=6:
+        raise ValueError('too_many_weather_points')
+    query={'latitude':','.join(f'{lat:.2f}' for lat,lon in coords),
+           'longitude':','.join(f'{lon:.2f}' for lat,lon in coords),
+           'timezone':'UTC','wind_speed_unit':'kmh','temperature_unit':'celsius',
+           'precipitation_unit':'mm','forecast_days':'2',
+           'current':','.join(k for k in _CX4_HOURLY if k not in ('visibility','precipitation_probability')),
+           'hourly':','.join(_CX4_HOURLY)}
+    return 'https://api.open-meteo.com/v1/forecast?'+_cx_urlencode(query)
+
+
+def _cx4_check_units(data):
+    required={'temperature_2m':'°C','apparent_temperature':'°C','precipitation':'mm',
+              'rain':'mm','showers':'mm','cloud_cover':'%','wind_speed_10m':'km/h',
+              'wind_gusts_10m':'km/h','visibility':'m','precipitation_probability':'%'}
+    units=data.get('hourly_units',{})
+    if not isinstance(units,dict) or any(units.get(k)!=v for k,v in required.items()):
+        raise ValueError('unexpected_weather_units')
+
+
+def _cx4_hour_at(data,stamp):
+    """Conservative envelope of forecast hours bracketing ETA; no extrapolation."""
+    _cx4_check_units(data)
+    target=_cx4_utc(stamp)
+    hourly=data.get('hourly',{})
+    times=hourly.get('time')
+    if not isinstance(times,list) or not 1<=len(times)<=100:
+        raise ValueError('invalid_hourly_timeline')
+    epochs=[_cx__parse_utc(t).timestamp() for t in times]
+    if any(b<=a or b-a>3601 for a,b in zip(epochs,epochs[1:])):
+        raise ValueError('invalid_hourly_spacing')
+    index=_cx4_bisect.bisect_right(epochs,target.timestamp())-1
+    if index<0 or index+1>=len(epochs) or target.timestamp()-epochs[index]>=3600:
+        raise ValueError('arrival_outside_forecast')
+    result={}
+    for source,key in _CX4_MAP.items():
+        values=hourly.get(source)
+        pair=[]
+        for i in (index,index+1):
+            raw=values[i] if isinstance(values,list) and i<len(values) else None
+            if source=='visibility' and isinstance(raw,(int,float)) and not isinstance(raw,bool):
+                raw=raw/1000
+            pair.append(_cx4_weather_value(key,raw))
+        # Missing one end of the envelope stays missing; don't hide coverage gaps.
+        if any(v is None for v in pair):
+            result[key]=None
+        elif key=='visibility_km':
+            result[key]=min(pair)
+        elif key in ('temperature_c','apparent_temperature_c'):
+            result[key]=pair[0]  # value at lower valid hour; not an invented forecast
+        else:
+            result[key]=max(pair)
+    result['valid_at_utc']=_cx_datetime.fromtimestamp(epochs[index],_cx_timezone.utc).isoformat()
+    result['valid_until_utc']=_cx_datetime.fromtimestamp(epochs[index]+3600,_cx_timezone.utc).isoformat()
+    result['source']='open-meteo'
+    result['data_kind']='hourly_model_forecast_not_observation'
+    result['selection']='conservative_bracketing_hour_envelope'
+    result['precipitation_accumulation_seconds']=3600
+    return result
+
+
+def _cx4_current(data):
+    _cx4_check_units(data)
+    current=data.get('current',{})
+    if not isinstance(current,dict) or not current.get('time'):
+        raise ValueError('current_weather_missing')
+    t=_cx__parse_utc(current['time'])
+    hour=_cx4_hour_at(data,t.isoformat())
+    result={}
+    units=data.get('current_units',{})
+    for source,key in _CX4_MAP.items():
+        if source in ('visibility','precipitation_probability','precipitation','rain','showers'):
+            result[key]=hour[key]
+        else:
+            if units.get(source)!=data['hourly_units'].get(source):
+                raise ValueError('unexpected_current_units')
+            result[key]=_cx4_weather_value(key,current.get(source))
+    result.update(updated_at=t.isoformat(),source='open-meteo',
+                  data_kind='current_model_plus_hourly_precipitation_envelope_not_observation',
+                  precipitation_accumulation_seconds=3600,
+                  hourly_valid_at_utc=hour['valid_at_utc'])
+    return result
+
+
+def _cx4_radar_pixels(png,lat,lon):
+    width,height,ctype,bpp,rows,palette,trans=_cx__parse_png(png)
+    lat,lon=_cx_validate_coords(lat,lon)
+    # Locate coordinates INSIDE the XYZ tile, instead of sampling tile center.
+    n=128
+    tile_x,tile_y,_=_cx_tile_xyz(lat,lon,zoom=7)
+    fx=_cx_clamp((lon+180)/360*n-tile_x)
+    radians=_cx_math.radians(lat)
+    fy=_cx_clamp((1-_cx_math.log(_cx_math.tan(radians)+1/_cx_math.cos(radians))/_cx_pi)/2*n-tile_y)
+    px=min(width-1,int(fx*width));py=min(height-1,int(fy*height))
+    meters_per_pixel=156543.03392*_cx_math.cos(radians)/n
+    radius=max(2,min(32,int(_cx_math.ceil(5000/max(1.,meters_per_pixel)))))
+    left,right=max(0,px-radius),min(width,px+radius+1)
+    top,bottom=max(0,py-radius),min(height,py+radius+1)
+    total=colored=0
+    colors=_cx4_collections.Counter()
+    occupied=[0]*256
+    grid_totals=[0]*256
+    for y in range(0,height,2):
+        row=rows[y]
+        for x in range(0,width,2):
+            i=x*bpp
+            if ctype==6:
+                red,green,blue,alpha=row[i:i+4]
+            elif ctype==2:
+                red,green,blue=row[i:i+3];alpha=255
+            else:
+                index=row[i]
+                if not palette or index>=len(palette):
+                    raise ValueError('invalid_radar_palette')
+                red,green,blue=palette[index]
+                alpha=trans[index] if index<len(trans) else 255
+            cell=min(15,y*16//height)*16+min(15,x*16//width)
+            grid_totals[cell]+=1
+            if alpha>24:
+                occupied[cell]+=1
+            if left<=x<right and top<=y<bottom:
+                total+=1
+                if alpha>24:
+                    colored+=1
+                    # Small quantized public palette, avoids storing full pixels.
+                    colors[tuple((channel//32)*32+16 for channel in (red,green,blue))]+=1
+    grid=[float(a/b) if b else 0. for a,b in zip(occupied,grid_totals)]
+    color_total=sum(c for _,c in colors.most_common(4))
+    summary=[{'rgb':'#'+''.join(f'{min(255,c):02x}' for c in rgb),'weight':count/color_total}
+             for rgb,count in colors.most_common(4)] if color_total else []
+    return {'activity':colored/total if total else None,'sample_count':total,
+            'palette':summary,'grid':grid,'region_clipped_at_tile_edge':
+            px-radius<0 or py-radius<0 or px+radius>=width or py+radius>=height,
+            'sample_radius_km_approx':round(radius*meters_per_pixel/1000,2),
+            'coverage_verified':False,'point_rainfall_mm':None,
+            'method':'local_tile_alpha_activity_not_rain_rate'}
+
+
+def _cx4_motion(previous,current,dt_seconds):
+    if len(previous)!=256 or len(current)!=256 or not 60<=dt_seconds<=1800:
+        return {'available':False,'reason':'invalid_motion_inputs'}
+    a=[v>=.1 for v in previous];b=[v>=.1 for v in current]
+    if min(sum(a),sum(b))<4 or max(sum(a),sum(b))>220:
+        return {'available':False,'reason':'insufficient_texture'}
+    matches=[]
+    # Bounded whole-tile translation hypothesis; not optical flow or a nowcast.
+    for dy in range(-3,4):
+        for dx in range(-3,4):
+            intersection=union=0
+            for y in range(3,13):
+                for x in range(3,13):
+                    aa=a[(y-dy)*16+(x-dx)];bb=b[y*16+x]
+                    intersection+=int(aa and bb);union+=int(aa or bb)
+            matches.append((intersection/union if union else 0.,dx,dy))
+    matches.sort(key=lambda item:(-item[0],abs(item[1])+abs(item[2]),item[1],item[2]))
+    score,dx,dy=matches[0]
+    gap=score-matches[1][0]
+    if score<.4 or gap<.02:
+        return {'available':False,'reason':'ambiguous_translation','match_score':round(score,4)}
+    return {'available':True,'tile_cells_dx':dx,'tile_cells_dy':dy,
+            'interval_seconds':dt_seconds,'match_score':round(score,4),
+            'uniqueness_margin':round(gap,4),'nowcast':False,
+            'interpretation':'historical_image_translation_proxy_not_storm_velocity'}
+
+
+def _cx4_radar(lat,lon):
+    now=int(_cx_time.time())
+    meta=_cx_json.loads(_cx4_fetch(_cx_RAIN_META,100_000,10,120))
+    frames=_cx_select_rain_frames(meta,3,now)
+    samples=[]
+    for frame in frames:
+        png=_cx4_fetch(_cx_tile_url(meta,frame,lat,lon),800_000,10,300)
+        samples.append({'time':frame['time'],'stats':_cx4_radar_pixels(png,lat,lon)})
+    if not samples:
+        return {'available':False,'activity':None,'reason':'no_recent_radar','coverage_verified':False}
+    latest=samples[-1]
+    age=max(0,now-latest['time'])
+    stale=age>1800
+    stats=latest['stats']
+    trend=None
+    if len(samples)>1 and stats['activity'] is not None and samples[0]['stats']['activity'] is not None:
+        trend=stats['activity']-samples[0]['stats']['activity']
+    result={k:v for k,v in stats.items() if k!='grid'}
+    result.update(available=not stale,stale=stale,source='rainviewer',
+        activity=stats['activity'] if not stale else None,trend=trend,
+        frame_age_seconds=age,frames=len(samples),
+        frame_generated_at_utc=_cx_datetime.fromtimestamp(latest['time'],_cx_timezone.utc).isoformat(),
+        frame_timestamp_is_observation_time=False,
+        sampled_rgb=stats['palette'][0]['rgb'] if stats['palette'] else None,
+        motion=_cx4_motion(samples[0]['stats']['grid'],stats['grid'],latest['time']-samples[0]['time'])
+        if len(samples)>1 else {'available':False,'reason':'one_frame_only'})
+    return result
+
+
+def _cx4_live_context(latitude,longitude,use_radar=True):
+    lat,lon=_cx_validate_coords(latitude,longitude)
+    lat,lon=round(lat,2),round(lon,2)
+    raw=_cx_json.loads(_cx4_fetch(_cx4_forecast_url([(lat,lon)]),220_000,14,180))
+    if isinstance(raw,list):
+        if len(raw)!=1:raise ValueError('invalid_weather_response_count')
+        raw=raw[0]
+    weather=_cx4_current(raw)
+    radar={'available':False,'activity':None,'reason':'radar_disabled','coverage_verified':False}
+    if use_radar:
+        try:
+            radar=_cx4_radar(lat,lon)
+        except Exception as exc:
+            logger.info('Chromograph radar unavailable: %s',type(exc).__name__)
+            radar={'available':False,'activity':None,'reason':'radar_unavailable','coverage_verified':False}
+    cpu=ram=None
+    if psutil is not None:
+        try:
+            cpu=float(psutil.cpu_percent(interval=None));ram=float(psutil.virtual_memory().percent)
+        except Exception:
+            pass
+    stamp=_cx4_now().isoformat()
+    gate=_cx4_gate(weather,radar,stamp,cpu,ram)
+    if radar.get('available') and not radar.get('coverage_verified'):
+        if gate['weather_gate']=='GO':gate['weather_gate']='CAUTION'
+        gate['reasons'].append('radar_coverage_unverified')
+    public={k:v for k,v in weather.items() if k in _CX4_BOUNDS and v is not None}
+    if radar.get('activity') is not None:
+        public['radar_activity']=radar['activity']
+    rgb=radar.get('sampled_rgb') or '#808080'
+    vec=_cx_encode({'rgb':rgb,'weather':public,'timestamp_utc':stamp})
+    return {'weather':weather,'radar':radar,'circuit':gate,
+        'chromograph':vec,'timestamp_utc':stamp,
+        'location_policy':'provider_coordinates_rounded_2_decimals_no_persistent_store',
+        'telemetry_used_as_crypto_entropy':False,
+        'experimental_scores_are_forecasts':False,
+        'attribution':{'weather':'Open-Meteo','radar':'RainViewer'},
+        'freshness_policy':'monotonic_provider_cache_180_seconds_current_valid_time_checked'}
+
+
+# Upgrade the existing authenticated weather route and Dart relay automatically.
+_cx_live_context=_cx4_live_context
+
+
+def _cx4_haversine(a,b):
+    p1,p2=_cx_math.radians(a[0]),_cx_math.radians(b[0])
+    dp=p2-p1;dl=_cx_math.radians(((b[1]-a[1]+180)%360)-180)
+    x=_cx_math.sin(dp/2)**2+_cx_math.cos(p1)*_cx_math.cos(p2)*_cx_math.sin(dl/2)**2
+    return 6371.0088*2*_cx_math.asin(min(1.,_cx_math.sqrt(x)))
+
+
+def _cx4_sample_route(points,max_samples=6):
+    if not isinstance(points,list) or not 2<=len(points)<=64:
+        raise ValueError('route_requires_2_to_64_waypoints')
+    coords=[]
+    for point in points:
+        if not isinstance(point,dict) or set(point)!={'lat','lon'}:
+            raise ValueError('invalid_waypoint')
+        lat=_cx4_number(point['lat'],-85.05112878,85.05112878)
+        lon=_cx4_number(point['lon'],-180.,180.)
+        coords.append((lat,lon))
+    distances=[0.]
+    for a,b in zip(coords,coords[1:]):distances.append(distances[-1]+_cx4_haversine(a,b))
+    total=distances[-1]
+    if total<=.01 or total>500:
+        raise ValueError('route_distance_outside_0_01_to_500km')
+    count=min(max_samples,max(2,int(_cx_math.ceil(total/20))+1))
+    samples=[]
+    for i in range(count):
+        fraction=i/(count-1)
+        d=total*fraction
+        j=min(len(coords)-2,max(0,_cx4_bisect.bisect_right(distances,d)-1))
+        length=distances[j+1]-distances[j]
+        f=(d-distances[j])/length if length else 0.
+        a,b=coords[j],coords[j+1]
+        # Short routes: interpolate shortest longitude arc (dateline-safe).
+        lat=a[0]+(b[0]-a[0])*f
+        lon=((a[1]+(((b[1]-a[1]+180)%360)-180)*f+180)%360)-180
+        samples.append({'fraction':fraction,'distance_km':d,'lat':round(lat,2),'lon':round(lon,2)})
+    return samples,total
+
+
+def _cx4_route_exposure(body,fetch=None):
+    if not isinstance(body,dict) or set(body)-{'waypoints','departure_utc','duration_minutes','location_ack'}:
+        raise ValueError('invalid_route_fields')
+    if body.get('location_ack') is not True:
+        raise ValueError('location_ack_required')
+    duration=_cx4_number(body.get('duration_minutes'),1.,720.)
+    departure=_cx4_utc(body.get('departure_utc'))
+    now=_cx4_now()
+    if not -900<=(departure-now).total_seconds()<=86400:
+        raise ValueError('departure_requires_now_to_next_24h')
+    samples,distance=_cx4_sample_route(body.get('waypoints'))
+    coords=[(s['lat'],s['lon']) for s in samples]
+    payload=(fetch or _cx4_fetch)(_cx4_forecast_url(coords),900_000,16,180)
+    data=_cx_json.loads(payload)
+    if isinstance(data,dict):data=[data]
+    if not isinstance(data,list) or len(data)!=len(samples):
+        raise ValueError('weather_location_count_mismatch')
+    result=[]
+    gate_rank={'NO_GO':3,'UNKNOWN':2,'CAUTION':1,'GO':0}
+    for index,(sample,forecast) in enumerate(zip(samples,data)):
+        eta=departure+_cx_datetime_module.timedelta(minutes=duration*sample['fraction'])
+        try:
+            weather=_cx4_hour_at(forecast,eta.isoformat())
+            # Do not set updated_at to a forecast ETA: this is forecast-valid
+            # time, not ingestion freshness or a station observation timestamp.
+            physical={k:v for k,v in weather.items() if k in _CX4_BOUNDS}
+            gate=_cx4_gate(physical,{},eta.isoformat())
+            if gate['weather_gate']=='CAUTION':
+                gate['reasons']=['historical_radar_not_used_as_future_forecast']
+        except (ValueError,TypeError,KeyError):
+            weather={'source':'open-meteo','data_kind':'missing_or_invalid_forecast'}
+            gate={'weather_gate':'UNKNOWN','reasons':['forecast_missing_invalid_or_outside_horizon']}
+        # Endpoints represent half intervals, interiors full intervals, so
+        # exposure minutes sum exactly to the provided duration (trapezoidal).
+        prev_fraction=samples[index-1]['fraction'] if index else sample['fraction']
+        next_fraction=samples[index+1]['fraction'] if index+1<len(samples) else sample['fraction']
+        weight=(next_fraction-prev_fraction)/2
+        result.append({'sample_index':index,'progress':round(sample['fraction'],5),
+            'distance_km':round(sample['distance_km'],3),'eta_utc':eta.isoformat(),
+            'represented_minutes':round(duration*weight,6),'weather':weather,
+            'weather_gate':gate['weather_gate'],'reasons':gate['reasons']})
+    worst=max(result,key=lambda r:gate_rank[r['weather_gate']])['weather_gate']
+    exposure={g:round(sum(s['represented_minutes'] for s in result if s['weather_gate']==g),5)
+              for g in ('GO','CAUTION','UNKNOWN','NO_GO')}
+    return {'algorithm':'route-hourly-exposure-v1','gate':worst,
+        'route_distance_km':round(distance,3),'duration_minutes':duration,
+        'spatial_samples':len(result),'samples':result,'sampled_exposure_minutes':exposure,
+        'departure_utc':departure.isoformat(),'computed_at_utc':now.isoformat(),
+        'has_unsampled_intervals':True,'sampling_spacing_km':round(distance/(len(result)-1),3),
+        'positions_returned_or_persisted':False,
+        'weather_provider_receives':'coordinates_rounded_to_2_decimals',
+        'arrival_assumption':'constant_progress_along_supplied_polyline_no_road_routing',
+        'radar_used_as_future_prediction':False,'safety_certified':False,
+        'attribution':'Open-Meteo'}
+
+
+_cx4_original_finalize=_cx_finalize_decision
+
+
+def _cx4_finalize(raw,features,gate,model):
+    result=_cx4_original_finalize(raw,features,gate,model)
+    if gate['weather_gate']!='GO':
+        # Safety reasons and user-facing text must agree with server override.
+        if result['verdict'] in ('TAKE','STRONG_TAKE'):
+            result['verdict']='BORDERLINE'
+        result['score']=min(.5,result['score'])
+        if gate['weather_gate']=='NO_GO':
+            result['verdict']='HARD_SKIP';result['score']=0.
+        result['headline']=result['verdict'].replace('_',' ')+' — weather '+gate['weather_gate']
+        result['spoken_summary']=result['headline']+'. Review actual road conditions.'
+        result['predicted_future']='Forecast uncertainty remains; no driving-safety guarantee.'
+    # Do not allow 6 model reasons to crowd out all actual threshold reasons.
+    result['reasons']=list(dict.fromkeys([*gate['reasons'],*result['reasons']]))[:6]
+    result['confidence_semantics']='subjective_model_score_not_calibrated_probability'
+    return result
+
+
+_cx_finalize_decision=_cx4_finalize
+
+
+def _cx4_external_ai(features,gate):
+    if gate['weather_gate'] in ('NO_GO','UNKNOWN'):
+        return {'verdict':'HARD_SKIP' if gate['weather_gate']=='NO_GO' else 'BORDERLINE',
+                'score':0.,'confidence':0.,'headline':'Weather requires review',
+                'reasons':gate['reasons'],'expected_minutes':features.get('estimated_minutes')},'deterministic_weather_gate'
+    key=_cx_os.getenv('OPENAI_API_KEY','')
+    if not key:
+        raise RuntimeError('external_ai_not_configured')
+    model=_cx_os.getenv('ROADSCANNER_CX_AI_MODEL','').strip()
+    if not model:
+        raise RuntimeError('server_ai_model_not_configured')
+    features={k:features[k] for k in ('pay','displayed_miles','estimated_minutes','order_count',
+             'weather','minimum_payout','minimum_dollars_per_mile','target_hourly') if k in features}
+    request_body={'model':model,'response_format':{'type':'json_object'},'max_completion_tokens':650,
+       'messages':[{'role':'system','content':'Advisory delivery offer summary. Return one JSON object with verdict (STRONG_TAKE, TAKE, BORDERLINE, SKIP, HARD_SKIP), score, confidence, headline, predicted_future, primary_risk, reasons, expected_minutes, spoken_summary. Score/confidence subjective, not calibrated probabilities. No driving-safety claims. Do not invent measurements or send commands. Only supplied numeric facts are authorized.'},
+                   {'role':'user','content':_cx4_canonical({'features':features,'weather_gate':gate['weather_gate']})}]}
+    import httpx as _cx4_httpx
+    buffer=bytearray()
+    with _cx4_httpx.stream('POST','https://api.openai.com/v1/chat/completions',
+            headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+            json=request_body,timeout=28,follow_redirects=False) as response:
+        response.raise_for_status()
+        for chunk in response.iter_bytes():
+            if len(buffer)+len(chunk)>64*1024:raise ValueError('ai_response_too_large')
+            buffer.extend(chunk)
+    payload=_cx_json.loads(buffer)
+    raw=_cx_json.loads(payload['choices'][0]['message']['content'])
+    if not isinstance(raw,dict):raise ValueError('ai_json_object_required')
+    return raw,model
+
+
+_cx_call_openai=_cx4_external_ai
+
+
+@app.before_request
+def cx4_request_guard():
+    endpoint=request.endpoint or ''
+    if not (endpoint.startswith('cx_') or endpoint.startswith('cx4_')):
+        return None
+    if endpoint in ('cx_status','cx4_request_guard'):
+        return None
+    if not _cx_enabled():
+        return _cx_error('feature_disabled',404)
+    if endpoint=='cx_ipfs_d1_proxy':
+        try:
+            edge=_cx_urlparse(_CX_UPSTREAM_URL)
+            if (edge.scheme!='https' or not edge.hostname or edge.username or edge.password
+                    or edge.port not in (None,443) or edge.query or edge.fragment or edge.path not in ('','/')):
+                return _cx_error('trusted_https_edge_origin_required',503)
+        except ValueError:
+            return _cx_error('trusted_https_edge_origin_required',503)
+    # Failed callers cannot consume valid users' quotas.
+    is_relay=endpoint=='cx_route_engine_analyze'
+    if is_relay:
+        if not _cx_relay_authenticated():return _cx_error('unauthorized',401)
+        identity='relay'
+    else:
+        if not _cx_logged_in():return _cx_error('login_required',401)
+        identity='session:'+str(session.get('username'))
+    cap=5. if is_relay else (6. if endpoint=='cx4_route' else 24.)
+    refill=1/30 if is_relay else (1/30 if endpoint=='cx4_route' else .25)
+    if not _cx4_allow((identity,endpoint),cap,refill):
+        response=_cx_error('request_budget_exceeded',429)
+        response.headers['Retry-After']='30'
+        return response
+    if request.content_length is not None and request.content_length>1024*1024:
+        return _cx_error('request_too_large',413)
+    return None
+
+
+@app.post('/api/chromograph/v2/descriptor')
+def cx4_descriptor():
+    try:
+        body=_cx_payload(64*1024)
+        return _cx_response(_cx4_descriptor(body))
+    except (ValueError,TypeError,KeyError):
+        return _cx_error('invalid_public_descriptor_input',400)
+
+
+@app.post('/api/chromograph/v2/search')
+def cx4_search():
+    try:
+        return _cx_response(_cx4_search(_cx_payload(1024*1024)))
+    except (ValueError,TypeError,KeyError):
+        return _cx_error('invalid_hybrid_search_input',400)
+
+
+@app.post('/api/chromograph/v2/route-exposure')
+def cx4_route():
+    try:
+        return _cx_response(_cx4_route_exposure(_cx_payload(64*1024)))
+    except (ValueError,TypeError,KeyError):
+        return _cx_error('invalid_route_or_forecast',422)
+    except Exception as exc:
+        logger.warning('Chromograph route provider unavailable: %s',type(exc).__name__)
+        return _cx_error('route_weather_unavailable',503)
+
+
+@app.get('/api/chromograph/v2/readiness')
+def cx4_readiness():
+    if not _cx_admin():return _cx_error('admin_required',403)
+    with _CX4_PROVIDER_LOCK:
+        provider={host:{'calls':s['calls'],'consecutive_failures':s['failures'],
+                  'circuit_open':s['open_until']>_cx_time.monotonic()}
+                  for host,s in _CX4_PROVIDER_STATES.items()}
+    with _CX4_PROVIDER_CACHE.lock:
+        cache={'entries':len(_CX4_PROVIDER_CACHE.data),'bytes':_CX4_PROVIDER_CACHE.size,
+               'hits':_CX4_PROVIDER_CACHE.hits,'misses':_CX4_PROVIDER_CACHE.misses,
+               'inflight':len(_CX4_PROVIDER_CACHE.inflight)}
+    return _cx_response({'version':'0.4','schema':_CX4_SCHEMA,'dimensions':256,
+       'external_ai_enabled':_cx_os.getenv('ROADSCANNER_CX_EXTERNAL_AI_ENABLED')=='1',
+       'api_key_configured':bool(_cx_os.getenv('OPENAI_API_KEY')),
+       'ai_model_configured':bool(_cx_os.getenv('ROADSCANNER_CX_AI_MODEL')), 
+       'relay_token_configured':len(_cx_os.getenv('ROADSCANNER_CX_RELAY_TOKEN',''))>=32,
+       'worker_bridge_configured':bool(_CX_UPSTREAM_URL and _cx_os.getenv('ROADSCANNER_CX_EDGE_TOKEN')),
+       'provider_cache':cache,'provider_health':provider,
+       'limits':{'route_samples':6,'route_waypoints':64,'route_km':500,
+                 'search_candidates':256,'search_returned':100,'palette_colors':8},
+       'runtime':'native_flask_container_no_new_numpy_or_local_llm_dependency',
+       'memory_state_scope':'per_process_ephemeral_not_distributed_rate_enforcement',
+       'production_ready':False})
+
+
+# Stop httpx INFO request logs from retaining weather coordinate query strings.
+# Metrics above retain only fixed provider hostname and aggregate counters.
+import logging as _cx4_logging
+
+
+class _CX4ProviderLogFilter(_cx4_logging.Filter):
+    def filter(self,record):
+        message=record.getMessage()
+        return not any(host in message for host in ('api.open-meteo.com','api.rainviewer.com',
+                                                     'tilecache.rainviewer.com'))
+
+
+_cx4_logging.getLogger('httpx').addFilter(_CX4ProviderLogFilter())
+# END ROADSCANNER CHROMOGRAPH-X V0.4
+
+# BEGIN ROADSCANNER CHROMOGRAPH-X V0.5
+# Owned durable registry, device credentials, D1 adapter and encrypted IPFS outbox.
+# New tables only. No edits to legacy SQLite or QRS2 crypto/key derivation.
+import sqlite3 as _cx5_sqlite
+import base64 as _cx5_base64
+import pathlib as _cx5_pathlib
+import uuid as _cx5_uuid
+from flask import g as _cx5_g
+from werkzeug.exceptions import HTTPException as _cx5_HTTPException
+
+_CX5_SCHEMA = '''
+CREATE TABLE IF NOT EXISTS cx5_devices (
+  device_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, token_hash TEXT NOT NULL,
+  scopes_json TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS cx5_devices_owner ON cx5_devices(owner_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS cx5_versions (
+  owner_id TEXT NOT NULL, record_id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0),
+  kind TEXT NOT NULL, context_json TEXT NOT NULL, context_hash TEXT NOT NULL,
+  envelope_sha256 TEXT NOT NULL, envelope_qrs2 TEXT,
+  previous_hash TEXT NOT NULL, chain_hash TEXT NOT NULL,
+  request_key TEXT NOT NULL, request_hash TEXT NOT NULL,
+  pin_state TEXT NOT NULL CHECK(pin_state IN ('pending','leased','pinned','dead')),
+  cid TEXT, attempts INTEGER NOT NULL DEFAULT 0, retry_after INTEGER NOT NULL DEFAULT 0,
+  lease_token TEXT, lease_until INTEGER NOT NULL DEFAULT 0, last_error TEXT,
+  created_at INTEGER NOT NULL, pinned_at INTEGER,
+  PRIMARY KEY(owner_id, record_id, version), UNIQUE(owner_id, request_key)
+);
+CREATE INDEX IF NOT EXISTS cx5_latest_owner ON cx5_versions(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS cx5_publish_due ON cx5_versions(pin_state, retry_after, lease_until);
+CREATE TABLE IF NOT EXISTS cx5_budgets (
+  budget_key TEXT NOT NULL, window_start INTEGER NOT NULL, used INTEGER NOT NULL,
+  PRIMARY KEY(budget_key, window_start)
+);
+'''
+_CX5_SCOPES = frozenset({'record:read','record:write','search:read','weather:read','route:read','ai:analyze'})
+_CX5_CID = _cx_re.compile(r'^(?:baf[a-z2-7]{20,180}|Qm[1-9A-HJ-NP-Za-km-z]{44})$')
+_CX5_RECORD = _cx_re.compile(r'^[A-Za-z0-9_-]{4,80}$')
+_CX5_DB_LOCK = _cx_threading.RLock()
+_CX5_DB_INSTANCE = None
+_CX5_DB_CONFIG = None
+_CX5_EXPOSE = ('record_id','version','kind','context_hash','envelope_sha256',
+               'previous_hash','chain_hash','pin_state','cid','created_at','pinned_at')
+
+
+class _CX5Error(Exception):
+    def __init__(self,code,status=400):
+        super().__init__(code)
+        self.code,self.status=code,status
+
+
+def _cx5_fail(code,status=400):
+    raise _CX5Error(code,status)
+
+
+def _cx5_wire_json(url,payload=None,token=None,max_bytes=512*1024,method='POST'):
+    # URL chosen exclusively by server code; never supplied by an API caller.
+    parsed=_cx_urlparse(url)
+    if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise RuntimeError('invalid_server_endpoint')
+    import httpx as _cx5_httpx
+    headers={'Accept':'application/json'}
+    if token:headers['Authorization']='Bearer '+token
+    if payload is not None:headers['Content-Type']='application/json'
+    body=bytearray()
+    with _cx5_httpx.stream(method,url,json=payload,headers=headers,timeout=22,follow_redirects=False) as response:
+        response.raise_for_status()
+        for chunk in response.iter_bytes():
+            if len(body)+len(chunk)>max_bytes:raise RuntimeError('upstream_payload_too_large')
+            body.extend(chunk)
+    return _cx_json.loads(body)
+
+
+class _CX5SQLite:
+    """Explicit local/staging adapter, separate from the legacy secure_data.db."""
+    def __init__(self,path):
+        self.path=str(path)
+        if self.path==':memory:' or not _cx5_pathlib.Path(self.path).is_absolute():
+            raise ValueError('absolute_separate_registry_path_required')
+
+    def initialize(self):
+        # Called ONLY by explicit opt-in initialization, never at import time.
+        connection=self.connection()
+        try:
+            with connection:
+                connection.executescript(_CX5_SCHEMA)
+        finally:
+            connection.close()
+
+    def connection(self):
+        connection=_cx5_sqlite.connect(self.path,timeout=8)
+        connection.row_factory=_cx5_sqlite.Row
+        connection.execute('PRAGMA busy_timeout=8000')
+        return connection
+
+    def query(self,sql,params=()):
+        connection=self.connection()
+        try:
+            with connection:
+                cursor=connection.execute(sql,params)
+                rows=[dict(row) for row in cursor.fetchall()] if cursor.description else []
+                return {'results':rows,'changes':max(0,cursor.rowcount)}
+        finally:
+            connection.close()
+
+
+class _CX5D1:
+    """Container-side D1 REST adapter. No TypeScript / JS runtime required.
+
+    Each state transition is ONE SQL statement, avoiding reliance on REST
+    batch atomicity. This is a modest-throughput adapter, not a Worker binding.
+    """
+    def __init__(self,account,database,token):
+        if not _cx_re.fullmatch(r'[0-9a-fA-F]{32}',account or ''):
+            raise ValueError('invalid_cloudflare_account')
+        try:identifier=str(_cx5_uuid.UUID(database))
+        except (ValueError,AttributeError):raise ValueError('invalid_d1_database_id')
+        if not token:raise ValueError('missing_d1_scoped_api_token')
+        self.url=f'https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{identifier}/query'
+        self.token=token
+
+    def query(self,sql,params=()):
+        # Cloudflare REST schema permits string parameters. All SQL values here
+        # are strings/integers; preserve NULL only in SQL literals, not params.
+        data=_cx5_wire_json(self.url,{'sql':sql,'params':[str(v) for v in params]},self.token,
+                           max_bytes=2*1024*1024)
+        if not isinstance(data,dict) or data.get('success') is not True:
+            raise RuntimeError('d1_query_rejected')
+        result=data.get('result')
+        if not isinstance(result,list) or len(result)!=1 or result[0].get('success') is not True:
+            raise RuntimeError('d1_invalid_query_result')
+        return {'results':result[0].get('results') or [],
+                'changes':int((result[0].get('meta') or {}).get('changes') or 0)}
+
+
+def _cx5_db():
+    global _CX5_DB_INSTANCE,_CX5_DB_CONFIG
+    backend=_cx_os.getenv('ROADSCANNER_CX_REGISTRY_BACKEND','').strip()
+    if backend=='d1':
+        config=(backend,_cx_os.getenv('CLOUDFLARE_ACCOUNT_ID',''),
+                _cx_os.getenv('ROADSCANNER_CX_D1_ID',''),_cx_os.getenv('ROADSCANNER_CX_D1_TOKEN',''))
+    elif backend=='sqlite':
+        path=_cx_os.getenv('ROADSCANNER_CX_REGISTRY_PATH','')
+        legacy_path=globals().get('DB_FILE')
+        if legacy_path and path and _cx5_pathlib.Path(path).resolve()==_cx5_pathlib.Path(legacy_path).resolve():
+            raise RuntimeError('registry_must_not_use_legacy_database')
+        config=(backend,path)
+    else:
+        raise RuntimeError('registry_backend_not_configured')
+    with _CX5_DB_LOCK:
+        if _CX5_DB_INSTANCE is None or _CX5_DB_CONFIG!=config:
+            _CX5_DB_INSTANCE=_CX5D1(*config[1:]) if backend=='d1' else _CX5SQLite(config[1])
+            _CX5_DB_CONFIG=config
+    return _CX5_DB_INSTANCE
+
+
+def _cx5_rows(sql,params=()):
+    return _cx5_db().query(sql,params)['results']
+
+
+def _cx5_one(sql,params=()):
+    rows=_cx5_rows(sql,params)
+    return rows[0] if rows else None
+
+
+def _cx5_owner():
+    username=session.get('username')
+    if not isinstance(username,str) or not username:_cx5_fail('login_required',401)
+    identity=username
+    # Reuse authoritative legacy identity where available; no user IDs from JSON.
+    resolver=globals().get('get_user_id')
+    if callable(resolver):
+        uid=resolver(username)
+        if uid is None:_cx5_fail('account_unavailable',401)
+        identity='user-id:'+str(uid)
+    key=_cx_os.getenv('ROADSCANNER_CX_OWNER_KEY','')
+    if len(key)<32:raise RuntimeError('stable_owner_namespace_key_required')
+    return _cx_hmac.new(key.encode(),b'Roadscanner|CX5|owner|v1\0'+identity.encode(),_cx_hashlib.sha256).hexdigest()
+
+
+def _cx5_device(token,scope):
+    match=_cx_re.fullmatch(r'rsd1\.([a-f0-9]{32})\.([A-Za-z0-9_-]{43})',token)
+    if not match:_cx5_fail('invalid_device_credential',401)
+    row=_cx5_one('SELECT * FROM cx5_devices WHERE device_id=?',(match.group(1),))
+    actual=_cx_hashlib.sha256(token.encode()).hexdigest()
+    if (not row or row['revoked_at'] is not None or row['expires_at']<=int(_cx_time.time())
+            or not _cx_hmac.compare_digest(row['token_hash'],actual)):
+        _cx5_fail('invalid_device_credential',401)
+    if scope not in _cx_json.loads(row['scopes_json']):_cx5_fail('device_scope_required',403)
+    return row
+
+
+def _cx5_budget(owner,group,limit):
+    now=int(_cx_time.time())
+    key=_cx_hashlib.sha256((owner+'|'+group).encode()).hexdigest()
+    row=_cx5_one('''INSERT INTO cx5_budgets(budget_key,window_start,used) VALUES (?,?,1)
+        ON CONFLICT(budget_key,window_start) DO UPDATE SET used=used+1
+        WHERE used<? RETURNING used''',(key,now//60*60,limit))
+    if not row:_cx5_fail('durable_request_budget_exceeded',429)
+
+
+_CX5_ROUTE_POLICY={
+ 'cx5_issue_device':('session',None,'devices',10),
+ 'cx5_devices':('session',None,'devices',30),
+ 'cx5_revoke_device':('session',None,'devices',10),
+ 'cx5_create_record':('both','record:write','write',12),
+ 'cx5_record':('both','record:read','read',120),
+ 'cx5_versions':('both','record:read','read',120),
+ 'cx5_checkpoint':('both','record:read','anchor',10),
+ 'cx5_registry_search':('both','search:read','search',30),
+ 'cx5_weather':('both','weather:read','weather',12),
+ 'cx5_route':('both','route:read','route',6),
+ 'cx5_ai':('both','ai:analyze','ai',5),
+ 'cx5_publish':('admin',None,'publish',6),
+ 'cx5_retry':('both','record:write','retry',6),
+ 'cx5_maintenance':('admin',None,'maintenance',3),
+ 'cx5_status':('admin',None,'status',30),
+}
+
+
+@app.before_request
+def cx5_guard():
+    endpoint=request.endpoint or ''
+    if (endpoint=='cx_route_engine_analyze'
+            and _cx_os.getenv('ROADSCANNER_CX_REGISTRY_ENABLED')=='1'
+            and _cx_os.getenv('ROADSCANNER_CX_ALLOW_LEGACY_RELAY')!='1'):
+        return _cx_error('use_scoped_device_ai_endpoint',410)
+    if endpoint not in _CX5_ROUTE_POLICY:return None
+    try:
+        if not _cx_enabled() or _cx_os.getenv('ROADSCANNER_CX_REGISTRY_ENABLED')!='1':
+            _cx5_fail('registry_disabled',404)
+        if len(_cx_os.getenv('ROADSCANNER_CX_OWNER_KEY',''))<32:
+            raise RuntimeError('stable_owner_namespace_key_required')
+        mode,scope,group,limit=_CX5_ROUTE_POLICY[endpoint]
+        authorization=request.headers.get('Authorization')
+        if authorization:
+            # Never fall back to a browser session for an invalid/overscoped bearer.
+            if mode!='both':_cx5_fail('browser_session_required',403)
+            if not authorization.startswith('Bearer '):_cx5_fail('invalid_device_credential',401)
+            device=_cx5_device(authorization[7:],scope)
+            owner=device['owner_id']
+            _cx5_g.cx5_device=device['device_id']
+        else:
+            owner=_cx5_owner()
+            if mode=='admin' and not _cx_admin():_cx5_fail('admin_required',403)
+            # Mixed-auth endpoints are globally exempt ONLY so bearer requests
+            # work. Explicitly enforce CSRF for EVERY cookie/session write.
+            if request.method not in ('GET','HEAD','OPTIONS'):
+                csrf.protect()
+        _cx5_g.cx5_owner=owner
+        _cx5_g.cx5_request_id=_cx4_secrets.token_hex(12)
+        _cx5_budget(owner,group,limit)
+    except _CX5Error as exc:
+        response=_cx_error(exc.code,exc.status)
+        if exc.status==429:response.headers['Retry-After']='60'
+        return response
+    except _cx5_HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning('Chromograph registry unavailable: %s',type(exc).__name__)
+        return _cx_error('registry_configuration_or_backend_unavailable',503)
+
+
+def _cx5_endpoint(function):
+    @_cx4_functools.wraps(function)
+    def wrapped(*args,**kwargs):
+        try:
+            response=function(*args,**kwargs)
+            response.headers['X-Request-ID']=getattr(_cx5_g,'cx5_request_id','')
+            return response
+        except _CX5Error as exc:
+            response=_cx_error(exc.code,exc.status)
+        except (ValueError,TypeError,KeyError,RecursionError):
+            response=_cx_error('invalid_registry_request',400)
+        except _cx5_HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning('Chromograph registry operation unavailable: %s',type(exc).__name__)
+            response=_cx_error('registry_operation_unavailable',503)
+        response.headers['X-Request-ID']=getattr(_cx5_g,'cx5_request_id','')
+        return response
+    return wrapped
+
+
+def _cx5_envelope(value):
+    if not isinstance(value,str) or not value.startswith('PQ2.') or len(value)>180_000:
+        _cx5_fail('bounded_qrs2_ciphertext_required',422)
+    try:
+        raw=_cx5_base64.b64decode(value[4:].encode('ascii'),altchars=b'-_',validate=True)
+        if len(raw)>131072:_cx5_fail('qrs2_envelope_too_large',422)
+        env=_cx_json.loads(raw)
+        if not isinstance(env,dict) or env.get('v')!='QRS2' or env.get('alg')!='HY1':
+            _cx5_fail('unsupported_qrs2_envelope',422)
+        km=globals().get('key_manager')
+        if km is None or getattr(km,'sig_alg_name',None) not in ('ML-DSA-65','ML-DSA-87'):
+            raise RuntimeError('trusted_native_ml_dsa_verifier_unavailable')
+        if env.get('pq_alg')!='ML-KEM-768':_cx5_fail('ml_kem_768_required',422)
+        sig=env.get('sig')
+        if not isinstance(sig,dict) or sig.get('alg')!=km.sig_alg_name:
+            _cx5_fail('trusted_ml_dsa_signature_required',422)
+        pub=_cx5_base64.b64decode(sig['pub'],validate=True)
+        signature=_cx5_base64.b64decode(sig['val'],validate=True)
+        if not getattr(km,'sig_pub',None) or not _cx_hmac.compare_digest(pub,km.sig_pub):
+            _cx5_fail('untrusted_qrs2_signer',422)
+        for field,length in (('x_ephemeral_pub',32),('wrap_nonce',12),('data_nonce',12),('dek_wrapped',48)):
+            if len(_cx5_base64.b64decode(env[field],validate=True))!=length:
+                _cx5_fail('malformed_qrs2_field',422)
+        if len(_cx5_base64.b64decode(env['pq_ct'],validate=True))!=1088:
+            _cx5_fail('malformed_ml_kem_ciphertext',422)
+        if len(_cx5_base64.b64decode(env['data_ct'],validate=True))<16:
+            _cx5_fail('malformed_aes_gcm_ciphertext',422)
+        core={k:env[k] for k in ('v','alg','pq_alg','pq_ct','x_ephemeral_pub','wrap_nonce',
+                                'dek_wrapped','data_nonce','data_ct','comp','col_meta')}
+        policy=globals().get('POLICY')
+        if not isinstance(policy,dict):raise RuntimeError('native_qrs2_policy_unavailable')
+        core['policy']={k:policy[k] for k in ('min_env_version','require_sig_on_pq2','require_pq_if_available')}
+        core['hd_ctx']=env.get('hd_ctx',{})
+        if not km.verify_blob(pub,signature,_cx4_canonical(core).encode()):
+            _cx5_fail('qrs2_signature_verification_failed',422)
+    except _CX5Error:
+        raise
+    except (ValueError,UnicodeError,KeyError,TypeError):
+        _cx5_fail('malformed_qrs2_envelope',422)
+    return _cx_hashlib.sha256(value.encode()).hexdigest()
+
+
+def _cx5_chain(owner,rid,version,previous,sha,context_hash,kind):
+    binding={'schema':'cx5-version-v1','owner':owner,'record_id':rid,'version':version,
+             'previous_hash':previous,'envelope_sha256':sha,'context_hash':context_hash,'kind':kind}
+    return _cx_hashlib.sha256(b'Roadscanner|CX5|version|v1\0'+_cx4_canonical(binding).encode()).hexdigest()
+
+
+def _cx5_public(row):
+    return {key:row[key] for key in _CX5_EXPOSE}
+
+
+def _cx5_create(owner,body,request_key):
+    if not isinstance(body,dict) or set(body)-{'record_id','expected_version','kind','public_context',
+                                             'public_index_ack','envelope'}:
+        _cx5_fail('invalid_record_fields')
+    rid=body.get('record_id')
+    if not isinstance(rid,str) or not _CX5_RECORD.fullmatch(rid):_cx5_fail('invalid_record_id')
+    expected=body.get('expected_version')
+    if isinstance(expected,bool) or not isinstance(expected,int) or not 0<=expected<1_000_000_000:
+        _cx5_fail('expected_version_integer_required')
+    if body.get('public_index_ack') is not True:_cx5_fail('explicit_public_index_consent_required')
+    if not isinstance(request_key,str) or not _cx_re.fullmatch(r'[A-Za-z0-9_-]{8,96}',request_key):
+        _cx5_fail('idempotency_key_header_required')
+    kind=body.get('kind','generic')
+    if not isinstance(kind,str) or not _cx_re.fullmatch(r'[a-z][a-z0-9_-]{0,39}',kind):_cx5_fail('invalid_kind')
+    context=_cx4_context(body.get('public_context'))
+    packed=_cx4_canonical(context)
+    if len(packed)>8192:_cx5_fail('public_context_too_large')
+    envelope=body.get('envelope')
+    if not isinstance(envelope,str):_cx5_fail('qrs2_ciphertext_required',422)
+    intent=_cx_hashlib.sha256(_cx4_canonical({'body':body,'schema':'cx5-write-v1'}).encode()).hexdigest()
+    prior=_cx5_one('SELECT * FROM cx5_versions WHERE owner_id=? AND request_key=?',(owner,request_key))
+    if prior:
+        if not _cx_hmac.compare_digest(prior['request_hash'],intent):_cx5_fail('idempotency_key_reused',409)
+        return _cx5_public(prior),False
+    sha=_cx5_envelope(envelope)
+    previous=_cx5_one('SELECT version,chain_hash FROM cx5_versions WHERE owner_id=? AND record_id=? ORDER BY version DESC LIMIT 1',(owner,rid))
+    if (previous['version'] if previous else 0)!=expected:_cx5_fail('version_conflict',409)
+    prev_hash=previous['chain_hash'] if previous else 'GENESIS'
+    context_hash=_cx_hashlib.sha256(packed.encode()).hexdigest()
+    chain=_cx5_chain(owner,rid,expected+1,prev_hash,sha,context_hash,kind)
+    try:
+        rows=_cx5_rows('''INSERT INTO cx5_versions(owner_id,record_id,version,kind,context_json,context_hash,
+            envelope_sha256,envelope_qrs2,previous_hash,chain_hash,request_key,request_hash,pin_state,created_at)
+            SELECT ?,?,?,?,?,?,?,?,?,?,?,?,'pending',?
+            WHERE COALESCE((SELECT MAX(version) FROM cx5_versions WHERE owner_id=? AND record_id=?),0)=CAST(? AS INTEGER)
+            RETURNING *''',(owner,rid,expected+1,kind,packed,context_hash,sha,envelope,prev_hash,
+                           chain,request_key,intent,int(_cx_time.time()),owner,rid,expected))
+    except Exception:
+        # Transport may fail after commit. Resolve idempotently without replaying
+        # a different intent or assuming the insert did not happen.
+        prior=_cx5_one('SELECT * FROM cx5_versions WHERE owner_id=? AND request_key=?',(owner,request_key))
+        if prior and _cx_hmac.compare_digest(prior['request_hash'],intent):return _cx5_public(prior),False
+        raise
+    if not rows:
+        prior=_cx5_one('SELECT * FROM cx5_versions WHERE owner_id=? AND request_key=?',(owner,request_key))
+        if prior and _cx_hmac.compare_digest(prior['request_hash'],intent):return _cx5_public(prior),False
+        _cx5_fail('version_conflict',409)
+    return _cx5_public(rows[0]),True
+
+
+def _cx5_pin(envelope):
+    token=_cx_os.getenv('PINATA_JWT','')
+    if not token:raise RuntimeError('pinata_secret_not_configured')
+    data=_cx5_wire_json('https://api.pinata.cloud/pinning/pinJSONToIPFS',
+        {'pinataOptions':{'cidVersion':1},
+         'pinataContent':{'schema':'roadscanner-qrs2-v1','envelope':envelope}},token,64*1024)
+    cid=data.get('IpfsHash') if isinstance(data,dict) else None
+    if not isinstance(cid,str) or not _CX5_CID.fullmatch(cid):raise RuntimeError('invalid_pinning_cid')
+    return cid
+
+
+def _cx5_download(cid):
+    if not isinstance(cid,str) or not _CX5_CID.fullmatch(cid):raise RuntimeError('invalid_ipfs_cid')
+    base=_cx_os.getenv('ROADSCANNER_CX_IPFS_GATEWAY','https://gateway.pinata.cloud/ipfs').rstrip('/')
+    parsed=_cx_urlparse(base)
+    if (parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password
+            or parsed.port not in (None,443) or parsed.path!='/ipfs' or parsed.query or parsed.fragment):
+        raise RuntimeError('trusted_https_ipfs_gateway_required')
+    result=_cx5_wire_json(base+'/'+cid,max_bytes=250_000,method='GET')
+    if not isinstance(result,dict) or result.get('schema')!='roadscanner-qrs2-v1':
+        raise RuntimeError('ipfs_document_schema_mismatch')
+    envelope=result.get('envelope')
+    if not isinstance(envelope,str) or not envelope.startswith('PQ2.') or len(envelope)>180_000:
+        raise RuntimeError('invalid_ipfs_ciphertext')
+    return envelope
+
+
+def _cx5_publish_one():
+    now=int(_cx_time.time())
+    _cx5_db().query('''UPDATE cx5_versions SET pin_state='dead',lease_token=NULL,lease_until=0,
+        last_error='lease_retry_limit' WHERE pin_state='leased' AND lease_until<=? AND attempts>=5''',(now,))
+    token=_cx4_secrets.token_hex(24)
+    # Single-statement claim with a fresh fencing token; another process cannot
+    # commit this worker's lease after ownership changes or the lease expires.
+    claimed=_cx5_rows('''UPDATE cx5_versions SET pin_state='leased',lease_token=?,lease_until=?,attempts=attempts+1
+        WHERE (owner_id,record_id,version)=(
+          SELECT owner_id,record_id,version FROM cx5_versions
+          WHERE attempts<5 AND ((pin_state='pending' AND retry_after<=?) OR (pin_state='leased' AND lease_until<=?))
+          ORDER BY created_at,owner_id,record_id,version LIMIT 1)
+        RETURNING *''',(token,now+120,now,now))
+    if not claimed:return {'claimed':False}
+    row=claimed[0]
+    owner,rid,version=row['owner_id'],row['record_id'],row['version']
+    try:
+        envelope=row['envelope_qrs2']
+        sha=_cx5_envelope(envelope)
+        if not _cx_hmac.compare_digest(sha,row['envelope_sha256']):raise RuntimeError('queued_ciphertext_mismatch')
+        cid=row['cid'] or _cx5_pin(envelope)
+        # Save candidate CID before verification. On an outage, the next claim
+        # verifies this CID first instead of pinning a new object blindly.
+        saved=_cx5_rows('''UPDATE cx5_versions SET cid=? WHERE owner_id=? AND record_id=? AND version=?
+            AND pin_state='leased' AND lease_token=? AND lease_until>? RETURNING version''',
+            (cid,owner,rid,version,token,int(_cx_time.time())))
+        if not saved:return {'claimed':True,'state':'lease_lost'}
+        fetched=_cx5_download(cid)
+        if not _cx_hmac.compare_digest(_cx_hashlib.sha256(fetched.encode()).hexdigest(),sha):
+            raise RuntimeError('gateway_ciphertext_mismatch')
+        # The trusted signature was checked on immutable queued bytes, whose
+        # SHA256 also exactly matches the fetched copy. No decrypt operation.
+        done=_cx5_rows('''UPDATE cx5_versions SET pin_state='pinned',envelope_qrs2=NULL,
+            pinned_at=?,lease_token=NULL,lease_until=0,last_error=NULL
+            WHERE owner_id=? AND record_id=? AND version=? AND pin_state='leased'
+            AND lease_token=? AND lease_until>? RETURNING version''',
+            (int(_cx_time.time()),owner,rid,version,token,int(_cx_time.time())))
+        return {'claimed':True,'state':'pinned' if done else 'lease_lost','record_id':rid,'version':version}
+    except Exception as exc:
+        now=int(_cx_time.time())
+        state='dead' if row['attempts']>=5 else 'pending'
+        delay=min(3600,10*2**min(row['attempts'],8))
+        # Store a class/code only, never exception text (can contain URL/body).
+        code=exc.code if isinstance(exc,_CX5Error) else type(exc).__name__
+        updated=_cx5_rows('''UPDATE cx5_versions SET pin_state=?,retry_after=?,last_error=?,lease_token=NULL,lease_until=0
+            WHERE owner_id=? AND record_id=? AND version=? AND pin_state='leased'
+            AND lease_token=? AND lease_until>? RETURNING version''',
+            (state,now+delay,code,owner,rid,version,token,now))
+        if not updated:
+            current=_cx5_one('SELECT pin_state FROM cx5_versions WHERE owner_id=? AND record_id=? AND version=?',(owner,rid,version))
+            if current and current['pin_state']=='pinned':
+                return {'claimed':True,'state':'pinned','record_id':rid,'version':version,'commit_reconciled':True}
+            return {'claimed':True,'state':'lease_lost','record_id':rid,'version':version}
+        return {'claimed':True,'state':state,'record_id':rid,'version':version,'error':code}
+
+
+def _cx5_checkrow(row):
+    actual=_cx_hashlib.sha256(row['context_json'].encode()).hexdigest()
+    if not _cx_hmac.compare_digest(actual,row['context_hash']):
+        _cx5_fail('registry_context_integrity_mismatch',502)
+    chain=_cx5_chain(row['owner_id'],row['record_id'],row['version'],row['previous_hash'],
+                     row['envelope_sha256'],row['context_hash'],row['kind'])
+    if not _cx_hmac.compare_digest(chain,row['chain_hash']):
+        _cx5_fail('registry_chain_integrity_mismatch',502)
+
+
+def _cx5_read(owner,rid,include_envelope=False):
+    row=_cx5_one('SELECT * FROM cx5_versions WHERE owner_id=? AND record_id=? ORDER BY version DESC LIMIT 1',(owner,rid))
+    if not row:_cx5_fail('record_not_found',404)
+    _cx5_checkrow(row)
+    result=_cx5_public(row)
+    result['public_context']=_cx_json.loads(row['context_json'])
+    if include_envelope:
+        envelope=row['envelope_qrs2'] if row['envelope_qrs2'] is not None else _cx5_download(row['cid'])
+        sha=_cx_hashlib.sha256(envelope.encode()).hexdigest()
+        if not _cx_hmac.compare_digest(sha,row['envelope_sha256']):_cx5_fail('ciphertext_integrity_mismatch',502)
+        result['envelope']=envelope
+    return result
+
+
+def _cx5_search(owner,body):
+    if not isinstance(body,dict) or set(body)-{'query','kind','limit','diversity'}:_cx5_fail('invalid_saved_search')
+    query=_cx4_context(body.get('query'))
+    limit=body.get('limit',20)
+    if isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=100:_cx5_fail('invalid_limit')
+    kind=body.get('kind')
+    params=[owner]
+    sql='''SELECT v.record_id,v.context_json,v.kind,v.version,v.pin_state,v.created_at,
+      v.context_hash,v.chain_hash,v.previous_hash,v.envelope_sha256,v.owner_id
+      FROM cx5_versions v WHERE v.owner_id=? AND NOT EXISTS
+      (SELECT 1 FROM cx5_versions n WHERE n.owner_id=v.owner_id AND n.record_id=v.record_id AND n.version>v.version)'''
+    if kind is not None:
+        if not isinstance(kind,str) or not _cx_re.fullmatch(r'[a-z][a-z0-9_-]{0,39}',kind):_cx5_fail('invalid_kind')
+        sql+=' AND v.kind=?';params.append(kind)
+    sql+=' ORDER BY v.created_at DESC,v.record_id LIMIT 257'
+    rows=_cx5_rows(sql,params)
+    for row in rows:_cx5_checkrow(row)
+    candidates=[{'record_id':row['record_id'],'public_context':_cx_json.loads(row['context_json'])} for row in rows[:256]]
+    if not candidates:return {'results':[],'candidate_count':0,'source':'owned_registry','truncated':False}
+    result=_cx4_search({'query':query,'candidates':candidates,'limit':limit,'diversity':body.get('diversity',.15)})
+    by_id={row['record_id']:row for row in rows[:256]}
+    for hit in result['results']:
+        row=by_id[hit['record_id']]
+        hit.update(version=row['version'],kind=row['kind'],pin_state=row['pin_state'])
+    result.update(source='owned_registry',truncated=len(rows)>256,registry_candidate_limit=256,
+                  scope='latest_256_owned_records_only')
+    result['approximate']=len(rows)>256
+    return result
+
+
+def _cx5_anchor(owner,rid):
+    row=_cx5_one('SELECT * FROM cx5_versions WHERE owner_id=? AND record_id=? ORDER BY version DESC LIMIT 1',(owner,rid))
+    if not row:_cx5_fail('record_not_found',404)
+    _cx5_checkrow(row)
+    km=globals().get('key_manager')
+    if km is None or getattr(km,'sig_alg_name',None) not in ('ML-DSA-65','ML-DSA-87') or not getattr(km,'sig_pub',None):
+        raise RuntimeError('native_ml_dsa_signing_unavailable')
+    payload={'schema':'cx5-index-anchor-v1','owner_id':owner,'record_id':rid,
+             'version':row['version'],'chain_hash':row['chain_hash'],'cid':row['cid'],
+             'pin_state':row['pin_state'],'issued_at_utc':_cx4_now().isoformat()}
+    message=b'Roadscanner|CX5|index-anchor|v1\0'+_cx4_canonical(payload).encode()
+    signature=km.sign_blob(message)
+    return {'payload':payload,'signature':{'algorithm':km.sig_alg_name,
+      'public_key':_cx5_base64.b64encode(km.sig_pub).decode(),
+      'value':_cx5_base64.b64encode(signature).decode()},
+      'verification_requires_previously_trusted_key':True,
+      'rollback_detection_requires_saved_prior_anchor':True}
+
+
+@app.post('/api/chromograph/v3/devices')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_issue_device():
+    body=_cx_payload(8192)
+    if set(body)-{'scopes','ttl_hours'}:_cx5_fail('invalid_device_fields')
+    scopes=body.get('scopes')
+    if not isinstance(scopes,list) or not scopes or any(not isinstance(s,str) for s in scopes) or not set(scopes)<=_CX5_SCOPES:
+        _cx5_fail('invalid_device_scopes')
+    hours=_cx4_number(body.get('ttl_hours',24),1.,168.)
+    device=_cx4_secrets.token_hex(16)
+    token='rsd1.'+device+'.'+_cx4_secrets.token_urlsafe(32)
+    now=int(_cx_time.time())
+    _cx5_db().query('''INSERT INTO cx5_devices(device_id,owner_id,token_hash,scopes_json,created_at,expires_at)
+        VALUES (?,?,?,?,?,?)''',(device,_cx5_g.cx5_owner,_cx_hashlib.sha256(token.encode()).hexdigest(),
+                              _cx4_canonical(sorted(set(scopes))),now,now+int(hours*3600)))
+    return _cx_response({'device_id':device,'token':token,'scopes':sorted(set(scopes)),
+                         'expires_at':now+int(hours*3600),'token_displayed_once':True},201)
+
+
+@app.get('/api/chromograph/v3/devices')
+@_cx5_endpoint
+def cx5_devices():
+    rows=_cx5_rows('''SELECT device_id,scopes_json,created_at,expires_at,revoked_at FROM cx5_devices
+                     WHERE owner_id=? ORDER BY created_at DESC LIMIT 100''',(_cx5_g.cx5_owner,))
+    for row in rows:row['scopes']=_cx_json.loads(row.pop('scopes_json'))
+    return _cx_response({'devices':rows})
+
+
+@app.post('/api/chromograph/v3/devices/<device_id>/revoke')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_revoke_device(device_id):
+    rows=_cx5_rows('''UPDATE cx5_devices SET revoked_at=? WHERE owner_id=? AND device_id=? AND revoked_at IS NULL
+                     RETURNING device_id''',(int(_cx_time.time()),_cx5_g.cx5_owner,device_id))
+    if not rows:_cx5_fail('device_not_found_or_already_revoked',404)
+    return _cx_response({'revoked':True,'device_id':device_id})
+
+
+@app.post('/api/chromograph/v3/records')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_create_record():
+    row,created=_cx5_create(_cx5_g.cx5_owner,_cx_payload(250_000),request.headers.get('Idempotency-Key'))
+    return _cx_response({'record':row,'created':created,'published':row['pin_state']=='pinned'},201 if created else 200)
+
+
+@app.get('/api/chromograph/v3/records/<record_id>')
+@_cx5_endpoint
+def cx5_record(record_id):
+    return _cx_response(_cx5_read(_cx5_g.cx5_owner,record_id,request.args.get('ciphertext')=='1'))
+
+
+@app.get('/api/chromograph/v3/records/<record_id>/versions')
+@_cx5_endpoint
+def cx5_versions(record_id):
+    rows=_cx5_rows('''SELECT record_id,version,kind,context_hash,envelope_sha256,previous_hash,chain_hash,
+      pin_state,cid,created_at,pinned_at FROM cx5_versions WHERE owner_id=? AND record_id=?
+      ORDER BY version DESC LIMIT 101''',(_cx5_g.cx5_owner,record_id))
+    return _cx_response({'versions':rows[:100],'truncated':len(rows)>100})
+
+
+@app.get('/api/chromograph/v3/records/<record_id>/checkpoint')
+@_cx5_endpoint
+def cx5_checkpoint(record_id):
+    return _cx_response(_cx5_anchor(_cx5_g.cx5_owner,record_id))
+
+
+@app.post('/api/chromograph/v3/search')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_registry_search():
+    return _cx_response(_cx5_search(_cx5_g.cx5_owner,_cx_payload(64*1024)))
+
+
+@app.post('/api/chromograph/v3/weather')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_weather():
+    body=_cx_payload(8192)
+    if set(body)-{'lat','lon','radar','location_ack'} or body.get('location_ack') is not True:
+        _cx5_fail('location_consent_required')
+    return _cx_response(_cx_live_context(body['lat'],body['lon'],body.get('radar',True) is True))
+
+
+@app.post('/api/chromograph/v3/route-exposure')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_route():
+    return _cx_response(_cx4_route_exposure(_cx_payload(64*1024)))
+
+
+@app.post('/api/chromograph/v3/ai/analyze')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_ai():
+    if _cx_os.getenv('ROADSCANNER_CX_DEVICE_AI_ENABLED')!='1':_cx5_fail('device_ai_disabled',404)
+    body=_cx_payload(64*1024)
+    if body.get('location_ack') is not True:_cx5_fail('location_consent_required')
+    features=_cx_public_decision_features(body)
+    pos=body.get('current_position')
+    if not isinstance(pos,dict):_cx5_fail('location_required')
+    context=_cx_live_context(pos['lat'],pos['lon'],True)
+    features['weather']={k:v for k,v in context['weather'].items() if k in _CX4_BOUNDS and v is not None}
+    raw,model=_cx_call_openai(features,context['circuit'])
+    return _cx_response(_cx_finalize_decision(raw,features,context['circuit'],model))
+
+
+@app.post('/api/chromograph/v3/admin/publish-next')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_publish():
+    return _cx_response(_cx5_publish_one())
+
+
+@app.post('/api/chromograph/v3/records/<record_id>/retry')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_retry(record_id):
+    rows=_cx5_rows('''UPDATE cx5_versions SET pin_state='pending',attempts=0,retry_after=0,last_error=NULL
+      WHERE owner_id=? AND record_id=? AND pin_state='dead' RETURNING version''',(_cx5_g.cx5_owner,record_id))
+    return _cx_response({'retried_versions':[r['version'] for r in rows]})
+
+
+@app.post('/api/chromograph/v3/admin/maintenance')
+@csrf.exempt
+@_cx5_endpoint
+def cx5_maintenance():
+    cutoff=int(_cx_time.time())-86400
+    _cx5_db().query('DELETE FROM cx5_budgets WHERE rowid IN (SELECT rowid FROM cx5_budgets WHERE window_start<? LIMIT 1000)',(cutoff,))
+    rows=_cx5_rows('SELECT pin_state,COUNT(*) AS count FROM cx5_versions GROUP BY pin_state')
+    return _cx_response({'queue_counts':{r['pin_state']:r['count'] for r in rows},'old_budgets_pruned':True})
+@app.get('/api/chromograph/v3/status')
+@_cx5_endpoint
+def cx5_status():
+    km=globals().get('key_manager')
+    return _cx_response({'version':'0.5','backend':_cx_os.getenv('ROADSCANNER_CX_REGISTRY_BACKEND',''),
+        'schema':'cx5-owned-registry-v1','scoped_device_credentials':True,
+        'single_statement_mutations':True,'queue_mode':'explicit_operator_drain_not_background_thread',
+        'trusted_native_verifier_ready':km is not None and getattr(km,'sig_alg_name',None) in ('ML-DSA-65','ML-DSA-87') and bool(getattr(km,'sig_pub',None)),
+        'pinning_secret_configured':bool(_cx_os.getenv('PINATA_JWT')),
+        'device_ai_enabled':_cx_os.getenv('ROADSCANNER_CX_DEVICE_AI_ENABLED')=='1',
+        'legacy_shared_relay_enabled':_cx_os.getenv('ROADSCANNER_CX_ALLOW_LEGACY_RELAY')=='1',
+        'r2_recovery_implemented_here':False,'production_validated':False})
+# END ROADSCANNER CHROMOGRAPH-X V0.5
+
+# BEGIN ROADSCANNER CHROMOGRAPH-X V0.6
+# Server-rendered workspace, live account-bound devices, owned record browsing.
+# No local models, TypeScript, browser script framework or new crypto primitive.
+from flask import make_response as _cx6_make_response, url_for as _cx6_url_for
+from flask import redirect as _cx6_redirect
+from markupsafe import Markup as _cx6_Markup
+from urllib.parse import quote as _cx6_quote
+from flask_wtf.csrf import generate_csrf as _cx6_csrf_token
+
+_CX6_SCHEMA = '''
+CREATE TABLE IF NOT EXISTS cx6_device_subjects (
+  device_id TEXT PRIMARY KEY,
+  legacy_user_id INTEGER NOT NULL,
+  auth_fingerprint TEXT NOT NULL,
+  bound_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS cx6_subject_devices ON cx6_device_subjects(legacy_user_id);
+'''
+
+
+def _cx6_account_snapshot(user_id):
+    # Read-only, live legacy account lookup. Never auto-creates a missing DB.
+    source=globals().get('DB_FILE')
+    if source is None:raise RuntimeError('legacy_identity_database_required')
+    path=_cx5_pathlib.Path(source).resolve(strict=True)
+    uri='file:'+_cx6_quote(str(path),safe='/')+'?mode=ro'
+    connection=_cx5_sqlite.connect(uri,uri=True,timeout=4)
+    connection.row_factory=_cx5_sqlite.Row
+    try:
+        connection.execute('BEGIN')
+        account=connection.execute('SELECT id,password,is_admin,webauthn_user_handle FROM users WHERE id=?',(user_id,)).fetchone()
+        if not account:return None
+        credentials=connection.execute('''SELECT id,credential_id,credential_data FROM webauthn_credentials
+            WHERE user_id=? ORDER BY id LIMIT 129''',(user_id,)).fetchall()
+        if len(credentials)>128:raise RuntimeError('account_credential_limit_exceeded')
+        def encoded(value):
+            return _cx5_base64.b64encode(value).decode() if isinstance(value,bytes) else str(value or '')
+        material={'id':int(account['id']),'password_hash':account['password'],
+            'admin':bool(account['is_admin']),'handle':encoded(account['webauthn_user_handle']),
+            'passkeys':[[int(c['id']),encoded(c['credential_id']),encoded(c['credential_data'])] for c in credentials]}
+        key=_cx_os.getenv('ROADSCANNER_CX_OWNER_KEY','')
+        if len(key)<32:raise RuntimeError('stable_owner_namespace_key_required')
+        fingerprint=_cx_hmac.new(key.encode(),b'Roadscanner|CX6|account-binding|v1\0'+
+                                 _cx4_canonical(material).encode(),_cx_hashlib.sha256).hexdigest()
+        return {'user_id':int(account['id']),'auth_fingerprint':fingerprint}
+    finally:
+        connection.close()
+
+
+def _cx6_session_binding():
+    resolver=globals().get('get_user_id')
+    if not callable(resolver):raise RuntimeError('legacy_identity_resolver_required')
+    user_id=resolver(session.get('username',''))
+    if user_id is None:_cx5_fail('account_unavailable',401)
+    snapshot=_cx6_account_snapshot(user_id)
+    if snapshot is None:_cx5_fail('account_unavailable',401)
+    # Existing native recent-auth policy where available, else conservative 5 min.
+    recent=globals().get('_has_recent_authentication')
+    if callable(recent):fresh=bool(recent())
+    else:
+        try:age=int(_cx_time.time())-int(session.get('auth_time',0))
+        except (ValueError,TypeError):age=-1
+        fresh=0<=age<=300
+    if not fresh:_cx5_fail('recent_login_required_for_device_issuance',403)
+    if (session.get('cx6_auth_user_id')!=snapshot['user_id'] or
+            not isinstance(session.get('cx6_auth_fingerprint'),str) or
+            not _cx_hmac.compare_digest(session['cx6_auth_fingerprint'],snapshot['auth_fingerprint'])):
+        _cx5_fail('sign_in_again_for_device_issuance',403)
+    return snapshot
+
+
+# Bind the recent browser sign-in itself to its credential snapshot, so an
+# old cookie cannot mint fresh device tokens after a password/passkey change.
+_cx6_original_establish=globals().get('_establish_authenticated_session')
+if callable(_cx6_original_establish):
+    @_cx4_functools.wraps(_cx6_original_establish)
+    def _cx6_establish_session(*args,**kwargs):
+        result=_cx6_original_establish(*args,**kwargs)
+        if _cx_enabled() and _cx_os.getenv('ROADSCANNER_CX_REGISTRY_ENABLED')=='1':
+            try:
+                uid=globals()['get_user_id'](session.get('username',''))
+                snapshot=_cx6_account_snapshot(uid) if uid is not None else None
+                if snapshot:
+                    session['cx6_auth_user_id']=snapshot['user_id']
+                    session['cx6_auth_fingerprint']=snapshot['auth_fingerprint']
+            except Exception as exc:
+                logger.warning('Chromograph sign-in binding unavailable: %s',type(exc).__name__)
+                session.pop('cx6_auth_user_id',None)
+                session.pop('cx6_auth_fingerprint',None)
+        return result
+    _establish_authenticated_session=_cx6_establish_session
+
+
+_cx6_original_issue=app.view_functions['cx5_issue_device']
+
+
+def _cx6_issue(owner,scopes,hours,binding=None):
+    binding=binding or _cx6_session_binding()
+    key=_cx_os.getenv('ROADSCANNER_CX_OWNER_KEY','')
+    expected_owner=_cx_hmac.new(key.encode(),b'Roadscanner|CX5|owner|v1\0'+
+                               ('user-id:'+str(binding['user_id'])).encode(),_cx_hashlib.sha256).hexdigest()
+    if not _cx_hmac.compare_digest(owner,expected_owner):_cx5_fail('account_changed_during_issuance',409)
+    if not isinstance(scopes,list) or not scopes or any(not isinstance(x,str) for x in scopes) or not set(scopes)<=_CX5_SCOPES:
+        _cx5_fail('invalid_device_scopes')
+    hours=_cx4_number(hours,1.,168.)
+    device=_cx4_secrets.token_hex(16)
+    token='rsd1.'+device+'.'+_cx4_secrets.token_urlsafe(32)
+    now=int(_cx_time.time())
+    _cx5_db().query('''INSERT INTO cx5_devices(device_id,owner_id,token_hash,scopes_json,created_at,expires_at)
+        VALUES (?,?,?,?,?,?)''',(device,owner,_cx_hashlib.sha256(token.encode()).hexdigest(),
+                              _cx4_canonical(sorted(set(scopes))),now,now+int(hours*3600)))
+    try:
+        _cx5_db().query('''INSERT INTO cx6_device_subjects(device_id,legacy_user_id,auth_fingerprint,bound_at)
+            VALUES (?,?,?,?)''',(device,binding['user_id'],binding['auth_fingerprint'],now))
+    except Exception:
+        # An unbound row is unusable even if this cleanup fails. Never disclose
+        # its plaintext credential after a partial issuance failure.
+        try:_cx5_db().query('UPDATE cx5_devices SET revoked_at=? WHERE device_id=?',(now,device))
+        except Exception:pass
+        raise RuntimeError('device_account_binding_unavailable')
+    return {'device_id':device,'token':token,'scopes':sorted(set(scopes)),
+            'expires_at':now+int(hours*3600),'token_displayed_once':True,'account_bound':True}
+
+
+@_cx4_functools.wraps(_cx6_original_issue)
+def _cx6_bound_issue():
+    try:
+        body=_cx_payload(8192)
+        if set(body)-{'scopes','ttl_hours'}:_cx5_fail('invalid_device_fields')
+        return _cx_response(_cx6_issue(_cx5_g.cx5_owner,body.get('scopes'),body.get('ttl_hours',24)),201)
+    except _CX5Error as exc:return _cx_error(exc.code,exc.status)
+    except (ValueError,TypeError):return _cx_error('invalid_device_fields',400)
+    except _cx5_HTTPException:raise
+    except Exception as exc:
+        logger.warning('Chromograph device binding unavailable: %s',type(exc).__name__)
+        return _cx_error('device_binding_unavailable',503)
+
+
+app.view_functions['cx5_issue_device']=_cx6_bound_issue
+_cx6_original_device=_cx5_device
+
+
+def _cx6_account_bound_device(token,scope):
+    device=_cx6_original_device(token,scope)
+    binding=_cx5_one('SELECT legacy_user_id,auth_fingerprint FROM cx6_device_subjects WHERE device_id=?',(device['device_id'],))
+    current=_cx6_account_snapshot(binding['legacy_user_id']) if binding else None
+    if not current or not _cx_hmac.compare_digest(binding['auth_fingerprint'],current['auth_fingerprint']):
+        _cx5_db().query('''UPDATE cx5_devices SET revoked_at=? WHERE device_id=? AND revoked_at IS NULL''',
+                        (int(_cx_time.time()),device['device_id']))
+        _cx5_fail('device_account_changed_or_reissue_required',401)
+    return device
+
+
+_cx5_device=_cx6_account_bound_device
+
+
+def _cx6_list(owner,limit=30,cursor=None,kind=None):
+    if isinstance(limit,bool) or not isinstance(limit,int) or not 1<=limit<=100:_cx5_fail('invalid_limit')
+    params=[owner]
+    sql='''SELECT v.owner_id,v.record_id,v.version,v.kind,v.context_json,v.context_hash,
+                  v.envelope_sha256,v.previous_hash,v.chain_hash,v.pin_state,v.cid,v.created_at,v.pinned_at
+       FROM cx5_versions v WHERE v.owner_id=? AND NOT EXISTS
+       (SELECT 1 FROM cx5_versions n WHERE n.owner_id=v.owner_id AND n.record_id=v.record_id AND n.version>v.version)'''
+    if kind:
+        if not isinstance(kind,str) or not _cx_re.fullmatch(r'[a-z][a-z0-9_-]{0,39}',kind):_cx5_fail('invalid_kind')
+        sql+=' AND v.kind=?';params.append(kind)
+    if cursor:
+        try:
+            if not isinstance(cursor,str) or len(cursor)>240:raise ValueError()
+            point=_cx_json.loads(_cx5_base64.b64decode(cursor.encode(),altchars=b'-_',validate=True))
+            if (not isinstance(point,list) or len(point)!=2 or isinstance(point[0],bool)
+                    or not isinstance(point[0],int) or not 0<=point[0]<2**40
+                    or not isinstance(point[1],str) or not _CX5_RECORD.fullmatch(point[1])):raise ValueError()
+        except (ValueError,TypeError,UnicodeError):_cx5_fail('invalid_record_cursor')
+        sql+=' AND (v.created_at<? OR (v.created_at=? AND v.record_id>?))'
+        params.extend((point[0],point[0],point[1]))
+    sql+=' ORDER BY v.created_at DESC,v.record_id ASC LIMIT ?'
+    params.append(limit+1)
+    rows=_cx5_rows(sql,params)
+    selected=rows[:limit]
+    for row in selected:_cx5_checkrow(row)
+    result=[{**_cx5_public(row),'public_context':_cx4_context(_cx_json.loads(row['context_json']))} for row in selected]
+    next_cursor=None
+    if len(rows)>limit:
+        last=selected[-1]
+        next_cursor=_cx5_base64.urlsafe_b64encode(_cx4_canonical([last['created_at'],last['record_id']]).encode()).decode()
+    return {'records':result,'next_cursor':next_cursor,'cursor_is_authorization':False,
+            'snapshot_consistency':'best_effort_under_concurrent_revisions'}
+
+
+def _cx6_jobs(owner=None,limit=30):
+    now=int(_cx_time.time())
+    where='WHERE owner_id=?' if owner else ''
+    params=[owner] if owner else []
+    counts=_cx5_rows('SELECT pin_state,COUNT(*) AS count FROM cx5_versions '+where+' GROUP BY pin_state',params)
+    sql='''SELECT record_id,version,pin_state,attempts,retry_after,lease_until,last_error,created_at
+           FROM cx5_versions '''+where
+    sql+=' AND pin_state!=\'pinned\'' if where else ' WHERE pin_state!=\'pinned\''
+    sql+=' ORDER BY created_at DESC,record_id LIMIT ?'
+    rows=_cx5_rows(sql,[*params,limit])
+    for row in rows:
+        row['lease_reclaimable']=row['pin_state']=='leased' and row['lease_until']<=now
+        row['due_now']=row['pin_state']=='pending' and row['retry_after']<=now
+        row['wait_seconds']=max(0,row['retry_after']-now) if row['pin_state']=='pending' else None
+    return {'counts':{r['pin_state']:r['count'] for r in counts},'jobs':rows,
+            'scope':'own' if owner else 'admin_all','limit':limit,
+            'computed_at_utc':_cx4_now().isoformat()}
+
+
+_CX5_ROUTE_POLICY.update({'cx6_records_api':('both','record:read','read',120),
+                         'cx6_jobs_api':('admin',None,'jobs',30)})
+
+
+@app.get('/api/chromograph/v3/records')
+@_cx5_endpoint
+def cx6_records_api():
+    try:limit=int(request.args.get('limit','30'))
+    except ValueError:_cx5_fail('invalid_limit')
+    return _cx_response(_cx6_list(_cx5_g.cx5_owner,limit,request.args.get('cursor'),request.args.get('kind')))
+
+
+@app.get('/api/chromograph/v3/admin/jobs')
+@_cx5_endpoint
+def cx6_jobs_api():
+    return _cx_response(_cx6_jobs())
+
+
+_CX6_UI_POLICY={
+    'cx6_workspace':('workspace',60,False),
+    'cx6_search_form':('search',30,False),
+    'cx6_upload_form':('write',12,False),
+    'cx6_device_form':('devices',10,False),
+    'cx6_revoke_form':('devices',10,False),
+    'cx6_weather_form':('weather',12,False),
+    'cx6_publish_form':('publish',6,True),
+    'cx6_retry_form':('retry',6,False),
+    'cx6_record_page':('read',120,False),
+}
+
+
+@app.before_request
+def cx6_workspace_guard():
+    if request.endpoint not in _CX6_UI_POLICY:return None
+    try:
+        if not _cx_enabled() or _cx_os.getenv('ROADSCANNER_CX_REGISTRY_ENABLED')!='1':
+            _cx5_fail('workspace_disabled',404)
+        if request.headers.get('Authorization'):_cx5_fail('browser_session_required',403)
+        owner=_cx5_owner()
+        group,limit,admin=_CX6_UI_POLICY[request.endpoint]
+        if admin and not _cx_admin():_cx5_fail('admin_required',403)
+        _cx5_g.cx5_owner=owner
+        _cx5_g.cx5_request_id=_cx4_secrets.token_hex(12)
+        request.max_content_length=260_000 if request.endpoint=='cx6_upload_form' else 16_000
+        if request.method=='POST':csrf.protect()
+        _cx5_budget(owner,group,limit)
+    except _CX5Error as exc:return _cx_error(exc.code,exc.status)
+    except _cx5_HTTPException:raise
+    except Exception as exc:
+        logger.warning('Chromograph workspace unavailable: %s',type(exc).__name__)
+        return _cx_error('workspace_configuration_unavailable',503)
+
+
+def _cx6_workspace_data(**extra):
+    owner=_cx5_g.cx5_owner
+    page=_cx6_list(owner,20,request.args.get('cursor'))
+    user_id=globals()['get_user_id'](session.get('username',''))
+    snapshot=_cx6_account_snapshot(user_id)
+    devices=_cx5_rows('''SELECT d.device_id,d.scopes_json,d.created_at,d.expires_at,d.revoked_at,
+                           b.auth_fingerprint AS binding_fingerprint
+                       FROM cx5_devices d LEFT JOIN cx6_device_subjects b ON b.device_id=d.device_id
+                       WHERE d.owner_id=? ORDER BY d.created_at DESC LIMIT 50''',(owner,))
+    for row in devices:
+        row['scopes']=_cx_json.loads(row.pop('scopes_json'))
+        bound=row.pop('binding_fingerprint')
+        same=bool(snapshot and bound and _cx_hmac.compare_digest(bound,snapshot['auth_fingerprint']))
+        row['status']='revoked' if row['revoked_at'] is not None else (
+          'expired' if row['expires_at']<=int(_cx_time.time()) else 'active' if same else 'reissue required')
+        row['active']=row['status']=='active'
+    data={'page':page,'devices':devices,'queue':_cx6_jobs(owner),
+          'admin':_cx_admin(),'scopes':sorted(_CX5_SCOPES),
+          'query_rgb':'#3388cc','matches':None,'notice':None,'issued':None,'weather':None,
+          'selected':None,'history':[],'write_key':_cx4_secrets.token_hex(16)}
+    data.update(extra)
+    return data
+
+
+def _cx6_page(status=200,**extra):
+    data=_cx6_workspace_data(**extra)
+    response=_cx6_make_response(render_template_string(_CX6_HTML,**data),status)
+    response.headers['Cache-Control']='no-store'
+    response.headers['Referrer-Policy']='no-referrer'
+    response.headers['X-Content-Type-Options']='nosniff'
+    return response
+
+
+def _cx6_ui_error(message,status):
+    response=_cx6_make_response(render_template_string('''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chromograph unavailable</title><body style="background:#0b1422;color:#eef5ff;font:16px system-ui;padding:40px;max-width:700px;margin:auto"><h1>Workspace unavailable</h1><p>{{message}}</p><a href="/chromograph" style="color:#80c9ff">Return to workspace</a></body></html>''',message=message),status)
+    response.headers['Cache-Control']='no-store'
+    return response
+
+
+def _cx6_ui_view(function):
+    @_cx4_functools.wraps(function)
+    def wrapped(*args,**kwargs):
+        try:return function(*args,**kwargs)
+        except _cx5_HTTPException:raise
+        except _CX5Error as exc:
+            return _cx6_ui_error('The requested record or action is unavailable in this account.',exc.status)
+        except Exception as exc:
+            logger.warning('Chromograph UI unavailable: %s',type(exc).__name__)
+            return _cx6_ui_error('Storage or a provider is unavailable. No successful publication is being claimed. Please retry later.',503)
+    return wrapped
+
+
+@app.get('/chromograph')
+@_cx6_ui_view
+def cx6_workspace():
+    return _cx6_page()
+
+
+@app.post('/chromograph/search')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_search_form():
+    try:
+        rgb=request.form.get('rgb','')
+        tags=[x.strip() for x in request.form.get('tags','').split(',') if x.strip()]
+        result=_cx5_search(_cx5_g.cx5_owner,{'query':{'rgb':rgb,'tags':tags},'limit':20,'diversity':.15})
+        return _cx6_page(matches=result,query_rgb=rgb)
+    except (_CX5Error,ValueError,TypeError):return _cx6_page(status=400,notice='Check the color and tags, then try again.')
+
+
+@app.post('/chromograph/upload')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_upload_form():
+    try:
+        upload=request.files.get('ciphertext')
+        if upload is None:_cx5_fail('encrypted_file_required')
+        raw=upload.stream.read(180_001)
+        if len(raw)>180_000:_cx5_fail('encrypted_file_too_large')
+        text=raw.decode('utf-8').strip()
+        data={'record_id':request.form.get('record_id',''),
+              'expected_version':int(request.form.get('expected_version','0')),
+              'kind':request.form.get('kind','hazard'),
+              'public_context':{'rgb':request.form.get('rgb',''),
+                'tags':[s.strip() for s in request.form.get('tags','').split(',') if s.strip()]},
+              'public_index_ack':request.form.get('public_ack')=='yes','envelope':text}
+        if data['expected_version']>0:
+            previous=_cx5_read(_cx5_g.cx5_owner,data['record_id'])
+            if previous['version']!=data['expected_version']:_cx5_fail('version_conflict',409)
+            preserved=_cx4_context(previous['public_context'])
+            if preserved['rgb']!=data['public_context']['rgb']:
+                preserved['palette']=[{'rgb':data['public_context']['rgb'],'weight':1.}]
+            preserved.update(rgb=data['public_context']['rgb'],tags=data['public_context']['tags'])
+            data['public_context']=preserved
+        row,created=_cx5_create(_cx5_g.cx5_owner,data,request.form.get('write_key'))
+        return _cx6_page(notice=f"Saved {row['record_id']} version {row['version']}. Publishing status: {row['pin_state']}.")
+    except _CX5Error as exc:
+        messages={'version_conflict':'This record changed. Reopen its history before uploading a revision.',
+          'explicit_public_index_consent_required':'Confirm that the chosen color and tags may be indexed.',
+          'idempotency_key_reused':'This upload form was already used for different data. Reload and try again.'}
+        return _cx6_page(status=exc.status,notice=messages.get(exc.code,'The encrypted export could not be accepted. Check its format and trusted signing key.'))
+    except (ValueError,UnicodeError,TypeError):return _cx6_page(status=400,notice='Choose a valid encrypted Roadscanner export and complete the record fields.')
+    except Exception as exc:
+        logger.warning('Workspace upload unavailable: %s',type(exc).__name__)
+        return _cx6_page(status=503,notice='Trusted verification or storage is unavailable. Your file was not published.')
+
+
+@app.post('/chromograph/devices')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_device_form():
+    try:
+        issued=_cx6_issue(_cx5_g.cx5_owner,request.form.getlist('scopes'),
+                           float(request.form.get('ttl_hours','24')))
+        return _cx6_page(issued=issued['token'],notice='Device credential created. Store it securely; it will not be displayed again.')
+    except _CX5Error as exc:
+        return _cx6_page(status=exc.status,notice='Sign in again before issuing a device credential, and select its allowed actions.')
+    except (ValueError,TypeError):return _cx6_page(status=400,notice='Select allowed actions and a lifetime between 1 and 168 hours.')
+    except Exception as exc:
+        logger.warning('Workspace device issuance unavailable: %s',type(exc).__name__)
+        return _cx6_page(status=503,notice='Device binding could not be completed. No usable credential was disclosed.')
+
+
+@app.post('/chromograph/devices/<device_id>/revoke')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_revoke_form(device_id):
+    _cx5_db().query('''UPDATE cx5_devices SET revoked_at=? WHERE owner_id=? AND device_id=? AND revoked_at IS NULL''',
+                   (int(_cx_time.time()),_cx5_g.cx5_owner,device_id))
+    return _cx6_redirect(_cx6_url_for('cx6_workspace')+'#devices',code=303)
+
+
+@app.post('/chromograph/weather')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_weather_form():
+    try:
+        if request.form.get('location_ack')!='yes':_cx5_fail('location_consent_required')
+        lat=_cx4_number(float(request.form.get('lat','')), -85.05112878,85.05112878)
+        lon=_cx4_number(float(request.form.get('lon','')), -180.,180.)
+        result=_cx_live_context(lat,lon,True)
+        return _cx6_page(weather=result)
+    except (_CX5Error,ValueError,TypeError):return _cx6_page(status=400,notice='Enter valid coordinates and confirm the weather-provider request.')
+    except Exception:return _cx6_page(status=503,notice='Weather is unavailable. Missing data must not be treated as clear conditions.')
+
+
+@app.post('/chromograph/publish-next')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_publish_form():
+    try:
+        result=_cx5_publish_one()
+        message='No job is due.' if not result['claimed'] else 'Publishing result: '+result['state']+'.'
+        return _cx6_page(notice=message)
+    except Exception:return _cx6_page(status=503,notice='Publishing is unavailable. Queued encrypted data is retained for recovery.')
+
+
+@app.post('/chromograph/records/<record_id>/retry')
+@csrf.exempt
+@_cx6_ui_view
+def cx6_retry_form(record_id):
+    _cx5_db().query('''UPDATE cx5_versions SET pin_state='pending',attempts=0,retry_after=0,last_error=NULL
+        WHERE owner_id=? AND record_id=? AND pin_state='dead' ''',(_cx5_g.cx5_owner,record_id))
+    return _cx6_redirect(_cx6_url_for('cx6_workspace')+'#publish',code=303)
+
+
+@app.get('/chromograph/records/<record_id>')
+@_cx6_ui_view
+def cx6_record_page(record_id):
+    try:
+        selected=_cx5_read(_cx5_g.cx5_owner,record_id)
+        selected['public_context']=_cx4_context(selected['public_context'])
+        history=_cx5_rows('''SELECT version,pin_state,cid,chain_hash,created_at FROM cx5_versions
+            WHERE owner_id=? AND record_id=? ORDER BY version DESC LIMIT 100''',(_cx5_g.cx5_owner,record_id))
+        return _cx6_page(selected=selected,history=history)
+    except _CX5Error as exc:return _cx6_page(status=exc.status,notice='The record could not be opened in this account.')
+
+
+_CX6_HTML = r'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>Chromograph · Roadscanner</title>
+<style>
+:root{--bg:#090f19;--panel:#101c2c;--muted:#9eb0c7;--ink:#edf4ff;--line:#25364c;--accent:#68dbc4;--blue:#75b5ff;--warn:#f4cb76}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top right,#12354c80,transparent 48%),var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}a{color:var(--blue)}header{border-bottom:1px solid var(--line);padding:20px max(5vw,20px);display:flex;justify-content:space-between;gap:20px;align-items:center}header a{text-decoration:none}nav{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}main{max-width:1240px;margin:auto;padding:42px 24px 70px}.eyebrow{color:var(--accent);font-size:12px;letter-spacing:.14em;text-transform:uppercase}h1{font-size:clamp(30px,4vw,48px);line-height:1.12;margin:10px 0 14px}h2{font-size:21px;line-height:1.3;margin:0 0 14px}h3{font-size:16px;margin:0 0 10px}p{margin:8px 0}.muted,small{color:var(--muted)}.hero{max-width:780px;margin-bottom:30px}.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:22px;align-items:start}.stack{display:grid;gap:22px}.card{background:linear-gradient(145deg,#142337,#101b2b);border:1px solid var(--line);border-radius:18px;padding:24px;min-width:0}.notice{margin-bottom:22px;border:1px solid #406c7d;background:#142d3c;padding:15px 20px;border-radius:12px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:20px 0}.metric{background:#0a1422;border:1px solid var(--line);border-radius:10px;padding:12px}.metric b{display:block;font-size:23px}.metric span{font-size:12px;color:var(--muted)}label{display:block;font-size:13px;color:#bfcee0;margin:12px 0 5px}input,select,textarea,button{font:inherit}input,select,textarea{border:1px solid #36506d;background:#091524;color:var(--ink);border-radius:9px;padding:10px 12px;max-width:100%;width:100%}input[type=color]{padding:4px;height:44px;width:66px}input[type=checkbox]{width:auto;accent-color:var(--accent);margin-right:8px}input[type=file]{font-size:13px}button,.button{display:inline-block;background:var(--accent);color:#07221d;padding:10px 16px;border:0;border-radius:9px;font-weight:650;cursor:pointer;text-decoration:none;min-height:42px}button.secondary{background:#243a53;color:var(--ink)}button.danger{background:#3b2330;color:#ffcad5}button:hover{filter:brightness(1.1)}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--blue);outline-offset:3px}.row{display:flex;gap:12px;align-items:end}.row>div{flex:1;min-width:0}.row>.color-field{flex:0 0 76px}.check{display:flex;align-items:flex-start;gap:4px;margin:12px 0;font-size:13px}.check input{margin-top:5px}.check label{margin:0}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}.table-wrap{overflow:auto;max-width:100%}table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;padding:12px 8px;border-bottom:1px solid var(--line);vertical-align:middle}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}.swatch{display:inline-block;width:18px;height:18px;border:1px solid #ffffff38;border-radius:5px;vertical-align:middle;margin-right:8px}.badge{display:inline-block;background:#1e3547;color:#bfe6ef;padding:3px 8px;border-radius:6px;font-size:11px}.badge.dead,.badge.NO_GO{background:#482532;color:#ffd1d7}.badge.pending,.badge.CAUTION,.badge.UNKNOWN{background:#403622;color:#ffe3a4}.badge.pinned,.badge.GO{background:#173a32;color:#a8f0d8}.mono{font-family:ui-monospace,monospace;font-size:12px;overflow-wrap:anywhere}.scopes{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px}.record-name{max-width:220px;overflow-wrap:anywhere}.empty{padding:26px 0;color:var(--muted);font-size:14px}.rule{border:0;border-top:1px solid var(--line);margin:22px 0}.weather-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}details summary{cursor:pointer;color:var(--blue);padding:8px 0}.token{background:#0b2430;border:1px solid #32797c;padding:14px;border-radius:10px;margin:14px 0}.footnote{font-size:12px;color:var(--muted);margin-top:24px}.result{padding:14px 0;border-bottom:1px solid var(--line)}.result header{border:0;padding:0;align-items:start}.result small{display:block;margin-top:6px}
+@media(max-width:850px){.grid{grid-template-columns:1fr}header{align-items:start;flex-direction:column}nav{gap:14px}.metrics{grid-template-columns:repeat(2,1fr)}.card{padding:18px}main{padding:28px 16px}.row{flex-wrap:wrap}.weather-grid{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<header><a href="/dashboard"><b>Roadscanner</b> <span class="muted">/ Chromograph</span></a><nav aria-label="Workspace navigation"><a href="#records">Records</a><a href="#devices">Devices</a><a href="#weather">Weather</a><a href="#publish">Publishing</a></nav></header>
+<main><div class="hero"><div class="eyebrow">Your road intelligence workspace · v0.6</div><h1>Find patterns.<br>Keep control of your data.</h1><p class="muted">Search your saved records by color and context. Manage encrypted exports, device access, and publishing in one place.</p></div>
+{% if notice %}<div class="notice" role="status">{{notice}}</div>{% endif %}
+{% if issued %}<section class="token" aria-label="New device credential"><b>Save this credential now</b><p class="muted">It is shown once by the server. Store it in your device's secure credential store.</p><textarea readonly rows="3" aria-label="Device credential" autocomplete="off">{{issued}}</textarea></section>{% endif %}
+<div class="metrics">{% for state,label in [('pinned','Published'),('pending','Queued'),('leased','Processing'),('dead','Need attention')] %}<div class="metric"><b>{{queue.counts.get(state,0)}}</b><span>{{label}}</span></div>{% endfor %}</div>
+<div class="grid"><div class="stack">
+<section class="card" id="records"><h2>Find a record</h2><p class="muted">Choose a color and optional public tags. Results explain which features matched.</p><form action="{{url_for('cx6_search_form')}}" method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="row"><div class="color-field"><label for="search-rgb">Color</label><input id="search-rgb" type="color" name="rgb" value="{{query_rgb}}"></div><div><label for="search-tags">Tags, separated by commas</label><input id="search-tags" name="tags" placeholder="wet, road" maxlength="640"></div><button type="submit">Search</button></div></form>
+{% if matches is not none %}<h3 style="margin-top:24px">Search results</h3>{% for hit in matches.results %}<div class="result"><header><a href="{{url_for('cx6_record_page',record_id=hit.record_id)}}">{{hit.record_id}}</a><span class="badge {{hit.pin_state}}">{{hit.pin_state}}</span></header><small>Match rank {{'%.3f'|format(hit.rank_score)}} · version {{hit.version}} · {{hit.kind}}</small><small>{% for channel,score in hit.explanation.channels.items() %}{{channel}} {{'%.2f'|format(score)}}{% if not loop.last %} · {% endif %}{% endfor %}</small></div>{% else %}<p class="empty">No saved records match this collection yet.</p>{% endfor %}{% if matches.truncated %}<p class="footnote">This search covers your latest 256 records. Older records can be browsed below.</p>{% endif %}<p class="footnote">Ranking is experimental similarity, not a hazard probability.</p>{% endif %}
+<hr class="rule"><h3>Your latest records</h3><div class="table-wrap"><table><thead><tr><th>Record</th><th>Version</th><th>Publishing</th></tr></thead><tbody>{% for record in page.records %}<tr><td class="record-name"><span class="swatch" style="background:{{record.public_context.rgb}}"></span><a href="{{url_for('cx6_record_page',record_id=record.record_id)}}">{{record.record_id}}</a><br><small>{{record.kind}}</small></td><td>{{record.version}}</td><td><span class="badge {{record.pin_state}}">{{record.pin_state}}</span></td></tr>{% else %}<tr><td colspan="3" class="empty">No records yet. Import an encrypted Roadscanner export to start.</td></tr>{% endfor %}</tbody></table></div>{% if page.next_cursor %}<p><a href="{{url_for('cx6_workspace',cursor=page.next_cursor)}}#records">Older records →</a></p>{% endif %}</section>
+{% if selected %}<section class="card" id="history"><h2>{{selected.record_id}}</h2><p class="muted">Version history is shown with immutable content digests. Publishing does not expose your plaintext.</p><div class="table-wrap"><table><thead><tr><th>Version</th><th>Status</th><th>Content reference</th></tr></thead><tbody>{% for v in history %}<tr><td>{{v.version}}</td><td><span class="badge {{v.pin_state}}">{{v.pin_state}}</span></td><td class="mono">{{v.cid or v.chain_hash}}</td></tr>{% endfor %}</tbody></table></div><p><a href="{{url_for('cx5_checkpoint',record_id=selected.record_id)}}">Open signed version checkpoint</a></p><p class="footnote">A checkpoint requires a previously trusted signing key to verify identity.</p></section>{% endif %}
+<section class="card" id="publish"><h2>Publishing status</h2><p class="muted">Encrypted files stay queued until a pinned copy can be fetched and its digest verified.</p>{% for job in queue.jobs %}<div class="result"><b>{{job.record_id}}</b> <span class="badge {{job.pin_state}}">{{job.pin_state}}</span><small>Version {{job.version}} · attempt {{job.attempts}}{% if job.due_now %} · ready to process{% elif job.wait_seconds %} · retry in {{job.wait_seconds}} seconds{% elif job.lease_reclaimable %} · expired lease can be recovered{% endif %}</small>{% if job.last_error %}<small>Publishing or verification needs attention. The encrypted copy is retained for recovery.</small>{% endif %}{% if job.pin_state=='dead' %}<form method="post" action="{{url_for('cx6_retry_form',record_id=job.record_id)}}"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="secondary" type="submit">Retry this record</button></form>{% endif %}</div>{% else %}<p class="empty">No pending publications in your collection.</p>{% endfor %}{% if admin %}<form method="post" action="{{url_for('cx6_publish_form')}}"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="actions"><button type="submit" class="secondary">Process next publication</button><a href="{{url_for('cx6_jobs_api')}}">Queue diagnostics</a></div><p class="footnote">Admin action processes one eligible record from the shared queue.</p></form>{% endif %}</section>
+</div><div class="stack">
+<section class="card"><h2>{{'Upload a revision' if selected else 'Import encrypted record'}}</h2><p class="muted">Only a genuine encrypted Roadscanner export is accepted. Keep original keys backed up.</p><form method="post" action="{{url_for('cx6_upload_form')}}" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><input type="hidden" name="write_key" value="{{write_key}}"><input type="hidden" name="expected_version" value="{{selected.version if selected else 0}}"><label for="record-id">Record ID</label><input id="record-id" name="record_id" pattern="[A-Za-z0-9_-]{4,80}" maxlength="80" value="{{selected.record_id if selected else ''}}" {{'readonly' if selected else ''}} required><label for="record-file">Encrypted export</label><input id="record-file" name="ciphertext" type="file" accept=".txt,.qrs2,.json" required><div class="row"><div class="color-field"><label for="record-rgb">Color</label><input id="record-rgb" type="color" name="rgb" value="{{selected.public_context.rgb if selected else '#3388cc'}}"></div><div><label for="kind">Record type</label><select id="kind" name="kind">{% if selected and selected.kind not in ['hazard','weather','generic'] %}<option value="{{selected.kind}}" selected>{{selected.kind}}</option>{% endif %}{% for kind in ['hazard','weather','generic'] %}<option value="{{kind}}" {{'selected' if selected and selected.kind==kind else ''}}>{{kind}}</option>{% endfor %}</select></div></div><label for="record-tags">Public tags</label><input id="record-tags" name="tags" maxlength="640" placeholder="wet, road" value="{{selected.public_context.tags|join(', ') if selected else ''}}"><div class="check"><input id="public-ack" name="public_ack" type="checkbox" value="yes" required><label for="public-ack">I allow the chosen color and tags to be stored as searchable metadata.</label></div><button type="submit">Save encrypted record</button></form></section>
+<section class="card" id="devices"><h2>Device access</h2><p class="muted">Choose only the actions each device needs. Account credential changes invalidate these tokens.</p><form method="post" action="{{url_for('cx6_device_form')}}"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="scopes">{% for scope in scopes %}<label class="check"><input type="checkbox" name="scopes" value="{{scope}}" {{'checked' if scope in ['record:read','search:read'] else ''}}>{{scope}}</label>{% endfor %}</div><label for="lifetime">Lifetime</label><select id="lifetime" name="ttl_hours"><option value="1">1 hour</option><option value="24" selected>24 hours</option><option value="168">7 days</option></select><div class="actions"><button type="submit" class="secondary">Create device credential</button></div><p class="footnote">A recent sign-in is required. Credentials are displayed once and never stored in plaintext by the server.</p></form><hr class="rule">{% for device in devices %}<div class="result"><span class="mono">{{device.device_id[:12]}}…</span><span class="badge">{{device.status}}</span><small>{{device.scopes|join(', ')}}</small>{% if device.active %}<form method="post" action="{{url_for('cx6_revoke_form',device_id=device.device_id)}}"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="actions"><button class="danger" type="submit">Revoke</button></div></form>{% endif %}</div>{% else %}<p class="empty">No device credentials yet.</p>{% endfor %}</section>
+<section class="card" id="weather"><h2>Check local conditions</h2><p class="muted">Coordinates are rounded before being sent to weather providers. Missing radar coverage cannot prove clear weather.</p><form method="post" action="{{url_for('cx6_weather_form')}}"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><div class="row"><div><label for="lat">Latitude</label><input id="lat" name="lat" type="number" min="-85.05112878" max="85.05112878" step="any" placeholder="33.50" required></div><div><label for="lon">Longitude</label><input id="lon" name="lon" type="number" min="-180" max="180" step="any" placeholder="-86.80" required></div></div><div class="check"><input id="location-ack" type="checkbox" name="location_ack" value="yes" required><label for="location-ack">Send rounded coordinates to Open-Meteo and RainViewer for this check.</label></div><button type="submit" class="secondary">Check conditions</button></form>{% if weather %}<hr class="rule"><span class="badge {{weather.circuit.weather_gate}}">{{weather.circuit.weather_gate}}</span><p class="muted">{{weather.circuit.reasons|join(', ') or 'No configured threshold exceeded.'}}</p><div class="weather-grid">{% for field,label,unit in [('wind_gust_kph','Wind gust','km/h'),('precipitation_mm','Precipitation','mm / hour envelope'),('visibility_km','Visibility','km')] %}<div><small>{{label}}</small><p><b>{{weather.weather.get(field) if weather.weather.get(field) is not none else 'Unknown'}}</b> {{unit}}</p></div>{% endfor %}</div><p class="footnote">Weather: Open-Meteo · Historical radar: RainViewer. Threshold screening is not a certified safe-driving decision.</p>{% endif %}</section>
+</div></div><p class="footnote">Experimental color and contextual similarity. Weather, timing, CPU, and RAM are not encryption randomness. Keep a trusted backup and verify real road conditions before acting.</p></main></body></html>'''
+
+
+# Add a navigation entry to existing pages that use the shared sidebar helper.
+# The original helper body and native application code are left unchanged.
+_cx6_original_sidebar=globals().get('qrs_user_sidebar_html')
+if callable(_cx6_original_sidebar):
+    def _cx6_sidebar(active='dashboard'):
+        content=_cx6_original_sidebar(active)
+        if _cx_enabled() and _cx_os.getenv('ROADSCANNER_CX_REGISTRY_ENABLED')=='1':
+            link=_cx6_Markup('<a href="{}" class="qrs-nav-link"><span>Chromograph workspace</span></a>').format(_cx6_url_for('cx6_workspace'))
+            return _cx6_Markup(str(content).replace('</aside>',str(link)+'</aside>',1))
+        return content
+    qrs_user_sidebar_html=_cx6_sidebar
+# END ROADSCANNER CHROMOGRAPH-X V0.6
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000, debug=False)
+

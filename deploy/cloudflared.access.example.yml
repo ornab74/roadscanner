@@ -1,0 +1,16 @@
+# TEMPLATE. Edit non-secret identifiers; keep credentials outside git.
+# Apply Access policy BEFORE creating the public DNS route.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /run/credentials/roadscanner-tunnel.json
+protocol: quic
+post-quantum: true
+ingress:
+  - hostname: roadscanner-staging.example.com
+    service: http://127.0.0.1:3001
+    originRequest:
+      access:
+        required: true
+        teamName: REPLACE_WITH_ACCESS_TEAM_NAME
+        audTag:
+          - REPLACE_WITH_ACCESS_APPLICATION_AUD
+  - service: http_status:404

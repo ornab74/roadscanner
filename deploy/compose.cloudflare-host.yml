@@ -1,0 +1,29 @@
+# Native host with a persistent, explicitly selected existing state volume.
+# No Cloudflare resources are created. Tunnel/Access are configured separately.
+services:
+  roadscanner:
+    image: ${ROADSCANNER_IMAGE:?Set the audited immutable image reference}
+    restart: unless-stopped
+    env_file:
+      - ${ROADSCANNER_ENV_FILE:?Set a decrypted runtime-only credentials file}
+    environment:
+      QRS_DATA_DIR: /var/data
+      STRICT_PQ2_ONLY: "1"
+    command: ["python", "scripts/cloudflare_preflight.py", "--target", "persistent-host", "--runtime", "--start"]
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - state:/var/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 1.0
+    stop_grace_period: 30s
+volumes:
+  state:
+    external: true
+    name: ${ROADSCANNER_STATE_VOLUME:?Select the restored private persistent volume}

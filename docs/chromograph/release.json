@@ -1,0 +1,27 @@
+{
+  "upstream_commit": "ed48c3851c591116044a8e66d888030b6d976f0e",
+  "upstream_main_blob": "8dcd96d713e309a8918533d8d689035686d39931",
+  "release_main_sha256": "a36706f2c75aa2624f9c152864427904035befde9a78e1ead10d439444b97b15",
+  "legacy_prefix_sha256": "197bdad715fdc3a0fd1ce4f7367fb9fe8bdad418f93929c7f1759c226b23d502",
+  "native_functions": {
+    "encrypt_data": "43d0a0ec7bce15ce0494e48bed119fa997ece700a02c1ed2a3edbfbcb65c291e",
+    "decrypt_data": "d34a892b73d51ac560ee94be0d6a4c3b3b698002b7f3cd8a51d9e1d6ce17104d"
+  },
+  "version": "0.6",
+  "cloudflare_deployed": false,
+  "native_key_startup_tested": false,
+  "visual_browser_layout_tested": false,
+  "validation": {
+    "isolated_tests": {
+      "tests": 137,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dependency_install": "hash-locked clean target",
+    "real_cloudflare_tested": false,
+    "native_crypto_mocked": true,
+    "security_audit_completed": false
+  },
+  "deployment_control": "User self-deploys; no provision, DNS, secret or deployment action performed."
+}

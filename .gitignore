@@ -30,8 +30,7 @@ pip-wheel-metadata/
 .mypy_cache/
 .ruff_cache/
 
-# Tests & Coverage
-tests/
+# Tests are tracked for reproducible review; generated coverage is ignored.
 .coverage
 htmlcov/
 
@@ -46,3 +45,27 @@ env.oqs
 
 # Logs
 *.log
+
+# Cloudflare/Chromograph local secrets and generated state
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+credentials/
+*.cred
+*.key
+*.pem
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-*
+models/
+*.gguf
+main.v03.py
+main.v04.py
+main.v05.py
+main.py.pre-chromograph.bak
+TEST_RESULTS.xml
+

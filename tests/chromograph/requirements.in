@@ -1,0 +1,5 @@
+# Test-only tooling. Not the native production or signed cloud dependency lock.
+Flask==3.1.3
+Flask-WTF==1.3.0
+httpx==0.28.1
+pytest==9.2.0

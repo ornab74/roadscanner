@@ -45,3 +45,27 @@ roadscanner.env
 !.env.example
 credentials/
 *.cred
+
+# Cloudflare/Chromograph local secrets and generated state
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+credentials/
+*.cred
+*.key
+*.pem
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-*
+models/
+*.gguf
+main.v03.py
+main.v04.py
+main.v05.py
+main.py.pre-chromograph.bak
+TEST_RESULTS.xml
+

@@ -1,3 +1,9 @@
+# Chromograph self-deployment and audit
+
+For the merged v0.6 branch, use [CLOUDFLARE_SELF_DEPLOY.md](docs/deployment/CLOUDFLARE_SELF_DEPLOY.md). It separates a persistent-host Cloudflare Tunnel deployment from disposable Cloudflare Containers staging, and lists production blockers. [DAYBREAK_HANDOFF.md](docs/deployment/DAYBREAK_HANDOFF.md) contains clone/test/audit steps.
+
+---
+
 # Roadscanner production deployment
 
 The maintained production instructions are in the
@@ -12,3 +18,4 @@ Both paths use rootless Docker, encrypted `systemd-creds` storage, strict
 ML-KEM/ML-DSA application mode, and strict post-quantum Cloudflare QUIC. Do not
 create a plaintext production `.env` file or expose ports 80/443 for the
 Cloudflare Tunnel deployment.
+
