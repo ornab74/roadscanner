@@ -1,0 +1,10 @@
+vulnerabilities:
+  - id: CVE-2025-69872
+    statement: >-
+      The signed Llama lock currently includes diskcache 5.6.3. Production
+      scanner images verify the reviewed source hash, disable both pickle read
+      paths, and execute malicious-pickle probes with
+      scripts/patch-diskcache-pysec-2026-2447.py. The web image removes the
+      package. Remove this exception when the signed lock moves to a fixed
+      upstream release.
+    expired_at: 2027-02-01

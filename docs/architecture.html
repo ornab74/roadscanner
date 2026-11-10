@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Roadscanner architecture</title><style>body{max-width:900px;margin:48px auto;padding:0 22px;background:#08111c;color:#eef7ff;font:16px/1.65 system-ui}a{color:#6ee7cf}code,pre{background:#101d2d;border:1px solid #29425a;border-radius:8px}code{padding:.1em .35em}pre{padding:18px;overflow:auto}</style></head><body>
+<p><a href="/">Documentation</a></p><h1>Security architecture</h1>
+<pre>Internet → Cloudflare Tunnel → roadscanner:3000
+                                   │
+                                   └─ signed request → llama-scanner:8080
+
+Internet → Cloudflare Tunnel → docs:8080</pre>
+<ul>
+  <li><strong>Roadscanner</strong> owns accounts, encrypted reports, Stripe webhooks, API keys, the credit ledger, and provider routing.</li>
+  <li><strong>Llama scanner</strong> is on an internal-only Docker network, publishes no host port, accepts only a bounded road-scene schema, and authenticates each request and response with replay-resistant HMAC envelopes.</li>
+  <li><strong>Docs</strong> is a static, read-only container. It receives no application volume or credentials and does not join the model network.</li>
+  <li><strong>Cloudflare</strong> remains the public ingress. Its tunnel credential is materialized only for the connector, never for the web or docs process.</li>
+</ul>
+<h2>Billing invariants</h2><ul><li>Browser redirects never grant credits.</li><li>Only a valid, fresh Stripe webhook can mutate a plan or add purchased credits.</li><li>Stripe event IDs and credit ledger references are unique.</li><li>API scans reserve one credit in an immediate transaction before inference and refund once on an internal failure.</li><li>An idempotency key maps to one debit and one saved response per API key.</li></ul>
+</body></html>

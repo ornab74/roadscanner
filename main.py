@@ -80,16 +80,6 @@ try:
 except Exception:
     pass
 geonamescache: Any = _geonamescache_mod
-import importlib
-from typing import Any
-
-Llama: Any = None
-
-try:
-    _llama_mod = importlib.import_module("llama_cpp")
-    Llama = getattr(_llama_mod, "Llama", None)
-except Exception:
-    pass
 import random
 import re
 import base64
@@ -135,6 +125,22 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, BadTimeSignature
 import zlib as _zlib
 from markupsafe import Markup
 from urllib.parse import urljoin, urlsplit
+
+from qrs_billing import (
+    api_key_prefix,
+    bearer_token,
+    generate_api_key,
+    hash_api_key,
+    valid_idempotency_key,
+    verify_stripe_signature,
+)
+from qrs_internal_auth import sign_request, verify_response
+from qrs_validation import (
+    ScanValidationError,
+    ValidatedScan,
+    parse_scan_json,
+    validate_scan_payload,
+)
 
 zstd: Any = None
 _HAS_ZSTD = False
@@ -210,6 +216,14 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 app = Flask(__name__)
+
+_trusted_hosts = [
+    item.strip()
+    for item in os.getenv("QRS_TRUSTED_HOSTS", "").split(",")
+    if item.strip()
+]
+if _trusted_hosts:
+    app.config["TRUSTED_HOSTS"] = _trusted_hosts
 
 class _StartupOnceMiddleware:
     def __init__(self, wsgi_app):
@@ -816,6 +830,14 @@ PASSKEY_MAX_CREDENTIALS_PER_USER = 10
 PASSKEY_MAX_RESPONSE_BYTES = 256 * 1024
 PASSKEY_OPTION_RATE_LIMIT = 30
 PASSKEY_OPTION_RATE_WINDOW_SECONDS = 60
+API_RATE_LIMIT_COUNT = max(1, int(os.getenv("QRS_API_RATE_LIMIT", "30")))
+API_RATE_LIMIT_WINDOW_SECONDS = 60
+API_RESERVATION_TIMEOUT_SECONDS = max(
+    300, min(86400, int(os.getenv("QRS_API_RESERVATION_TIMEOUT_SECONDS", "900")))
+)
+STRIPE_API_VERSION = "2026-02-25.clover"
+STRIPE_CREDIT_PACK_SIZE = max(1, int(os.getenv("QRS_CREDIT_PACK_SIZE", "100")))
+STRIPE_PRO_MONTHLY_CREDITS = max(1, int(os.getenv("QRS_PRO_MONTHLY_CREDITS", "1000")))
 
 config_lock = threading.Lock()
 EXPIRATION_HOURS = 65
@@ -823,6 +845,9 @@ EXPIRATION_HOURS = 65
 app.config.update(SESSION_COOKIE_SECURE=True,
                   SESSION_COOKIE_HTTPONLY=True,
                   SESSION_COOKIE_SAMESITE='Strict',
+                  MAX_CONTENT_LENGTH=6 * 1024 * 1024,
+                  MAX_FORM_MEMORY_SIZE=512 * 1024,
+                  MAX_FORM_PARTS=100,
                   WTF_CSRF_TIME_LIMIT=3600,
                   WTF_CSRF_SECRET_KEY=get_csrf_signing_key(app),
                   SECRET_KEY=SECRET_KEY)
@@ -835,13 +860,19 @@ def apply_csp(response):
                   "script-src 'self' 'unsafe-inline'; "
                   "style-src 'self' 'unsafe-inline'; "
                   "font-src 'self' data:; "
-                  "img-src 'self' data:; "
+                  "img-src 'self' data: https://tilecache.rainviewer.com; "
+                  "connect-src 'self' https://api.rainviewer.com; "
                   "object-src 'none'; "
                   "base-uri 'self'; "
                   "frame-ancestors 'none'; ")
     response.headers['Content-Security-Policy'] = csp_policy
+    response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
+    response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
+    if request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     response.headers['Permissions-Policy'] = (
         'geolocation=(self), camera=(), microphone=(), payment=(), '
         'usb=(), accelerometer=(), gyroscope=(), magnetometer=(), '
@@ -1569,6 +1600,7 @@ def _inject_button_polish(response):
 def _site_base_url() -> str:
     base = (
         os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("QRS_PUBLIC_BASE_URL")
         or os.getenv("SITE_URL")
         or os.getenv("BASE_URL")
         or request.url_root
@@ -3728,6 +3760,15 @@ def create_tables():
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
+        cursor.execute(
+            """
+            DELETE FROM rate_limits
+            WHERE rowid NOT IN (SELECT MIN(rowid) FROM rate_limits GROUP BY user_id)
+            """
+        )
+        cursor.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_limits_user_id ON rate_limits(user_id)"
+        )
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS login_rate_limits (
                 bucket TEXT PRIMARY KEY,
@@ -3791,6 +3832,115 @@ def create_tables():
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS billing_accounts (
+                user_id INTEGER PRIMARY KEY,
+                plan TEXT NOT NULL DEFAULT 'free' CHECK(plan IN ('free', 'pro')),
+                status TEXT NOT NULL DEFAULT 'inactive',
+                api_credits INTEGER NOT NULL DEFAULT 0 CHECK(api_credits >= 0),
+                stripe_customer_id TEXT UNIQUE,
+                stripe_subscription_id TEXT UNIQUE,
+                stripe_state_event_created INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                key_prefix TEXT NOT NULL UNIQUE,
+                key_hash TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                revoked_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, revoked_at)")
+        cursor.execute("PRAGMA table_info(billing_accounts)")
+        billing_cols = {row[1] for row in cursor.fetchall()}
+        if "stripe_state_event_created" not in billing_cols:
+            cursor.execute(
+                "ALTER TABLE billing_accounts ADD COLUMN stripe_state_event_created INTEGER NOT NULL DEFAULT 0"
+            )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_credit_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                external_ref TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                api_key_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('charged', 'completed', 'failed')),
+                response_enc TEXT,
+                http_status INTEGER,
+                lease_expires_at INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(api_key_id, idempotency_key),
+                FOREIGN KEY (api_key_id) REFERENCES api_keys(id),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_rate_limits (
+                api_key_id INTEGER PRIMARY KEY,
+                window_started INTEGER NOT NULL,
+                request_count INTEGER NOT NULL,
+                FOREIGN KEY (api_key_id) REFERENCES api_keys(id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS stripe_events (
+                event_id TEXT PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                processed_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS stripe_subscriptions (
+                subscription_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                customer_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                event_created INTEGER NOT NULL,
+                event_rank INTEGER NOT NULL,
+                event_id TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stripe_subscriptions_user ON stripe_subscriptions(user_id, status)"
+        )
+        cursor.execute("PRAGMA table_info(api_requests)")
+        api_request_cols = {row[1] for row in cursor.fetchall()}
+        if "lease_expires_at" not in api_request_cols:
+            cursor.execute(
+                "ALTER TABLE api_requests ADD COLUMN lease_expires_at INTEGER NOT NULL DEFAULT 0"
+            )
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO stripe_subscriptions
+                (subscription_id, user_id, customer_id, status, event_created,
+                 event_rank, event_id, updated_at)
+            SELECT stripe_subscription_id, user_id, stripe_customer_id, status,
+                   stripe_state_event_created, 0, 'migration', updated_at
+            FROM billing_accounts
+            WHERE stripe_subscription_id IS NOT NULL AND stripe_customer_id IS NOT NULL
+            """
+        )
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS blog_posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4844,7 +4994,7 @@ def blog_admin():
     except Exception:
         items = []
 
-    return render_template_string(
+    html = render_template_string(
         r"""
 <!doctype html>
 <html lang="en">
@@ -5580,6 +5730,7 @@ def qrs_user_sidebar_html(active: str = "dashboard") -> Markup:
     links = [
         _sidebar_link("dashboard", "Dashboard", "fas fa-home", active, "dashboard"),
         _sidebar_link("user_settings", "User Settings", "fas fa-user-cog", active, "user_settings"),
+        _sidebar_link("billing_page", "Billing & API", "fas fa-key", active, "billing"),
     ]
     if session.get("is_admin"):
         links.extend([
@@ -5706,17 +5857,7 @@ def admin_local_llm_page():
     if guard:
         return guard
     csrf_token = generate_csrf()
-    mp = _llama_model_path()
-    ep = _llama_encrypted_path()
-    status = {
-        "llama_cpp_available": (Llama is not None),
-        "encrypted_exists": ep.exists(),
-        "plaintext_exists": mp.exists(),
-        "models_dir": str(_llama_models_dir()),
-        "model_file": LLAMA_MODEL_FILE,
-        "expected_sha256": LLAMA_EXPECTED_SHA256,
-        "ready_for_inference": llama_local_ready(),
-    }
+    status = llama_service_status()
     return render_template_string("""
 <!DOCTYPE html>
 <html lang="en">
@@ -5736,14 +5877,8 @@ def admin_local_llm_page():
   <div class="container-fluid py-2">
     <h2 class="qrs-admin-title">Local Llama Model Manager</h2>
     {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for category, msg in messages %}<div class="alert alert-{{ category if category else 'info' }}">{{ msg }}</div>{% endfor %}{% endif %}{% endwith %}
-    <div class="alert alert-secondary"><div>Models dir: <code>{{ status.models_dir }}</code></div><div>Model file: <code>{{ status.model_file }}</code></div><div>Expected SHA256: <code>{{ status.expected_sha256 }}</code></div><div>llama_cpp available: <strong>{{ 'yes' if status.llama_cpp_available else 'no' }}</strong></div><div>Encrypted present: <strong>{{ 'yes' if status.encrypted_exists else 'no' }}</strong></div><div>Plaintext present: <strong>{{ 'yes' if status.plaintext_exists else 'no' }}</strong></div><div>Ready for inference: <strong>{{ 'yes' if status.ready_for_inference else 'no' }}</strong></div></div>
-    <div class="card qrs-admin-card mb-3"><div class="card-body"><h5 class="card-title">Actions</h5>
-      <form method="post" action="{{ url_for('admin_local_llm_download') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-warning" type="submit">Download model</button></form>
-      <form method="post" action="{{ url_for('admin_local_llm_encrypt') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-outline-light" type="submit">Encrypt plaintext -> .aes</button></form>
-      <form method="post" action="{{ url_for('admin_local_llm_decrypt') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-outline-light" type="submit">Decrypt .aes -> plaintext</button></form>
-      <form method="post" action="{{ url_for('admin_local_llm_delete_plaintext') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-danger" type="submit">Delete plaintext model</button></form>
-      <form method="post" action="{{ url_for('admin_local_llm_unload') }}" class="mb-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-outline-warning" type="submit">Unload model from memory</button></form>
-    </div></div>
+    <div class="alert alert-secondary"><div>Service URL: <code>{{ status.service_url }}</code></div><div>Container reachable: <strong>{{ 'yes' if status.reachable else 'no' }}</strong></div><div>Verified model ready: <strong>{{ 'yes' if status.ready_for_inference else 'no' }}</strong></div><div>Status: <code>{{ status.reason }}</code></div></div>
+    <div class="card qrs-admin-card mb-3"><div class="card-body"><h5 class="card-title">Isolated model lifecycle</h5><p class="qrs-admin-muted mb-0">Model download, digest verification, native loading, and inference now run only in the dedicated <code>llama-scanner</code> container. Provision the pinned model with the one-shot <code>llama-model-init</code> Compose profile; the web process has no model filesystem access.</p></div></div>
     <a class="btn btn-outline-light" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
   </div>
 </main>
@@ -5770,11 +5905,7 @@ def admin_local_llm_download():
     bad = _validate_form_csrf_or_400()
     if bad:
         return bad
-    ok, msg = llama_download_model_httpx()
-    if ok:
-        flash("Download complete. " + msg, "success")
-    else:
-        flash("Download failed: " + msg, "danger")
+    flash("Model management moved to the isolated llama-model-init container.", "warning")
     return redirect(url_for("admin_local_llm_page"))
 
 @app.post("/admin/local_llm/encrypt")
@@ -5785,11 +5916,7 @@ def admin_local_llm_encrypt():
     bad = _validate_form_csrf_or_400()
     if bad:
         return bad
-    ok, msg = llama_encrypt_plaintext()
-    if ok:
-        flash("Encrypt: " + msg, "success")
-    else:
-        flash("Encrypt failed: " + msg, "danger")
+    flash("Model files are immutable and digest-verified in the isolated scanner service.", "warning")
     return redirect(url_for("admin_local_llm_page"))
 
 @app.post("/admin/local_llm/decrypt")
@@ -5800,11 +5927,7 @@ def admin_local_llm_decrypt():
     bad = _validate_form_csrf_or_400()
     if bad:
         return bad
-    ok, msg = llama_decrypt_to_plaintext()
-    if ok:
-        flash("Decrypt: " + msg, "success")
-    else:
-        flash("Decrypt failed: " + msg, "danger")
+    flash("The web container cannot decrypt or access model files.", "warning")
     return redirect(url_for("admin_local_llm_page"))
 
 @app.post("/admin/local_llm/delete_plaintext")
@@ -5815,11 +5938,7 @@ def admin_local_llm_delete_plaintext():
     bad = _validate_form_csrf_or_400()
     if bad:
         return bad
-    ok, msg = llama_delete_plaintext()
-    if ok:
-        flash("Plaintext deleted.", "success")
-    else:
-        flash("Delete failed: " + msg, "danger")
+    flash("Remove or replace the dedicated llama-models volume from the host.", "warning")
     return redirect(url_for("admin_local_llm_page"))
 
 @app.post("/admin/local_llm/unload")
@@ -5830,8 +5949,7 @@ def admin_local_llm_unload():
     bad = _validate_form_csrf_or_400()
     if bad:
         return bad
-    llama_unload()
-    flash("Model unloaded.", "success")
+    flash("Restart llama-scanner to unload its model without restarting Roadscanner.", "warning")
     return redirect(url_for("admin_local_llm_page"))
 
 
@@ -7363,6 +7481,89 @@ def llama_download_model_httpx() -> tuple[bool, str]:
     finally:
         temporary.unlink(missing_ok=True)
 
+
+# The legacy in-process helpers above remain only so older encrypted model
+# layouts can be recognized during upgrades. Runtime inference is deliberately
+# overridden here and always crosses the isolated scanner service boundary.
+def _llama_service_config() -> tuple[str, bytes]:
+    base_url = os.getenv("QRS_LLAMA_API_URL", "http://llama-scanner:8080").strip().rstrip("/")
+    parsed = urlsplit(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("invalid QRS_LLAMA_API_URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path:
+        raise ValueError("QRS_LLAMA_API_URL must be an origin")
+    if parsed.scheme == "http" and parsed.hostname not in {"llama-scanner", "127.0.0.1", "localhost"}:
+        raise ValueError("plaintext llama API is allowed only on the private service host")
+    token = os.getenv("QRS_LLAMA_API_TOKEN", "").encode("utf-8")
+    if len(token) < 32:
+        raise ValueError("QRS_LLAMA_API_TOKEN must contain at least 32 bytes")
+    return base_url, token
+
+
+def llama_service_status() -> dict[str, Any]:
+    try:
+        base_url, _ = _llama_service_config()
+    except ValueError as exc:
+        return {
+            "service_url": "not configured",
+            "reachable": False,
+            "ready_for_inference": False,
+            "reason": str(exc),
+        }
+    try:
+        response = httpx.get(f"{base_url}/readyz", timeout=2.0, follow_redirects=False)
+        data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+        ready = response.status_code == 200 and data.get("ready") is True
+        return {
+            "service_url": base_url,
+            "reachable": response.status_code in {200, 503},
+            "ready_for_inference": ready,
+            "reason": str(data.get("reason") or response.status_code),
+        }
+    except Exception:
+        return {
+            "service_url": base_url,
+            "reachable": False,
+            "ready_for_inference": False,
+            "reason": "unreachable",
+        }
+
+
+def llama_local_ready() -> bool:
+    return bool(llama_service_status().get("ready_for_inference"))
+
+
+async def llama_local_predict_risk(scene: Mapping[str, Any]) -> Optional[str]:
+    try:
+        base_url, token = _llama_service_config()
+        body = json.dumps(
+            {"scene": dict(scene)}, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+        auth_headers = sign_request(token, body)
+        nonce = auth_headers["X-QRS-Nonce"]
+        headers = {"Content-Type": "application/json", **auth_headers}
+        timeout = httpx.Timeout(connect=3.0, read=135.0, write=5.0, pool=3.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            response = await client.post(
+                f"{base_url}/v1/classify", content=body, headers=headers
+            )
+        if not verify_response(
+            token,
+            nonce,
+            response.content,
+            response.headers.get("X-QRS-Response-Signature"),
+        ):
+            logger.error("Rejected unsigned or incorrectly signed llama service response")
+            return None
+        if response.status_code != 200:
+            logger.warning("Llama service returned status %s", response.status_code)
+            return None
+        label = str(response.json().get("label") or "").capitalize()
+        return label if label in {"Low", "Medium", "High"} else None
+    except Exception:
+        logger.exception("Authenticated llama service request failed")
+        return None
+
 _GROK_CLIENT = None
 _GROK_BASE_URL = "https://api.x.ai/v1"
 _GROK_CHAT_PATH = "/chat/completions"
@@ -7474,6 +7675,13 @@ def _fallback_score(sig: dict, route: dict) -> dict[str, Any]:
 
 @app.route("/api/risk/llm_route", methods=["POST"])
 def api_llm_route():
+    if "username" not in session:
+        return jsonify({"error": "login_required"}), 401
+    user_id = get_user_id(session["username"])
+    if user_id is None:
+        return jsonify({"error": "user_not_found"}), 404
+    if not check_rate_limit(int(user_id)):
+        return jsonify({"error": "rate_limit_exceeded"}), 429
     uid = _user_id()
     body = _request_json_dict(force=True, silent=True)
     try:
@@ -7483,6 +7691,13 @@ def api_llm_route():
         }
     except Exception:
         return jsonify({"error":"lat, lon, dest_lat, dest_lon required"}), 400
+    if not all(
+        (
+            _coords_valid(route["lat"], route["lon"]),
+            _coords_valid(route["dest_lat"], route["dest_lon"]),
+        )
+    ):
+        return jsonify({"error": "coordinates_out_of_range"}), 400
 
     sig = _system_signals(uid)
     prompt = _build_route_prompt(uid, sig, route)
@@ -7490,26 +7705,48 @@ def api_llm_route():
     data["server_enriched"] = {"ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),"mode":"route","sig": sig,"route": route}
     return _attach_cookie(jsonify(data))
 
+
+@app.get("/api/risk/llm_guess")
+def api_llm_guess():
+    if "username" not in session:
+        return jsonify({"error": "login_required"}), 401
+    uid = _user_id()
+    sig = _system_signals(uid)
+    data = _fallback_score(sig, {})
+    data["server_enriched"] = {
+        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "mode": "local_preview",
+        "sig": sig,
+    }
+    return _attach_cookie(jsonify(data))
+
+_RISK_STREAM_SLOTS = threading.BoundedSemaphore(1)
+
+
 @app.route("/api/risk/stream")
 def api_stream():
-
+    if "username" not in session:
+        return jsonify({"error": "login_required"}), 401
+    user_id = get_user_id(session["username"])
+    if user_id is None:
+        return jsonify({"error": "user_not_found"}), 404
+    if not check_rate_limit(int(user_id)):
+        return jsonify({"error": "rate_limit_exceeded"}), 429
+    if not _RISK_STREAM_SLOTS.acquire(blocking=False):
+        return jsonify({"error": "stream_capacity_reached"}), 503
     uid = _user_id()
 
     def gen() -> Iterator[str]:
-        for _ in range(24):
-            sig = _system_signals(uid)
-            prompt = _build_guess_prompt(uid, sig)
-            data = _call_llm(prompt)  # no local fallback
-
-            meta = {"ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "mode": "guess", "sig": sig}
-            if not data:
-                payload = {"error": "llm_unavailable", "server_enriched": meta}
-            else:
+        try:
+            for _ in range(24):
+                sig = _system_signals(uid)
+                data = _fallback_score(sig, {})
+                meta = {"ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "mode": "guess", "sig": sig}
                 data["server_enriched"] = meta
-                payload = data
-
-            yield f"data: {json.dumps(payload, separators=(',',':'))}\n\n"
-            time.sleep(3.2)
+                yield f"data: {json.dumps(data, separators=(',',':'))}\n\n"
+                time.sleep(3.2)
+        finally:
+            _RISK_STREAM_SLOTS.release()
 
     resp = Response(stream_with_context(gen()), mimetype="text/event-stream")
     resp.headers["Cache-Control"] = "no-cache"
@@ -8203,9 +8440,7 @@ def register_user(username, password, invite_code=None):
             )
             return False, "Invite code is required for registration."
         if not validate_invite_code_format(invite_code):
-            logger.warning(
-                f"User '{username}' provided an invalid invite code format: {invite_code}."
-            )
+            logger.warning("User '%s' provided an invalid invite code format.", username)
             return False, "Invalid invite code format."
 
     hashed_password = ph.hash(password)
@@ -8232,9 +8467,7 @@ def register_user(username, password, invite_code=None):
                     (invite_code, ))
                 row = cursor.fetchone()
                 if not row:
-                    logger.warning(
-                        f"User '{username}' provided an invalid invite code: {invite_code}."
-                    )
+                    logger.warning("User '%s' provided an invalid invite code.", username)
                     db.rollback()
                     return False, "Invalid invite code."
                 if row[1]:
@@ -8298,9 +8531,9 @@ def register_user(username, password, invite_code=None):
     return True, "Registration successful."
 
 def check_rate_limit(user_id):
-    with sqlite3.connect(DB_FILE) as db:
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
         cursor = db.cursor()
-
+        cursor.execute("BEGIN IMMEDIATE")
         cursor.execute(
             "SELECT request_count, last_request_time FROM rate_limits WHERE user_id = ?",
             (user_id, ))
@@ -8328,12 +8561,11 @@ def check_rate_limit(user_id):
                 db.commit()
                 return True
             else:
-
+                db.rollback()
                 return False
         else:
-
             cursor.execute(
-                "INSERT INTO rate_limits (user_id, request_count, last_request_time) VALUES (?, 1, ?)",
+                "INSERT OR REPLACE INTO rate_limits (user_id, request_count, last_request_time) VALUES (?, 1, ?)",
                 (user_id, current_time.strftime('%Y-%m-%d %H:%M:%S')))
             db.commit()
             return True
@@ -8548,6 +8780,7 @@ def _passkey_origin_and_rp_id() -> tuple[str, str]:
     configured_origin = (
         os.getenv("WEBAUTHN_ORIGIN")
         or os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("QRS_PUBLIC_BASE_URL")
         or "https://ride.qroadscan.com"
     ).strip().rstrip("/")
     parsed = urlsplit(configured_origin)
@@ -8837,6 +9070,898 @@ def get_user_id(username):
             return row[0]
         else:
             return None
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _api_key_pepper() -> bytes:
+    value = os.getenv("QRS_API_KEY_PEPPER", "").encode("utf-8")
+    if len(value) < 32:
+        raise RuntimeError("QRS_API_KEY_PEPPER must contain at least 32 bytes")
+    return value
+
+
+def _ensure_billing_account(cursor: sqlite3.Cursor, user_id: int) -> None:
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO billing_accounts
+            (user_id, plan, status, api_credits, updated_at)
+        VALUES (?, 'free', 'inactive', 0, ?)
+        """,
+        (user_id, _utc_timestamp()),
+    )
+
+
+def get_billing_account(user_id: int) -> dict[str, Any]:
+    reconcile_stale_api_requests(user_id=user_id)
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        cursor = db.cursor()
+        _ensure_billing_account(cursor, user_id)
+        cursor.execute(
+            """
+            SELECT plan, status, api_credits, stripe_customer_id, stripe_subscription_id
+            FROM billing_accounts WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        db.commit()
+    if not row:
+        raise RuntimeError("billing account unavailable")
+    return {
+        "plan": row[0],
+        "status": row[1],
+        "api_credits": int(row[2]),
+        "stripe_customer_id": row[3],
+        "stripe_subscription_id": row[4],
+    }
+
+
+def list_user_api_keys(user_id: int) -> list[dict[str, Any]]:
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        rows = db.execute(
+            """
+            SELECT id, key_prefix, name, created_at, last_used_at
+            FROM api_keys
+            WHERE user_id = ? AND revoked_at IS NULL
+            ORDER BY id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "prefix": row[1],
+            "name": row[2],
+            "created_at": row[3],
+            "last_used_at": row[4],
+        }
+        for row in rows
+    ]
+
+
+def create_user_api_key(user_id: int, name: str) -> str:
+    clean_name = _clean_text_fragment(name or "API key").strip()[:64] or "API key"
+    pepper = _api_key_pepper()
+    reconcile_stale_api_requests(user_id=user_id)
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        cursor = db.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        _ensure_billing_account(cursor, user_id)
+        account = cursor.execute(
+            "SELECT plan, status, api_credits FROM billing_accounts WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not account or (int(account[2]) <= 0 and not (account[0] == "pro" and account[1] == "active")):
+            raise PermissionError("Buy credits or activate the paid plan before creating an API key.")
+        for _ in range(5):
+            generated = generate_api_key(pepper)
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO api_keys (user_id, key_prefix, key_hash, name, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (user_id, generated.prefix, generated.digest, clean_name, _utc_timestamp()),
+                )
+            except sqlite3.IntegrityError:
+                continue
+            db.commit()
+            return generated.plaintext
+        raise RuntimeError("unable to generate a unique API key")
+
+
+def revoke_user_api_key(user_id: int, key_id: int) -> bool:
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        result = db.execute(
+            """
+            UPDATE api_keys SET revoked_at = ?
+            WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+            """,
+            (_utc_timestamp(), key_id, user_id),
+        )
+        db.commit()
+        return result.rowcount == 1
+
+
+def authenticate_api_key_header(header: str | None) -> Optional[dict[str, int]]:
+    plaintext = bearer_token(header)
+    prefix = api_key_prefix(plaintext or "")
+    if not plaintext or not prefix:
+        return None
+    try:
+        candidate_hash = hash_api_key(plaintext, _api_key_pepper())
+    except (ValueError, RuntimeError):
+        logger.error("API key authentication is not configured")
+        return None
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        row = db.execute(
+            """
+            SELECT id, user_id, key_hash FROM api_keys
+            WHERE key_prefix = ? AND revoked_at IS NULL
+            """,
+            (prefix,),
+        ).fetchone()
+        if not row or not hmac.compare_digest(str(row[2]), candidate_hash):
+            return None
+        db.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?", (_utc_timestamp(), row[0]))
+        db.commit()
+    return {"api_key_id": int(row[0]), "user_id": int(row[1])}
+
+
+def check_api_rate_limit(api_key_id: int) -> bool:
+    now = int(time.time())
+    window = now - (now % API_RATE_LIMIT_WINDOW_SECONDS)
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        cursor = db.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        row = cursor.execute(
+            "SELECT window_started, request_count FROM api_rate_limits WHERE api_key_id = ?",
+            (api_key_id,),
+        ).fetchone()
+        if not row or int(row[0]) != window:
+            cursor.execute(
+                """
+                INSERT INTO api_rate_limits (api_key_id, window_started, request_count)
+                VALUES (?, ?, 1)
+                ON CONFLICT(api_key_id) DO UPDATE SET
+                    window_started = excluded.window_started,
+                    request_count = 1
+                """,
+                (api_key_id, window),
+            )
+            db.commit()
+            return True
+        if int(row[1]) >= API_RATE_LIMIT_COUNT:
+            db.rollback()
+            return False
+        cursor.execute(
+            "UPDATE api_rate_limits SET request_count = request_count + 1 WHERE api_key_id = ?",
+            (api_key_id,),
+        )
+        db.commit()
+        return True
+
+
+def reserve_api_credit(
+    api_key_id: int, user_id: int, idempotency_key: str
+) -> tuple[str, Any]:
+    now = _utc_timestamp()
+    lease_expires_at = int(time.time()) + API_RESERVATION_TIMEOUT_SECONDS
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        cursor = db.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        existing = cursor.execute(
+            """
+            SELECT id, status, response_enc, http_status FROM api_requests
+            WHERE api_key_id = ? AND idempotency_key = ?
+            """,
+            (api_key_id, idempotency_key),
+        ).fetchone()
+        if existing:
+            db.rollback()
+            if existing[1] == "completed" and existing[2]:
+                try:
+                    return "replay", json.loads(decrypt_data(existing[2]) or "{}")
+                except Exception:
+                    return "conflict", None
+            return "conflict", None
+        _ensure_billing_account(cursor, user_id)
+        debit = cursor.execute(
+            """
+            UPDATE billing_accounts
+            SET api_credits = api_credits - 1, updated_at = ?
+            WHERE user_id = ? AND api_credits > 0
+            """,
+            (now, user_id),
+        )
+        if debit.rowcount != 1:
+            db.rollback()
+            return "no_credit", None
+        cursor.execute(
+            """
+            INSERT INTO api_requests
+                (api_key_id, user_id, idempotency_key, status, lease_expires_at,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, 'charged', ?, ?, ?)
+            """,
+            (api_key_id, user_id, idempotency_key, lease_expires_at, now, now),
+        )
+        request_id = int(cursor.lastrowid)
+        cursor.execute(
+            """
+            INSERT INTO api_credit_ledger (user_id, delta, reason, external_ref, created_at)
+            VALUES (?, -1, 'api_scan', ?, ?)
+            """,
+            (user_id, f"api:{request_id}", now),
+        )
+        db.commit()
+        return "reserved", request_id
+
+
+def complete_api_request(request_id: int, payload: Mapping[str, Any]) -> bool:
+    encrypted = encrypt_data(json.dumps(dict(payload), sort_keys=True, separators=(",", ":")))
+    if not encrypted:
+        return False
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        result = db.execute(
+            """
+            UPDATE api_requests
+            SET status = 'completed', response_enc = ?, http_status = 200, updated_at = ?
+            WHERE id = ? AND status = 'charged'
+            """,
+            (encrypted, _utc_timestamp(), request_id),
+        )
+        db.commit()
+        return result.rowcount == 1
+
+
+def fail_and_refund_api_request(request_id: int, error_code: str = "scan_failed") -> bool:
+    now = _utc_timestamp()
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        cursor = db.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        row = cursor.execute(
+            "SELECT user_id FROM api_requests WHERE id = ? AND status = 'charged'",
+            (request_id,),
+        ).fetchone()
+        if not row:
+            db.rollback()
+            return False
+        cursor.execute(
+            """
+            UPDATE api_requests SET status = 'failed', http_status = 503, updated_at = ?
+            WHERE id = ? AND status = 'charged'
+            """,
+            (now, request_id),
+        )
+        if cursor.rowcount != 1:
+            db.rollback()
+            return False
+        cursor.execute(
+            "UPDATE billing_accounts SET api_credits = api_credits + 1, updated_at = ? WHERE user_id = ?",
+            (now, int(row[0])),
+        )
+        cursor.execute(
+            """
+            INSERT INTO api_credit_ledger (user_id, delta, reason, external_ref, created_at)
+            VALUES (?, 1, ?, ?, ?)
+            """,
+            (int(row[0]), error_code[:64], f"refund:api:{request_id}", now),
+        )
+        db.commit()
+        return True
+
+
+def reconcile_stale_api_requests(*, user_id: int | None = None) -> int:
+    """Refund committed reservations left behind by terminated workers."""
+    cutoff = int(time.time())
+    now = _utc_timestamp()
+    with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+        cursor = db.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        sql = """
+            SELECT id, user_id FROM api_requests
+            WHERE status = 'charged' AND lease_expires_at <= ?
+        """
+        params: list[Any] = [cutoff]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params.append(int(user_id))
+        stale = cursor.execute(sql, params).fetchall()
+        refunded = 0
+        for request_id, request_user_id in stale:
+            cursor.execute(
+                """
+                UPDATE api_requests
+                SET status = 'failed', http_status = 503, updated_at = ?
+                WHERE id = ? AND status = 'charged'
+                """,
+                (now, int(request_id)),
+            )
+            if cursor.rowcount != 1:
+                continue
+            cursor.execute(
+                """
+                INSERT INTO api_credit_ledger
+                    (user_id, delta, reason, external_ref, created_at)
+                VALUES (?, 1, 'stale_reservation_refund', ?, ?)
+                """,
+                (int(request_user_id), f"refund:api:{int(request_id)}", now),
+            )
+            cursor.execute(
+                """
+                UPDATE billing_accounts
+                SET api_credits = api_credits + 1, updated_at = ?
+                WHERE user_id = ?
+                """,
+                (now, int(request_user_id)),
+            )
+            refunded += 1
+        db.commit()
+    if refunded:
+        logger.warning("Refunded %d stale API credit reservation(s)", refunded)
+    return refunded
+
+
+class _ApiRequestLease:
+    """Keep a paid reservation live while its worker is still processing it."""
+
+    def __init__(self, request_id: int):
+        self.request_id = int(request_id)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"api-lease-{self.request_id}",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2.0)
+
+    def _run(self) -> None:
+        interval = min(30, max(5, API_RESERVATION_TIMEOUT_SECONDS // 4))
+        while not self._stop.wait(interval):
+            try:
+                with sqlite3.connect(DB_FILE, timeout=10.0) as db:
+                    db.execute(
+                        """
+                        UPDATE api_requests
+                        SET lease_expires_at = ?, updated_at = ?
+                        WHERE id = ? AND status = 'charged'
+                        """,
+                        (
+                            int(time.time()) + API_RESERVATION_TIMEOUT_SECONDS,
+                            _utc_timestamp(),
+                            self.request_id,
+                        ),
+                    )
+                    db.commit()
+            except Exception:
+                logger.warning(
+                    "Unable to renew API request lease for request_id=%s",
+                    self.request_id,
+                    exc_info=True,
+                )
+
+
+def _grant_credits(
+    cursor: sqlite3.Cursor,
+    user_id: int,
+    amount: int,
+    reason: str,
+    external_ref: str,
+) -> bool:
+    if amount <= 0 or amount > 10_000_000:
+        raise ValueError("invalid credit grant")
+    _ensure_billing_account(cursor, user_id)
+    try:
+        cursor.execute(
+            """
+            INSERT INTO api_credit_ledger (user_id, delta, reason, external_ref, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, amount, reason[:64], external_ref[:200], _utc_timestamp()),
+        )
+    except sqlite3.IntegrityError:
+        return False
+    cursor.execute(
+        """
+        UPDATE billing_accounts
+        SET api_credits = api_credits + ?, updated_at = ?
+        WHERE user_id = ?
+        """,
+        (amount, _utc_timestamp(), user_id),
+    )
+    return True
+
+
+def _stripe_post(path: str, data: list[tuple[str, str]]) -> dict[str, Any]:
+    secret = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    if not secret.startswith(("sk_test_", "sk_live_", "rk_test_", "rk_live_")):
+        raise RuntimeError("Stripe is not configured")
+    response = httpx.post(
+        f"https://api.stripe.com/v1/{path.lstrip('/')}",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {secret}",
+            "Stripe-Version": STRIPE_API_VERSION,
+        },
+        timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
+        follow_redirects=False,
+    )
+    if response.status_code >= 400:
+        logger.error("Stripe API request failed with status %s", response.status_code)
+        raise RuntimeError("Stripe rejected the request")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError("Stripe returned an invalid response")
+    return payload
+
+
+def _configured_public_origin() -> str:
+    value = (
+        os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("QRS_PUBLIC_BASE_URL")
+        or ""
+    ).strip().rstrip("/")
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    if (
+        not host
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise RuntimeError("PUBLIC_BASE_URL must be a configured origin")
+    if parsed.scheme != "https" and not (
+        parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise RuntimeError("PUBLIC_BASE_URL must use HTTPS")
+    return value
+
+
+def _billing_page_response(user_id: int, new_api_key: str | None = None):
+    account = get_billing_account(user_id)
+    api_keys = list_user_api_keys(user_id)
+    stripe_ready = all(
+        os.getenv(name)
+        for name in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_CREDITS", "STRIPE_PRICE_PRO")
+    )
+    return render_template_string(
+        """
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Billing and API</title>
+<style>body{margin:0;background:#08111c;color:#eef7ff;font:16px/1.55 system-ui}.wrap{max-width:900px;margin:auto;padding:42px 22px}.card{background:#101d2d;border:1px solid #29425a;border-radius:18px;padding:22px;margin:18px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}button,input{font:inherit;border-radius:9px;padding:10px}button{background:#6ee7cf;border:0;color:#061019;font-weight:700;cursor:pointer}input{background:#07101a;border:1px solid #39536c;color:#eef7ff}code{overflow-wrap:anywhere;color:#9ff7e6}.warn{border-color:#d3a847}.muted{color:#abc0d3}a{color:#6ee7cf}.key{padding:14px;background:#07101a;border-radius:10px}</style></head><body><main class="wrap">
+<p><a href="{{ url_for('dashboard') }}">← Dashboard</a></p><h1>Billing and API</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}{% for category,msg in messages %}<div class="card warn">{{ msg }}</div>{% endfor %}{% endwith %}
+{% if new_api_key %}<div class="card warn"><h2>Copy this API key now</h2><p>It is stored only as a keyed hash and will not be shown again.</p><div class="key"><code>{{ new_api_key }}</code></div></div>{% endif %}
+<div class="grid"><section class="card"><h2>{{ account.api_credits }}</h2><p class="muted">API credits</p></section><section class="card"><h2>{{ account.plan|title }}</h2><p class="muted">Plan status: {{ account.status }}</p></section></div>
+<section class="card"><h2>Buy access</h2>{% if stripe_ready %}<form method="post" action="{{ url_for('billing_checkout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="product" value="credits">Buy {{ credit_pack }} API credits</button> <button name="product" value="pro">Start Pro plan ({{ pro_credits }} credits/month)</button></form>{% if account.stripe_customer_id %}<form method="post" action="{{ url_for('billing_portal') }}" style="margin-top:12px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Manage subscription</button></form>{% endif %}{% else %}<p class="muted">Stripe is disabled until the operator configures both server-side Price IDs and webhook credentials.</p>{% endif %}</section>
+<section class="card"><h2>API keys</h2><form method="post" action="{{ url_for('billing_create_api_key') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="name" maxlength="64" value="Roadscanner client" aria-label="Key name"> <button type="submit">Create key</button></form>
+{% for key in api_keys %}<div class="key" style="margin-top:12px"><strong>{{ key.name }}</strong> — <code>qrs_live_{{ key.prefix }}_…</code><br><span class="muted">Created {{ key.created_at }}{% if key.last_used_at %}; last used {{ key.last_used_at }}{% endif %}</span><form method="post" action="{{ url_for('billing_revoke_api_key', key_id=key.id) }}" style="margin-top:8px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Revoke</button></form></div>{% else %}<p class="muted">No active API keys.</p>{% endfor %}</section>
+<section class="card"><h2>API contract</h2><p>Send a bearer API key and a unique 16–128 character <code>Idempotency-Key</code> to <code>POST /api/v1/scans</code>. Weather, traffic, road type, obstacles, and sensor notes remain available as bounded optional inputs.</p></section>
+</main></body></html>
+        """,
+        account=account,
+        api_keys=api_keys,
+        new_api_key=new_api_key,
+        stripe_ready=stripe_ready,
+        credit_pack=STRIPE_CREDIT_PACK_SIZE,
+        pro_credits=STRIPE_PRO_MONTHLY_CREDITS,
+    )
+    response = make_response(html)
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@app.get("/billing")
+def billing_page():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    user_id = get_user_id(session["username"])
+    if user_id is None:
+        return redirect(url_for("login"))
+    return _billing_page_response(int(user_id))
+
+
+@app.post("/billing/api-keys")
+def billing_create_api_key():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    user_id = get_user_id(session["username"])
+    if user_id is None:
+        return redirect(url_for("login"))
+    try:
+        plaintext = create_user_api_key(int(user_id), request.form.get("name", "API key"))
+    except PermissionError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("billing_page"))
+    except Exception:
+        logger.exception("API key creation failed")
+        flash("API key creation is unavailable.", "danger")
+        return redirect(url_for("billing_page"))
+    return _billing_page_response(int(user_id), new_api_key=plaintext)
+
+
+@app.post("/billing/api-keys/<int:key_id>/revoke")
+def billing_revoke_api_key(key_id: int):
+    if "username" not in session:
+        return redirect(url_for("login"))
+    user_id = get_user_id(session["username"])
+    if user_id is not None:
+        revoke_user_api_key(int(user_id), key_id)
+    return redirect(url_for("billing_page"))
+
+
+@app.post("/billing/checkout")
+def billing_checkout():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    user_id = get_user_id(session["username"])
+    if user_id is None:
+        return redirect(url_for("login"))
+    product = request.form.get("product", "")
+    if product not in {"credits", "pro"}:
+        return "Unknown billing product", 400
+    account = get_billing_account(int(user_id))
+    if product == "pro" and account.get("plan") == "pro" and account.get("status") in {"active", "trialing"}:
+        return "A Pro subscription is already active; use the billing portal to manage it.", 409
+    origin = _configured_public_origin()
+    price = os.getenv("STRIPE_PRICE_CREDITS" if product == "credits" else "STRIPE_PRICE_PRO", "").strip()
+    if not re.fullmatch(r"price_[A-Za-z0-9]+", price):
+        return "Stripe price is not configured", 503
+    mode = "payment" if product == "credits" else "subscription"
+    data: list[tuple[str, str]] = [
+        ("mode", mode),
+        ("line_items[0][price]", price),
+        ("line_items[0][quantity]", "1"),
+        ("client_reference_id", str(user_id)),
+        ("metadata[qrs_user_id]", str(user_id)),
+        ("metadata[qrs_kind]", product),
+        ("success_url", f"{origin}/billing?checkout=success"),
+        ("cancel_url", f"{origin}/billing?checkout=cancelled"),
+    ]
+    if product == "credits":
+        data.append(("metadata[qrs_credits]", str(STRIPE_CREDIT_PACK_SIZE)))
+    else:
+        data.extend([
+            ("metadata[qrs_credits]", str(STRIPE_PRO_MONTHLY_CREDITS)),
+            ("subscription_data[metadata][qrs_user_id]", str(user_id)),
+            ("subscription_data[metadata][qrs_plan]", "pro"),
+        ])
+    if account.get("stripe_customer_id"):
+        data.append(("customer", str(account["stripe_customer_id"])))
+    elif mode == "payment":
+        data.append(("customer_creation", "always"))
+    try:
+        checkout = _stripe_post("checkout/sessions", data)
+        checkout_url = str(checkout.get("url") or "")
+        parsed = urlsplit(checkout_url)
+        if parsed.scheme != "https" or parsed.hostname != "checkout.stripe.com":
+            raise RuntimeError("Stripe returned an unexpected checkout URL")
+        return redirect(checkout_url, code=303)
+    except Exception:
+        logger.exception("Unable to create Stripe Checkout Session")
+        return "Checkout is temporarily unavailable", 503
+
+
+@app.post("/billing/portal")
+def billing_portal():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    user_id = get_user_id(session["username"])
+    if user_id is None:
+        return redirect(url_for("login"))
+    account = get_billing_account(int(user_id))
+    customer_id = str(account.get("stripe_customer_id") or "")
+    if not re.fullmatch(r"cus_[A-Za-z0-9]+", customer_id):
+        return "No Stripe customer is linked to this account", 400
+    try:
+        portal = _stripe_post(
+            "billing_portal/sessions",
+            [("customer", customer_id), ("return_url", f"{_configured_public_origin()}/billing")],
+        )
+        portal_url = str(portal.get("url") or "")
+        parsed = urlsplit(portal_url)
+        if parsed.scheme != "https" or parsed.hostname != "billing.stripe.com":
+            raise RuntimeError("Stripe returned an unexpected portal URL")
+        return redirect(portal_url, code=303)
+    except Exception:
+        logger.exception("Unable to create Stripe billing portal session")
+        return "Billing portal is temporarily unavailable", 503
+
+
+def _stripe_event_user(cursor: sqlite3.Cursor, obj: Mapping[str, Any]) -> Optional[int]:
+    metadata = obj.get("metadata") if isinstance(obj.get("metadata"), Mapping) else {}
+    candidate = metadata.get("qrs_user_id") or obj.get("client_reference_id")
+    try:
+        user_id = int(candidate)
+    except (TypeError, ValueError):
+        return None
+    return user_id if cursor.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() else None
+
+
+def _stripe_invoice_subscription_id(obj: Mapping[str, Any]) -> str:
+    candidate = obj.get("subscription")
+    if not isinstance(candidate, str):
+        parent = obj.get("parent")
+        details = parent.get("subscription_details") if isinstance(parent, Mapping) else None
+        candidate = details.get("subscription") if isinstance(details, Mapping) else None
+    value = str(candidate or "")
+    return value if re.fullmatch(r"sub_[A-Za-z0-9]+", value) else ""
+
+
+def _recompute_billing_subscription_state(cursor: sqlite3.Cursor, user_id: int) -> None:
+    active = cursor.execute(
+        """
+        SELECT subscription_id, customer_id, status, event_created
+        FROM stripe_subscriptions
+        WHERE user_id = ? AND status IN ('active', 'trialing')
+        ORDER BY event_created DESC, event_rank DESC, event_id DESC, subscription_id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    latest = active or cursor.execute(
+        """
+        SELECT subscription_id, customer_id, status, event_created
+        FROM stripe_subscriptions
+        WHERE user_id = ?
+        ORDER BY event_created DESC, event_rank DESC, event_id DESC, subscription_id DESC
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    if not latest:
+        return
+    cursor.execute(
+        """
+        UPDATE billing_accounts
+        SET plan = ?, status = ?, stripe_customer_id = ?,
+            stripe_subscription_id = ?, stripe_state_event_created = ?, updated_at = ?
+        WHERE user_id = ?
+        """,
+        (
+            "pro" if active else "free",
+            str(latest[2]),
+            str(latest[1]),
+            str(latest[0]),
+            int(latest[3]),
+            _utc_timestamp(),
+            user_id,
+        ),
+    )
+
+
+def _record_stripe_subscription_state(
+    cursor: sqlite3.Cursor,
+    *,
+    user_id: int,
+    customer_id: str,
+    subscription_id: str,
+    status: str,
+    event_created: int,
+    event_rank: int,
+    event_id: str,
+) -> None:
+    _ensure_billing_account(cursor, user_id)
+    account_customer = cursor.execute(
+        "SELECT stripe_customer_id FROM billing_accounts WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    if account_customer and account_customer[0] and account_customer[0] != customer_id:
+        raise ValueError("subscription customer mismatch")
+    existing = cursor.execute(
+        "SELECT user_id, customer_id FROM stripe_subscriptions WHERE subscription_id = ?",
+        (subscription_id,),
+    ).fetchone()
+    if existing and (int(existing[0]) != user_id or str(existing[1]) != customer_id):
+        raise ValueError("subscription ownership mismatch")
+    cursor.execute(
+        """
+        INSERT INTO stripe_subscriptions
+            (subscription_id, user_id, customer_id, status, event_created,
+             event_rank, event_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(subscription_id) DO UPDATE SET
+            status = excluded.status,
+            event_created = excluded.event_created,
+            event_rank = excluded.event_rank,
+            event_id = excluded.event_id,
+            updated_at = excluded.updated_at
+        WHERE NOT (
+                stripe_subscriptions.status = 'deleted'
+                AND excluded.status != 'deleted'
+              )
+          AND (
+                excluded.event_created > stripe_subscriptions.event_created
+                OR (
+                    excluded.event_created = stripe_subscriptions.event_created
+                    AND excluded.event_rank > stripe_subscriptions.event_rank
+                )
+                OR (
+                    excluded.event_created = stripe_subscriptions.event_created
+                    AND excluded.event_rank = stripe_subscriptions.event_rank
+                    AND excluded.event_id > stripe_subscriptions.event_id
+                )
+              )
+        """,
+        (
+            subscription_id, user_id, customer_id, status, event_created,
+            event_rank, event_id, _utc_timestamp(),
+        ),
+    )
+    _recompute_billing_subscription_state(cursor, user_id)
+
+
+def _process_stripe_event(cursor: sqlite3.Cursor, event: Mapping[str, Any]) -> None:
+    event_id = str(event.get("id") or "")
+    event_type = str(event.get("type") or "")
+    try:
+        event_created = int(event.get("created"))
+    except (TypeError, ValueError):
+        raise ValueError("invalid Stripe event timestamp") from None
+    if event_created <= 0 or event_created > int(time.time()) + 300:
+        raise ValueError("invalid Stripe event timestamp")
+    data = event.get("data")
+    obj = data.get("object") if isinstance(data, Mapping) else None
+    if not re.fullmatch(r"evt_[A-Za-z0-9]+", event_id) or not isinstance(obj, Mapping):
+        raise ValueError("invalid Stripe event")
+
+    if event_type in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+        metadata = obj.get("metadata") if isinstance(obj.get("metadata"), Mapping) else {}
+        kind = str(metadata.get("qrs_kind") or "")
+        user_id = _stripe_event_user(cursor, obj)
+        payment_status = str(obj.get("payment_status") or "")
+        if kind not in {"credits", "pro"}:
+            return
+        if user_id is None:
+            raise ValueError("checkout user metadata is invalid")
+        if kind == "credits" and payment_status != "paid":
+            return
+        if kind == "pro" and payment_status not in {"paid", "no_payment_required"}:
+            return
+        _ensure_billing_account(cursor, user_id)
+        customer_id = str(obj.get("customer") or "")
+        subscription_id = str(obj.get("subscription") or "")
+        if not re.fullmatch(r"cus_[A-Za-z0-9]+", customer_id):
+            raise ValueError("checkout customer is invalid")
+        if kind == "pro" and not re.fullmatch(r"sub_[A-Za-z0-9]+", subscription_id):
+            raise ValueError("checkout subscription is invalid")
+        existing_customer = cursor.execute(
+            "SELECT stripe_customer_id FROM billing_accounts WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if existing_customer and existing_customer[0] and existing_customer[0] != customer_id:
+            raise ValueError("checkout customer requires manual reconciliation")
+        if kind == "pro":
+            _record_stripe_subscription_state(
+                cursor,
+                user_id=user_id,
+                customer_id=customer_id,
+                subscription_id=subscription_id,
+                status="active",
+                event_created=event_created,
+                event_rank=0,
+                event_id=event_id,
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE billing_accounts
+                SET stripe_customer_id = COALESCE(stripe_customer_id, ?), updated_at = ?
+                WHERE user_id = ?
+                """,
+                (customer_id, _utc_timestamp(), user_id),
+            )
+        amount = STRIPE_CREDIT_PACK_SIZE if kind == "credits" else STRIPE_PRO_MONTHLY_CREDITS
+        _grant_credits(cursor, user_id, amount, f"stripe_{kind}", f"stripe:{obj.get('id')}")
+        return
+
+    if event_type == "invoice.paid":
+        if str(obj.get("billing_reason") or "") == "subscription_create":
+            return
+        customer_id = str(obj.get("customer") or "")
+        subscription_id = _stripe_invoice_subscription_id(obj)
+        if not re.fullmatch(r"cus_[A-Za-z0-9]+", customer_id) or not subscription_id:
+            return
+        row = cursor.execute(
+            """
+            SELECT user_id FROM stripe_subscriptions
+            WHERE customer_id = ? AND subscription_id = ?
+              AND status IN ('active', 'trialing')
+            """,
+            (customer_id, subscription_id),
+        ).fetchone()
+        if row:
+            _grant_credits(
+                cursor,
+                int(row[0]),
+                STRIPE_PRO_MONTHLY_CREDITS,
+                "stripe_pro_renewal",
+                f"stripe:{obj.get('id')}",
+            )
+        return
+
+    if event_type in {"customer.subscription.updated", "customer.subscription.deleted"}:
+        subscription_id = str(obj.get("id") or "")
+        if not re.fullmatch(r"sub_[A-Za-z0-9]+", subscription_id):
+            return
+        customer_id = str(obj.get("customer") or "")
+        if not re.fullmatch(r"cus_[A-Za-z0-9]+", customer_id):
+            return
+        subscription_metadata = obj.get("metadata") if isinstance(obj.get("metadata"), Mapping) else {}
+        metadata_user_id = (
+            _stripe_event_user(cursor, obj)
+            if subscription_metadata.get("qrs_plan") == "pro"
+            else None
+        )
+        tracked = cursor.execute(
+            "SELECT user_id, customer_id FROM stripe_subscriptions WHERE subscription_id = ?",
+            (subscription_id,),
+        ).fetchone()
+        if tracked and metadata_user_id is not None and int(tracked[0]) != metadata_user_id:
+            raise ValueError("subscription metadata account mismatch")
+        user_id = int(tracked[0]) if tracked else metadata_user_id
+        if user_id is None:
+            return
+        if tracked and str(tracked[1]) != customer_id:
+            raise ValueError("subscription customer mismatch")
+        stripe_status = str(obj.get("status") or "inactive")[:32]
+        active = event_type != "customer.subscription.deleted" and stripe_status in {"active", "trialing"}
+        next_status = stripe_status if active else ("deleted" if event_type == "customer.subscription.deleted" else "inactive")
+        _record_stripe_subscription_state(
+            cursor,
+            user_id=user_id,
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+            status=next_status,
+            event_created=event_created,
+            event_rank=2 if event_type == "customer.subscription.deleted" else 1,
+            event_id=event_id,
+        )
+        return
+
+
+@app.post("/billing/webhook")
+@csrf.exempt
+def billing_webhook():
+    raw = request.stream.read(256 * 1024 + 1)
+    if len(raw) > 256 * 1024:
+        return "payload too large", 413
+    if not verify_stripe_signature(
+        raw,
+        request.headers.get("Stripe-Signature"),
+        os.getenv("STRIPE_WEBHOOK_SECRET"),
+    ):
+        return "invalid signature", 400
+    try:
+        event = json.loads(raw)
+        event_id = str(event.get("id") or "") if isinstance(event, dict) else ""
+        event_type = str(event.get("type") or "") if isinstance(event, dict) else ""
+        with sqlite3.connect(DB_FILE, timeout=30.0) as db:
+            cursor = db.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
+            if cursor.execute("SELECT 1 FROM stripe_events WHERE event_id = ?", (event_id,)).fetchone():
+                db.rollback()
+                return "ok", 200
+            _process_stripe_event(cursor, event)
+            cursor.execute(
+                "INSERT INTO stripe_events (event_id, event_type, processed_at) VALUES (?, ?, ?)",
+                (event_id, event_type[:100], _utc_timestamp()),
+            )
+            db.commit()
+        return "ok", 200
+    except Exception:
+        logger.exception("Stripe webhook processing failed")
+        return "webhook processing failed", 500
 
 def save_hazard_report(lat, lon, street_name, vehicle_type, destination,
                        result, cpu_usage, ram_usage, quantum_results, user_id,
@@ -9153,6 +10278,21 @@ async def phf_filter_input(input_text: str) -> tuple[bool, str]:
             "phf_filter_input received invalid or empty input_text.")
         return False, "Invalid input."
 
+    # Authorization and model isolation never depend on an LLM moderation
+    # decision. Reject common instruction-smuggling syntax locally, then use the
+    # optional provider only as an additional content signal.
+    injection_markers = (
+        r"ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions",
+        r"(?:system|developer)\s+(?:prompt|message)",
+        r"jailbreak",
+        r"<\s*/?\s*(?:script|iframe|object)\b",
+        r"\b(?:file|javascript|data)\s*:",
+    )
+    if any(re.search(pattern, input_text, flags=re.IGNORECASE) for pattern in injection_markers):
+        return False, "Local input policy: instruction-smuggling syntax rejected."
+    if not os.getenv("GROK_API_KEY"):
+        return True, "Local bounded-input policy passed."
+
     grokphf_prompt = (
         "The following content requires **Probabilistic Harm Filtering (PHF)** "
         "to identify harmful or concerning elements.\n"
@@ -9174,15 +10314,22 @@ async def phf_filter_input(input_text: str) -> tuple[bool, str]:
     try:
         logger.debug("Attempting OpenAI PHF check.")
         response = await run_grok_completion(grokphf_prompt)
-        if response and ("Safe" in response or "Flagged" in response):
-            logger.debug("OpenAI PHF succeeded: %s", response.strip())
-            return "Safe" in response, f"OpenAI: {response.strip()}"
-        logger.debug("OpenAI PHF did not return expected keywords.")
+        if response:
+            recommendations = re.findall(
+                r"Final\s+Recommendation\s*[:\-]\s*(Safe|Flagged)\b",
+                str(response),
+                flags=re.IGNORECASE,
+            )
+            if recommendations:
+                decision = recommendations[-1].lower()
+                logger.debug("PHF returned a structured final recommendation")
+                return decision == "safe", f"PHF final recommendation: {decision}"
+        logger.debug("PHF did not return a structured final recommendation.")
     except Exception as e:
         logger.error("OpenAI PHF failed: %s", e, exc_info=True)
 
-    logger.warning("PHF processing failed; defaulting to Unsafe.")
-    return False, "PHF processing failed."
+    logger.warning("Remote PHF unavailable; using the local bounded-input policy.")
+    return True, "Local bounded-input policy passed; remote PHF unavailable."
 
 async def scan_debris_for_route(
     lat: float,
@@ -9192,6 +10339,7 @@ async def scan_debris_for_route(
     user_id: int,
     selected_model: str | None = None,
     language_key: str = "en",
+    scene_context: Optional[Mapping[str, str]] = None,
 ) -> tuple[str, str, str, str, str, str, Dict[str, Any]]:
 
     logger.debug(
@@ -9205,6 +10353,12 @@ async def scan_debris_for_route(
     if selected not in ("openai", "grok", "llama_local"):
         selected = "openai"
     language_prompt = language_prompt_block(language_key, selected)
+    scene_context = dict(scene_context or {})
+    road_type = str(scene_context.get("road_type") or "unknown")
+    weather = str(scene_context.get("weather") or "unknown")
+    traffic = str(scene_context.get("traffic") or "unknown")
+    obstacles = str(scene_context.get("obstacles") or "unknown")
+    sensor_notes = str(scene_context.get("sensor_notes") or "unknown")
 
     try:
         cpu_usage, ram_usage = get_cpu_ram_usage()
@@ -9229,6 +10383,11 @@ Current coordinates: Latitude {lat}, Longitude {lon}
 General Area Name: {street_name}
 Vehicle Type: {vehicle_type}
 Destination: {destination}
+Road Type: {road_type}
+Weather: {weather}
+Traffic: {traffic}
+Obstacles: {obstacles}
+Sensor Notes: {sensor_notes}
 [/locationreport]
 [quantumreport]
 Quantum Scan State: {quantum_results}
@@ -9249,26 +10408,31 @@ Please assess the following, but write the driver-facing answer only in the targ
 
 
     report: str = ""
-    if selected == "llama_local" and llama_local_ready():
+    if selected == "llama_local":
+        if not llama_local_ready():
+            raise RuntimeError("Llama scanner unavailable")
  
         scene = {
             "location": street_name,
+            "road_type": road_type,
             "vehicle_type": vehicle_type,
             "destination": destination,
-            "weather": "unknown",
-            "traffic": "unknown",
-            "obstacles": "unknown",
-            "sensor_notes": "unknown",
-            "quantum_results": quantum_results,
+            "weather": weather,
+            "traffic": traffic,
+            "obstacles": obstacles,
+            "sensor_notes": sensor_notes,
+            "quantum_results": str(quantum_results),
         }
-        label = llama_local_predict_risk(scene)
-        report = localized_risk_summary(label if label else "Medium", language_key)
+        label = await llama_local_predict_risk(scene)
+        if not label:
+            raise RuntimeError("Llama inference unavailable")
+        report = localized_risk_summary(label, language_key)
         model_used = "llama_local"
     elif selected == "grok" and os.getenv("GROK_API_KEY"):
         raw_report = await run_grok_completion(grok_prompt)
         report = raw_report if raw_report is not None else ""
         model_used = "grok"
-    else:
+    elif selected == "openai":
      
         raw_report = await run_openai_response_text(
             grok_prompt,
@@ -9279,15 +10443,12 @@ Please assess the following, but write the driver-facing answer only in the targ
         if raw_report:
             report = raw_report
             model_used = "openai"
-        elif os.getenv("GROK_API_KEY"):
-            raw_report2 = await run_grok_completion(grok_prompt)
-            report = raw_report2 if raw_report2 is not None else ""
-            model_used = "grok"
-        else:
-            report = localized_risk_summary("Low", language_key)
-            model_used = "offline"
+    else:
+        raise RuntimeError("Selected scan provider unavailable")
 
     report = (report or "").strip()
+    if not report:
+        raise RuntimeError("Selected scan provider returned no report")
     language_audit = build_language_audit(report, language_key, model_used)
     if model_used in ("openai", "grok"):
         report, language_audit = await enforce_report_language_with_audit(report, language_key, model_used, grok_prompt)
@@ -12064,6 +13225,13 @@ def view_report(report_id):
                                   wheel_color=wheel_color)
 
 
+@app.get('/radar')
+def radar_page():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    return render_template_string('''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Weather radar</title><style>body{background:#091421;color:#eaf5ff;font:16px system-ui;margin:0}main{max-width:1000px;margin:auto;padding:24px}a{color:#7ee4d1}.panel{background:#142438;border:1px solid #36516a;border-radius:16px;padding:20px;margin:18px 0}label{display:inline-block;margin:8px}input,button{font:inherit;padding:8px;border-radius:6px}img{max-width:100%;image-rendering:auto;background:#1d3144;border-radius:10px}small{color:#b6c9da}</style></head><body><main><a href="/dashboard">← Dashboard</a><h1>Weather radar</h1><p>Recent precipitation imagery from RainViewer. Radar is indicative and is not a road-condition or safety forecast.</p><section class="panel"><label>Latitude <input id="lat" type="number" min="-85" max="85" step="any" value="40.7128"></label><label>Longitude <input id="lon" type="number" min="-180" max="180" step="any" value="-74.0060"></label><label>Zoom <input id="zoom" type="number" min="0" max="7" value="5"></label><button id="update">Update location</button><p id="status" role="status">Loading radar…</p><img id="radar" width="512" height="512" alt="Radar tile at the selected coordinates"><p><button id="play">Play</button> <label>Frame <input id="frame" type="range" min="0" max="0" value="0"></label> <span id="time"></span></p><small>Imagery © RainViewer. Tile boundaries may extend beyond the selected location. Availability and coverage vary.</small></section></main><script src="/static/js/radar.js"></script></body></html>''')
+
+
 @app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
     if 'username' not in session:
@@ -12544,6 +13712,7 @@ def dashboard():
         <a href="{{ url_for('user_settings') }}">
             <i class="fas fa-user-cog" aria-hidden="true"></i> <span>User Settings</span>
         </a>
+        <a href="{{ url_for('radar_page') }}"><span>Weather radar</span></a>
         {% if session.is_admin %}
         <a href="{{ url_for('settings') }}">
             <i class="fas fa-cogs" aria-hidden="true"></i> <span>Admin Settings</span>
@@ -13103,33 +14272,27 @@ async def start_scan_route():
     if user_id is None:
         return jsonify({"error": "User not found"}), 404
 
-    if not session.get('is_admin', False):
-        if not check_rate_limit(user_id):
-            return jsonify({"error":
-                            "Rate limit exceeded. Try again later."}), 429
-
-    data = request.get_json()
-
-    lat = sanitize_input(data.get('latitude'))
-    lon = sanitize_input(data.get('longitude'))
-    vehicle_type = sanitize_input(data.get('vehicle_type'))
-    destination = sanitize_input(data.get('destination'))
-    model_selection = sanitize_input(data.get('model_selection'))
-    language_selection = normalize_language_key(data.get('language_selection') or data.get('language') or get_user_preferred_language(user_id))
-
-    if not lat or not lon or not vehicle_type or not destination or not model_selection:
-        return jsonify({"error": "Missing required data"}), 400
+    if not check_rate_limit(user_id):
+        return jsonify({"error":
+                        "Rate limit exceeded. Try again later."}), 429
 
     try:
-        lat_float = parse_safe_float(lat)
-        lon_float = parse_safe_float(lon)
-    except ValueError:
-        return jsonify({"error": "Invalid latitude or longitude format."}), 400
+        scan = validate_scan_payload(
+            request.get_json(silent=True),
+            default_model=get_user_preferred_model(user_id) or "openai",
+            default_language=get_user_preferred_language(user_id) or "en",
+        )
+    except ScanValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    set_user_preferred_model(user_id, model_selection)
-    set_user_preferred_language(user_id, language_selection)
+    set_user_preferred_model(user_id, scan.model)
+    set_user_preferred_language(user_id, scan.language)
 
-    combined_input = f"Vehicle Type: {vehicle_type}\nDestination: {destination}\nLanguage: {language_selection}"
+    combined_input = (
+        f"Vehicle Type: {scan.vehicle_type}\nDestination: {scan.destination}\n"
+        f"Language: {scan.language}\nWeather: {scan.weather}\nTraffic: {scan.traffic}\n"
+        f"Obstacles: {scan.obstacles}\nSensor notes: {scan.sensor_notes}"
+    )
     is_allowed, analysis = await phf_filter_input(combined_input)
     if not is_allowed:
         return jsonify({
@@ -13138,36 +14301,156 @@ async def start_scan_route():
         }), 400
 
     result, cpu_usage, ram_usage, quantum_results, street_name, model_used, language_audit = await scan_debris_for_route(
-        lat_float,
-        lon_float,
-        vehicle_type,
-        destination,
+        scan.latitude,
+        scan.longitude,
+        scan.vehicle_type,
+        scan.destination,
         user_id,
-        selected_model=model_selection,
-        language_key=language_selection,
+        selected_model=scan.model,
+        language_key=scan.language,
+        scene_context=scan.scene_context,
     )
 
     harm_level = calculate_harm_level(result)
 
     report_id = save_hazard_report(
-        lat_float, lon_float, street_name,
-        vehicle_type, destination, result,
+        scan.latitude, scan.longitude, street_name,
+        scan.vehicle_type, scan.destination, result,
         cpu_usage, ram_usage, quantum_results,
-        user_id, harm_level, model_used, language_selection,
+        user_id, harm_level, model_used, scan.language,
         language_audit=language_audit,
     )
 
-    ui_messages = get_ui_messages(language_selection)
+    ui_messages = get_ui_messages(scan.language)
 
     return jsonify({
         "message": ui_messages.get("scan_completed", "Scan completed successfully"),
         "result": result,
         "harm_level": harm_level,
-        "language": language_selection,
+        "language": scan.language,
         "model_used": model_used,
         "language_audit": language_audit,
         "report_id": report_id
     })
+
+
+@app.get("/api/v1/account")
+@csrf.exempt
+def api_v1_account():
+    principal = authenticate_api_key_header(request.headers.get("Authorization"))
+    if principal is None:
+        response = jsonify({"error": "invalid_api_key"})
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response, 401
+    account = get_billing_account(principal["user_id"])
+    return jsonify(
+        {
+            "plan": account["plan"],
+            "status": account["status"],
+            "api_credits": account["api_credits"],
+        }
+    )
+
+
+@app.post("/api/v1/scans")
+@csrf.exempt
+async def api_v1_scans():
+    principal = authenticate_api_key_header(request.headers.get("Authorization"))
+    if principal is None:
+        response = jsonify({"error": "invalid_api_key"})
+        response.headers["WWW-Authenticate"] = "Bearer"
+        return response, 401
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not valid_idempotency_key(idempotency_key):
+        return jsonify({"error": "invalid_idempotency_key"}), 400
+    if request.content_length is not None and request.content_length > 32 * 1024:
+        return jsonify({"error": "request_too_large"}), 413
+    if request.mimetype != "application/json":
+        return jsonify({"error": "content_type_must_be_json"}), 415
+    if not check_api_rate_limit(principal["api_key_id"]):
+        response = jsonify({"error": "rate_limit_exceeded"})
+        response.headers["Retry-After"] = str(API_RATE_LIMIT_WINDOW_SECONDS)
+        return response, 429
+    try:
+        scan = validate_scan_payload(
+            parse_scan_json(request.stream.read(32 * 1024 + 1))
+        )
+    except ScanValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    reconcile_stale_api_requests(user_id=principal["user_id"])
+    reservation, reservation_value = reserve_api_credit(
+        principal["api_key_id"], principal["user_id"], str(idempotency_key)
+    )
+    if reservation == "replay":
+        response = jsonify(reservation_value)
+        response.headers["Idempotent-Replay"] = "true"
+        return response, 200
+    if reservation == "no_credit":
+        return jsonify({"error": "insufficient_api_credits"}), 402
+    if reservation != "reserved":
+        return jsonify({"error": "idempotency_conflict"}), 409
+    api_request_id = int(reservation_value)
+    request_lease = _ApiRequestLease(api_request_id)
+    request_lease.start()
+
+    combined_input = (
+        f"Vehicle Type: {scan.vehicle_type}\nDestination: {scan.destination}\n"
+        f"Language: {scan.language}\nWeather: {scan.weather}\nTraffic: {scan.traffic}\n"
+        f"Obstacles: {scan.obstacles}\nSensor notes: {scan.sensor_notes}"
+    )
+    try:
+        is_allowed, analysis = await phf_filter_input(combined_input)
+        if not is_allowed:
+            fail_and_refund_api_request(api_request_id, "input_rejected")
+            status_code = 503 if "processing failed" in analysis.lower() else 400
+            return jsonify({"error": "input_rejected" if status_code == 400 else "filter_unavailable"}), status_code
+
+        result, cpu_usage, ram_usage, quantum_results, street_name, model_used, language_audit = await scan_debris_for_route(
+            scan.latitude,
+            scan.longitude,
+            scan.vehicle_type,
+            scan.destination,
+            principal["user_id"],
+            selected_model=scan.model,
+            language_key=scan.language,
+            scene_context=scan.scene_context,
+        )
+        harm_level = calculate_harm_level(result)
+        report_id = save_hazard_report(
+            scan.latitude,
+            scan.longitude,
+            street_name,
+            scan.vehicle_type,
+            scan.destination,
+            result,
+            cpu_usage,
+            ram_usage,
+            quantum_results,
+            principal["user_id"],
+            harm_level,
+            model_used,
+            scan.language,
+            language_audit=language_audit,
+        )
+        payload = {
+            "result": result,
+            "harm_level": harm_level,
+            "language": scan.language,
+            "model_used": model_used,
+            "language_audit": language_audit,
+            "report_id": report_id,
+        }
+        if not complete_api_request(api_request_id, payload):
+            fail_and_refund_api_request(api_request_id, "settlement_failed")
+            return jsonify({"error": "settlement_failed"}), 503
+        return jsonify(payload), 200
+    except Exception:
+        logger.exception("Paid API scan failed")
+        fail_and_refund_api_request(api_request_id, "scan_failed")
+        return jsonify({"error": "scan_unavailable"}), 503
+    finally:
+        request_lease.stop()
 
 @app.route('/reverse_geocode', methods=['GET'])
 async def reverse_geocode_route():

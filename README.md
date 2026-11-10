@@ -4,6 +4,129 @@ https://qroadscan.com
 
 https://hub.docker.com/r/graylanquantum/quantum_road_scanner
 
+## Current secure platform architecture
+
+Roadscanner now uses a Cloudflare-only public deployment path. No decentralized
+storage client, gateway, protocol URL, pinning provider, or related dependency is
+part of the application, container stack, documentation, or lock. CI enforces
+that boundary with `scripts/check-storage-policy.py`.
+
+The default Compose stack separates three long-running trust domains:
+
+- `roadscanner`: accounts, encrypted reports, paid API, credit ledger, Stripe
+  webhooks, hosted-model routing, and browser UI;
+- `llama-scanner`: the pinned `llama-cpp-python` runtime and small verified GGUF
+  model, on a private internal network with no published port;
+- `docs`: static API and operator documentation in a read-only unprivileged
+  Nginx container, with no application secrets or data volume.
+
+Roadscanner signs every Llama request with HMAC-SHA256 over the exact body, a
+short-lived timestamp, and a one-time nonce. The scanner rejects stale or
+replayed requests and signs its response. It accepts only bounded structured
+road-scene fields; it does not expose a generic prompt/completions endpoint.
+
+### Start the complete local stack
+
+Create a private `.env` from the variables in the sections below, then provision
+the pinned 111 MB small model and start the services:
+
+```bash
+docker compose build roadscanner llama-scanner docs
+docker compose --profile model-download run --rm llama-model-init
+docker compose up -d llama-scanner roadscanner docs
+```
+
+Generate independent random values of at least 32 bytes for:
+
+```text
+INVITE_CODE_SECRET_KEY
+ENCRYPTION_PASSPHRASE
+QRS_API_KEY_PEPPER
+QRS_LLAMA_API_TOKEN
+```
+
+The Llama model defaults to `llama3-small-Q3_K_M.gguf` with a pinned SHA-256 of
+`8e4f4856fb84bafb895f1eb08e6c03e4be613ead2d942f91561aeac742a619aa`.
+The download job refuses a non-HTTPS source, an oversized artifact, a downgrade
+redirect, or a digest mismatch. The runtime mounts the resulting model read-only.
+
+`diskcache 5.6.3`, pulled in by the current signed Llama lock, is affected by
+`PYSEC-2026-2447`. The production build runs
+`scripts/patch-diskcache-pysec-2026-2447.py`: it verifies the reviewed upstream
+source hash, disables both pickle deserialization paths, and executes malicious
+pickle probes. The web image removes DiskCache completely; the scanner image
+must pass the patch check before the installer will start it. Remove this local
+mitigation only after a fixed upstream release is reviewed and the signed lock
+is regenerated.
+
+### Paid API and Stripe
+
+Set these application secrets only in the runtime secret store:
+
+```text
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+```
+
+Set these non-secret server-owned catalog values:
+
+```text
+STRIPE_PRICE_CREDITS=price_...
+STRIPE_PRICE_PRO=price_...
+QRS_CREDIT_PACK_SIZE=100
+QRS_PRO_MONTHLY_CREDITS=1000
+PUBLIC_BASE_URL=https://scanner.example.com
+QRS_TRUSTED_HOSTS=scanner.example.com
+```
+
+For the hardened interactive installer, enable the payment setup and optionally
+preselect the two server-owned Price IDs and credit allowances:
+
+```bash
+ENABLE_STRIPE_SETUP=1 \
+STRIPE_PRICE_CREDITS=price_... \
+STRIPE_PRICE_PRO=price_... \
+QRS_CREDIT_PACK_SIZE=100 \
+QRS_PRO_MONTHLY_CREDITS=1000 \
+bash docker-install.sh
+```
+
+The installer reads the Stripe API key and webhook signing secret silently from
+the terminal, encrypts them with the other runtime credentials, and keeps the
+Price IDs in non-secret deployment configuration. Prefer a restricted Stripe
+key whose permissions are limited to Checkout Sessions and Billing Portal
+Sessions. Start in Stripe test mode and switch both keys, prices, and webhook
+endpoint to live mode together only after an end-to-end test purchase.
+
+Register `https://scanner.example.com/billing/webhook` in Stripe for:
+
+- `checkout.session.completed` and `checkout.session.async_payment_succeeded`;
+- `invoice.paid`;
+- `customer.subscription.updated` and `customer.subscription.deleted`.
+
+Credits are granted only by a fresh signature-verified webhook. Event IDs and
+ledger references are unique, so retries cannot double-credit an account. API
+scans reserve a credit atomically before inference, refund once on internal
+failure, and require an idempotency key to prevent duplicate charges.
+
+Users purchase credits or Pro access and create/revoke API keys at `/billing`.
+The full API key is shown once and stored only as a keyed hash. API clients send:
+
+```http
+POST /api/v1/scans
+Authorization: Bearer qrs_live_...
+Idempotency-Key: client-request-00000001
+Content-Type: application/json
+```
+
+Weather, road type, traffic, obstacles, and sensor notes remain supported as
+bounded optional scan inputs. The complete contract is in
+[`docs/openapi.yaml`](docs/openapi.yaml).
+
+For Cloudflare, keep the app route at `http://roadscanner:3000`, optionally add a
+docs hostname pointing to `http://docs:8080`, and never create a route for the
+private `llama-scanner` service.
+
 # Production installation guides
 
 Choose one installation path:
@@ -77,11 +200,12 @@ Compose override.
 ## Guide 1 — Prebuilt Docker image (recommended)
 
 This path uses [`graylanjanulis/roadscanner:latest`](https://hub.docker.com/r/graylanjanulis/roadscanner).
-It avoids compiling Open Quantum Safe libraries, `llama-cpp-python`, and the
-rest of the application dependency stack on the server. The installer pulls the
+It avoids compiling Open Quantum Safe libraries and the main application
+dependency stack on the server. The installer pulls the
 tag, resolves the registry digest, and records that immutable digest in the
-deployment configuration. It then verifies ML-KEM-768 and ML-DSA-87 inside the
-downloaded image before starting Roadscanner.
+deployment configuration. For isolation, it still builds the small dedicated
+Llama service image from the signed lock. It then verifies ML-KEM-768 and
+ML-DSA-87 inside the downloaded application image before starting Roadscanner.
 
 ### Prebuilt Stage 1: prepare accounts and information
 

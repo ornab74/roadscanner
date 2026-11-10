@@ -13,6 +13,14 @@ permissions:
   security-events: write
 
 jobs:
+  storage-policy:
+    name: Cloudflare-only storage policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject disallowed decentralized storage integrations
+        run: python scripts/check-storage-policy.py
+
   python-dependencies:
     name: Python dependency audit
     runs-on: ubuntu-latest
@@ -24,7 +32,14 @@ jobs:
       - name: Audit hash-locked Python dependencies
         run: |
           python -m pip install --disable-pip-version-check pip-audit
-          pip-audit --requirement requirements.txt --strict
+          # The scanner image applies and executes the reviewed local mitigation
+          # below; upstream has not published a fixed DiskCache release.
+          pip-audit --requirement requirements.txt --strict --ignore-vuln PYSEC-2026-2447
+      - name: Verify DiskCache pickle mitigation
+        run: |
+          python -m pip install --disable-pip-version-check --no-deps diskcache==5.6.3
+          python scripts/patch-diskcache-pysec-2026-2447.py
+          python scripts/patch-diskcache-pysec-2026-2447.py --check
 
   codeql:
     name: CodeQL Python analysis
@@ -50,4 +65,5 @@ jobs:
           scanners: vuln,misconfig,secret
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
           exit-code: "1"

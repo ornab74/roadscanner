@@ -31,7 +31,8 @@ pip-wheel-metadata/
 .ruff_cache/
 
 # Tests & Coverage
-tests/
+!tests/
+!tests/**
 .coverage
 htmlcov/
 

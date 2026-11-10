@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Roadscanner operations</title><style>body{max-width:900px;margin:48px auto;padding:0 22px;background:#08111c;color:#eef7ff;font:16px/1.65 system-ui}a{color:#6ee7cf}code,pre{background:#101d2d;border:1px solid #29425a;border-radius:8px}code{padding:.1em .35em}pre{padding:18px;overflow:auto;white-space:pre-wrap}</style></head><body>
+<p><a href="/">Documentation</a></p><h1>Operations</h1>
+<h2>1. Secrets</h2><p>Generate distinct random values of at least 32 bytes for <code>INVITE_CODE_SECRET_KEY</code>, <code>QRS_API_KEY_PEPPER</code>, and <code>QRS_LLAMA_API_TOKEN</code>. Configure <code>STRIPE_SECRET_KEY</code> and <code>STRIPE_WEBHOOK_SECRET</code> only in the Roadscanner runtime secret store. Never place secret values in Compose files or images.</p>
+<h2>2. Stripe</h2><p>Create one recurring Price and one one-time credit-pack Price. Set <code>STRIPE_PRICE_PRO</code> and <code>STRIPE_PRICE_CREDITS</code>. Register <code>https://APP_HOST/billing/webhook</code> and subscribe it to Checkout completion, invoice paid, and customer subscription lifecycle events. Use Stripe test mode first.</p>
+<h2>3. Local model</h2>
+<pre>docker compose --profile model-download run --rm llama-model-init
+docker compose up -d llama-scanner roadscanner docs</pre>
+<p>The fetch job downloads only the configured HTTPS artifact and publishes it after its pinned SHA-256 digest matches. The runtime mounts the verified model read-only.</p>
+<h2>4. Cloudflare</h2><p>Keep the application route pointed to <code>http://roadscanner:3000</code>. Add a separate docs hostname whose service is <code>http://docs:8080</code>. Do not create a public route for <code>llama-scanner</code>.</p>
+<h2>5. API keys</h2><p>Users buy credits or activate the paid plan, then create a key on <code>/billing</code>. The full key is shown once. Clients must send <code>Authorization: Bearer …</code> and a unique <code>Idempotency-Key</code> on each scan request.</p>
+</body></html>

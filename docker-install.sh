@@ -30,6 +30,9 @@ DEPLOY_ENV="${DEPLOY_ENV:-$CONFIG_DIR/deploy.env}"
 # Resolved after the dedicated rootless Docker UID exists.
 RUNTIME_SECRET_PARENT=""
 RUNTIME_SECRET_DIR=""
+RUNTIME_SECRET_BASE=""
+RUNTIME_LLAMA_SECRET_DIR=""
+RUNTIME_CLOUDFLARE_SECRET_DIR=""
 STATE_DIR="${STATE_DIR:-/var/lib/roadscanner-installer}"
 LOG_DIR="${LOG_DIR:-/var/log/roadscanner}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
@@ -51,6 +54,15 @@ INSTALL_DOCKER="${INSTALL_DOCKER:-1}"
 HARDEN_HOST="${HARDEN_HOST:-1}"
 REQUIRE_APPARMOR="${REQUIRE_APPARMOR:-auto}"
 FORCE_SOURCE_RESET="${FORCE_SOURCE_RESET:-0}"
+ENABLE_STRIPE_SETUP="${ENABLE_STRIPE_SETUP:-0}"
+STRIPE_PRICE_CREDITS_EXPLICIT="${STRIPE_PRICE_CREDITS+x}"
+STRIPE_PRICE_PRO_EXPLICIT="${STRIPE_PRICE_PRO+x}"
+QRS_CREDIT_PACK_SIZE_EXPLICIT="${QRS_CREDIT_PACK_SIZE+x}"
+QRS_PRO_MONTHLY_CREDITS_EXPLICIT="${QRS_PRO_MONTHLY_CREDITS+x}"
+STRIPE_PRICE_CREDITS="${STRIPE_PRICE_CREDITS:-}"
+STRIPE_PRICE_PRO="${STRIPE_PRICE_PRO:-}"
+QRS_CREDIT_PACK_SIZE="${QRS_CREDIT_PACK_SIZE:-100}"
+QRS_PRO_MONTHLY_CREDITS="${QRS_PRO_MONTHLY_CREDITS:-1000}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG_FILE="$LOG_DIR/install-$STAMP.log"
@@ -80,6 +92,9 @@ case "$BIND_ADDR" in
   127.0.0.1|::1|localhost) ;;
   *) die "Refusing non-loopback bind ($BIND_ADDR). Put Cloudflare Tunnel in front." ;;
 esac
+[[ "$ENABLE_STRIPE_SETUP" =~ ^[01]$ ]] || die "ENABLE_STRIPE_SETUP must be 0 or 1"
+[[ "$QRS_CREDIT_PACK_SIZE" =~ ^[1-9][0-9]{0,6}$ ]] || die "QRS_CREDIT_PACK_SIZE must be 1..9999999"
+[[ "$QRS_PRO_MONTHLY_CREDITS" =~ ^[1-9][0-9]{0,6}$ ]] || die "QRS_PRO_MONTHLY_CREDITS must be 1..9999999"
 
 validate_container_path() {
   local name="$1" value="$2"
@@ -179,7 +194,10 @@ UIDN="$(id -u "$SERVICE_USER")"
 GIDN="$(id -g "$SERVICE_USER")"
 HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
 RUNTIME_SECRET_PARENT="/run/user/$UIDN"
-RUNTIME_SECRET_DIR="$RUNTIME_SECRET_PARENT/roadscanner-secrets"
+RUNTIME_SECRET_BASE="$RUNTIME_SECRET_PARENT/roadscanner-secrets"
+RUNTIME_SECRET_DIR="$RUNTIME_SECRET_BASE/app"
+RUNTIME_LLAMA_SECRET_DIR="$RUNTIME_SECRET_BASE/llama"
+RUNTIME_CLOUDFLARE_SECRET_DIR="$RUNTIME_SECRET_BASE/cloudflare"
 
 loginctl enable-linger "$SERVICE_USER"
 systemctl start "user-runtime-dir@${UIDN}.service"
@@ -326,6 +344,33 @@ runu test -r "$APP_DIR/Dockerfile" || die "Service user cannot read Dockerfile"
 ok "Pinned origin/main commit: $COMMIT"
 
 log "7/14 encrypted secret provisioning"
+
+previous_public_setting() {
+  local name="$1"
+  [[ -s "$PUBLIC_ENV" ]] || return 0
+  awk -F= -v wanted="$name" '$1 == wanted { sub(/^[^=]*=/, ""); print; exit }' "$PUBLIC_ENV"
+}
+
+if [[ -z "$STRIPE_PRICE_CREDITS_EXPLICIT" ]]; then
+  STRIPE_PRICE_CREDITS="$(previous_public_setting STRIPE_PRICE_CREDITS)"
+fi
+if [[ -z "$STRIPE_PRICE_PRO_EXPLICIT" ]]; then
+  STRIPE_PRICE_PRO="$(previous_public_setting STRIPE_PRICE_PRO)"
+fi
+if [[ -z "$QRS_CREDIT_PACK_SIZE_EXPLICIT" ]]; then
+  QRS_CREDIT_PACK_SIZE="$(previous_public_setting QRS_CREDIT_PACK_SIZE)"
+  QRS_CREDIT_PACK_SIZE="${QRS_CREDIT_PACK_SIZE:-100}"
+fi
+if [[ -z "$QRS_PRO_MONTHLY_CREDITS_EXPLICIT" ]]; then
+  QRS_PRO_MONTHLY_CREDITS="$(previous_public_setting QRS_PRO_MONTHLY_CREDITS)"
+  QRS_PRO_MONTHLY_CREDITS="${QRS_PRO_MONTHLY_CREDITS:-1000}"
+fi
+[[ -z "$STRIPE_PRICE_CREDITS" || "$STRIPE_PRICE_CREDITS" =~ ^price_[A-Za-z0-9]+$ ]] \
+  || die "Stored Stripe credit Price ID is invalid"
+[[ -z "$STRIPE_PRICE_PRO" || "$STRIPE_PRICE_PRO" =~ ^price_[A-Za-z0-9]+$ ]] \
+  || die "Stored Stripe Pro Price ID is invalid"
+[[ "$QRS_CREDIT_PACK_SIZE" =~ ^[1-9][0-9]{0,6}$ ]] || die "Stored credit pack size is invalid"
+[[ "$QRS_PRO_MONTHLY_CREDITS" =~ ^[1-9][0-9]{0,6}$ ]] || die "Stored Pro credit allowance is invalid"
 
 # Keep secret input off stdout/stderr so tee/logging never receives it.
 prompt_secret() {
@@ -489,6 +534,33 @@ if ! credential_exists XAI_API_KEY; then
   unset XAI_API_KEY
 fi
 
+# Stripe is opt-in because its credentials and server-owned Price IDs must be
+# created in the operator's own Stripe account. Secret input stays off logs.
+if [[ "$ENABLE_STRIPE_SETUP" == "1" ]]; then
+  if ! credential_exists STRIPE_SECRET_KEY; then
+    STRIPE_SECRET_VALUE="$(prompt_secret 'Enter Stripe restricted/secret API key')"
+    [[ "$STRIPE_SECRET_VALUE" =~ ^(sk|rk)_(test|live)_[A-Za-z0-9_]+$ ]] \
+      || die "Stripe API key format is invalid"
+    encrypt_credential STRIPE_SECRET_KEY "$STRIPE_SECRET_VALUE"
+    unset STRIPE_SECRET_VALUE
+  fi
+  if ! credential_exists STRIPE_WEBHOOK_SECRET; then
+    STRIPE_WEBHOOK_VALUE="$(prompt_secret 'Enter Stripe webhook signing secret')"
+    [[ "$STRIPE_WEBHOOK_VALUE" =~ ^whsec_[A-Za-z0-9_=-]{16,}$ ]] \
+      || die "Stripe webhook secret format is invalid"
+    encrypt_credential STRIPE_WEBHOOK_SECRET "$STRIPE_WEBHOOK_VALUE"
+    unset STRIPE_WEBHOOK_VALUE
+  fi
+  while [[ ! "$STRIPE_PRICE_CREDITS" =~ ^price_[A-Za-z0-9]+$ ]]; do
+    printf 'Stripe one-time credit-pack Price ID: ' >/dev/tty
+    IFS= read -r STRIPE_PRICE_CREDITS </dev/tty
+  done
+  while [[ ! "$STRIPE_PRICE_PRO" =~ ^price_[A-Za-z0-9]+$ ]]; do
+    printf 'Stripe recurring Pro Price ID: ' >/dev/tty
+    IFS= read -r STRIPE_PRICE_PRO </dev/tty
+  done
+fi
+
 # Prompt for initial administrator credentials beside the provider keys. On an
 # idempotent rerun, preserve credentials that are already provisioned.
 if ! credential_exists admin_username; then
@@ -509,6 +581,12 @@ fi
 if ! credential_exists ENCRYPTION_PASSPHRASE; then
   encrypt_credential ENCRYPTION_PASSPHRASE "$(generate_b64url 64)"
 fi
+if ! credential_exists QRS_API_KEY_PEPPER; then
+  encrypt_credential QRS_API_KEY_PEPPER "$(generate_b64url 48)"
+fi
+if ! credential_exists QRS_LLAMA_API_TOKEN; then
+  encrypt_credential QRS_LLAMA_API_TOKEN "$(generate_b64url 48)"
+fi
 
 while IFS= read -r -d '' credential_file; do
   [[ "$(stat -c '%U:%G %a' "$credential_file")" == "root:root 600" ]] ||
@@ -528,10 +606,17 @@ QRS_ROTATE_SESSION_KEY=1
 QRS_SESSION_KEY_ROTATION_PERIOD_SECONDS=1800
 QRS_SESSION_KEY_ROTATION_LOOKBACK=8
 QRS_DATA_DIR=$QRS_DATA_DIR
+PUBLIC_BASE_URL=https://$CERTBOT_DOMAIN
+QRS_PUBLIC_BASE_URL=https://$CERTBOT_DOMAIN
+QRS_TRUSTED_HOSTS=$CERTBOT_DOMAIN
 EOF
 for path_setting in QRS_DB_PATH QRS_SEALED_DIR QRS_MODELS_DIR QRS_BACKUP_DIR; do
   path_value="${!path_setting}"
   [[ -z "$path_value" ]] || printf '%s=%s\n' "$path_setting" "$path_value" >>"$PUBLIC_ENV"
+done
+for billing_setting in STRIPE_PRICE_CREDITS STRIPE_PRICE_PRO QRS_CREDIT_PACK_SIZE QRS_PRO_MONTHLY_CREDITS; do
+  billing_value="${!billing_setting:-}"
+  [[ -z "$billing_value" ]] || printf '%s=%s\n' "$billing_setting" "$billing_value" >>"$PUBLIC_ENV"
 done
 chown root:"$SERVICE_USER" "$PUBLIC_ENV"
 chmod 0640 "$PUBLIC_ENV"
@@ -543,34 +628,52 @@ cat >/usr/local/sbin/roadscanner-materialize-secrets <<EOF
 set -Eeuo pipefail
 umask 077
 CRED_DIR='$CRED_DIR'
-RUNTIME_DIR='$RUNTIME_SECRET_DIR'
+RUNTIME_BASE='$RUNTIME_SECRET_BASE'
+APP_RUNTIME_DIR='$RUNTIME_SECRET_DIR'
+LLAMA_RUNTIME_DIR='$RUNTIME_LLAMA_SECRET_DIR'
+CLOUDFLARE_RUNTIME_DIR='$RUNTIME_CLOUDFLARE_SECRET_DIR'
 RUNTIME_PARENT='$RUNTIME_SECRET_PARENT'
 SERVICE_USER='$SERVICE_USER'
-# /run/user/<uid> is created by systemd with mode 0700. The bind-mount source
-# lives directly beneath it so rootless Docker sees the same mount namespace.
+# Build the complete secret tree in a root-owned staging directory, then publish
+# it with one rename. Root must not follow service-account-controlled paths.
 [[ "\$(stat -c '%U:%G %a' "\$RUNTIME_PARENT")" == "\$SERVICE_USER:\$SERVICE_USER 700" ]] || exit 73
-install -d -m 0755 -o "\$SERVICE_USER" -g "\$SERVICE_USER" "\$RUNTIME_DIR"
-find "\$RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type f -delete
+STAGING="\$(mktemp -d /run/roadscanner-secrets.XXXXXX)"
+trap 'rm -rf --one-file-system "\$STAGING"' EXIT
+install -d -m 0750 -o root -g "\$SERVICE_USER" \
+  "\$STAGING/app" "\$STAGING/llama" "\$STAGING/cloudflare"
 shopt -s nullglob
 for cred in "\$CRED_DIR"/*.cred; do
   name="\$(basename "\$cred" .cred)"
-  tmp="\$(mktemp "\$RUNTIME_DIR/.tmp.XXXXXX")"
+  [[ "\$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || exit 74
+  tmp="\$(mktemp "\$STAGING/.tmp.XXXXXX")"
   systemd-creds decrypt --name="\$name" "\$cred" "\$tmp" >/dev/null
-  chown root:"\$SERVICE_USER" "\$tmp"
-  # Host access is blocked by the private parent. 0444 allows remapped container UID 10001 to read.
-  chmod 0444 "\$tmp"
-  mv -f "\$tmp" "\$RUNTIME_DIR/\$name"
+  case "\$name" in
+    CLOUDFLARE_TUNNEL_TOKEN)
+      install -m 0444 -o root -g "\$SERVICE_USER" "\$tmp" "\$STAGING/cloudflare/\$name"
+      ;;
+    QRS_LLAMA_API_TOKEN)
+      install -m 0444 -o root -g "\$SERVICE_USER" "\$tmp" "\$STAGING/app/\$name"
+      install -m 0444 -o root -g "\$SERVICE_USER" "\$tmp" "\$STAGING/llama/\$name"
+      ;;
+    *)
+      install -m 0444 -o root -g "\$SERVICE_USER" "\$tmp" "\$STAGING/app/\$name"
+      ;;
+  esac
+  rm -f "\$tmp"
 done
+chown root:"\$SERVICE_USER" "\$STAGING"
+chmod 0750 "\$STAGING"
+rm -rf --one-file-system "\$RUNTIME_BASE"
+mv -T "\$STAGING" "\$RUNTIME_BASE"
+STAGING=""
+trap - EXIT
 EOF
 chmod 0700 /usr/local/sbin/roadscanner-materialize-secrets
 
 cat >/usr/local/sbin/roadscanner-clear-secrets <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-if [[ -d '$RUNTIME_SECRET_DIR' ]]; then
-  find '$RUNTIME_SECRET_DIR' -mindepth 1 -delete
-  rmdir '$RUNTIME_SECRET_DIR'
-fi
+rm -rf --one-file-system '$RUNTIME_SECRET_BASE'
 EOF
 chmod 0700 /usr/local/sbin/roadscanner-clear-secrets
 
@@ -623,15 +726,21 @@ systemctl enable roadscanner-secrets.service
 systemctl restart roadscanner-secrets.service
 [[ "$(stat -c '%U:%G %a' "/run/user/$UIDN")" == "$SERVICE_USER:$SERVICE_USER 700" ]] ||
   die "Unsafe service-user runtime permissions"
-for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+for runtime_dir in "$RUNTIME_SECRET_BASE" "$RUNTIME_SECRET_DIR" "$RUNTIME_LLAMA_SECRET_DIR" "$RUNTIME_CLOUDFLARE_SECRET_DIR"; do
+  [[ -d "$runtime_dir" && ! -L "$runtime_dir" ]] || die "Unsafe runtime secret directory: $runtime_dir"
+  [[ "$(stat -c '%U:%G %a' "$runtime_dir")" == "root:$SERVICE_USER 750" ]] ||
+    die "Unsafe runtime secret directory permissions: $runtime_dir"
+done
+for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass QRS_API_KEY_PEPPER QRS_LLAMA_API_TOKEN; do
   [[ -s "$RUNTIME_SECRET_DIR/$required" ]] || die "Required runtime secret missing: $required"
 done
+[[ -s "$RUNTIME_LLAMA_SECRET_DIR/QRS_LLAMA_API_TOKEN" ]] || die "Llama runtime secret missing"
 while IFS= read -r -d '' runtime_secret; do
   [[ "$(stat -c '%U:%G %a' "$runtime_secret")" == "root:$SERVICE_USER 444" ]] ||
     die "Unsafe runtime secret permissions: $runtime_secret"
   [[ "$(stat -c '%h' "$runtime_secret")" == "1" ]] ||
     die "Runtime secret has unexpected hard links: $runtime_secret"
-done < <(find "$RUNTIME_SECRET_DIR" -maxdepth 1 -type f -print0)
+done < <(find "$RUNTIME_SECRET_DIR" "$RUNTIME_LLAMA_SECRET_DIR" "$RUNTIME_CLOUDFLARE_SECRET_DIR" -maxdepth 1 -type f -print0)
 
 log "9/14 secure in-container entrypoint"
 
@@ -640,7 +749,7 @@ cat >"$CONFIG_DIR/container-entrypoint.sh" <<'ENTRY'
 #!/bin/sh
 set -eu
 
-for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass QRS_API_KEY_PEPPER QRS_LLAMA_API_TOKEN; do
   file="/run/roadscanner-secrets/$required"
   [ -s "$file" ] || { echo "fatal: required secret file missing: $required" >&2; exit 78; }
 done
@@ -670,6 +779,20 @@ exec gunicorn main:app \
 ENTRY
 chown root:"$SERVICE_USER" "$CONFIG_DIR/container-entrypoint.sh"
 chmod 0555 "$CONFIG_DIR/container-entrypoint.sh"
+
+cat >"$CONFIG_DIR/llama-entrypoint.sh" <<'ENTRY'
+#!/bin/sh
+set -eu
+token_file="/run/llama-secrets/QRS_LLAMA_API_TOKEN"
+[ -s "$token_file" ] || { echo "fatal: llama API token missing" >&2; exit 78; }
+QRS_LLAMA_API_TOKEN="$(cat "$token_file")"
+export QRS_LLAMA_API_TOKEN
+exec gunicorn \
+  --config /app/services/llama_scanner/gunicorn.conf.py \
+  --chdir /app services.llama_scanner.app:app
+ENTRY
+chown root:"$SERVICE_USER" "$CONFIG_DIR/llama-entrypoint.sh"
+chmod 0555 "$CONFIG_DIR/llama-entrypoint.sh"
 
 cat >"$CONFIG_DIR/compose.secure.yaml" <<EOF
 services:
@@ -701,12 +824,38 @@ services:
         source: $CONFIG_DIR/container-entrypoint.sh
         target: /run/roadscanner-entrypoint.sh
         read_only: true
+  llama-scanner:
+    environment:
+      HOME: /tmp/llama-home
+      XDG_CACHE_HOME: /tmp/llama-cache
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    entrypoint:
+      - /bin/sh
+      - /run/llama-entrypoint.sh
+    volumes:
+      - type: bind
+        source: $RUNTIME_LLAMA_SECRET_DIR
+        target: /run/llama-secrets
+        read_only: true
+      - type: bind
+        source: $CONFIG_DIR/llama-entrypoint.sh
+        target: /run/llama-entrypoint.sh
+        read_only: true
 EOF
 chown root:"$SERVICE_USER" "$CONFIG_DIR/compose.secure.yaml"
 chmod 0640 "$CONFIG_DIR/compose.secure.yaml"
 
+log "10/14 immutable base and application image resolution"
+dkr pull "$PYTHON_IMAGE_TAG"
+PYTHON_IMAGE_DIGEST="$(
+  dkr image inspect "$PYTHON_IMAGE_TAG" \
+    --format '{{index .RepoDigests 0}}' 2>/dev/null || true
+)"
+[[ "$PYTHON_IMAGE_DIGEST" == *@sha256:* ]] \
+  || die "Could not resolve immutable digest for $PYTHON_IMAGE_TAG"
+
 if [[ -n "$PREBUILT_IMAGE" ]]; then
-  log "10/14 immutable prebuilt image resolution"
   dkr pull "$PREBUILT_IMAGE"
   DEPLOY_IMAGE="$(
     dkr image inspect "$PREBUILT_IMAGE" \
@@ -714,17 +863,10 @@ if [[ -n "$PREBUILT_IMAGE" ]]; then
   )"
   [[ "$DEPLOY_IMAGE" == *@sha256:* ]] \
     || die "Could not resolve immutable digest for $PREBUILT_IMAGE"
-  PYTHON_IMAGE_DIGEST="$PYTHON_IMAGE_TAG"
+  LLAMA_DEPLOY_IMAGE="roadscanner-llama:$SHORT"
 else
-  log "10/14 immutable base-image resolution + image build"
-  dkr pull "$PYTHON_IMAGE_TAG"
-  PYTHON_IMAGE_DIGEST="$(
-    dkr image inspect "$PYTHON_IMAGE_TAG" \
-      --format '{{index .RepoDigests 0}}' 2>/dev/null || true
-  )"
-  [[ "$PYTHON_IMAGE_DIGEST" == *@sha256:* ]] \
-    || die "Could not resolve immutable digest for $PYTHON_IMAGE_TAG"
   DEPLOY_IMAGE="roadscanner:$SHORT"
+  LLAMA_DEPLOY_IMAGE="roadscanner-llama:$SHORT"
 fi
 
 BUILD_DATE="$(date -u --iso-8601=seconds)"
@@ -732,6 +874,7 @@ cat >"$DEPLOY_ENV" <<EOF
 ROADSCANNER_ENV_FILE=$PUBLIC_ENV
 ROADSCANNER_BUILD_CONTEXT=$APP_DIR
 ROADSCANNER_IMAGE=$DEPLOY_IMAGE
+LLAMA_IMAGE=$LLAMA_DEPLOY_IMAGE
 ROADSCANNER_CONTAINER=roadscanner
 ROADSCANNER_BIND_ADDR=$BIND_ADDR
 ROADSCANNER_PORT=$PORT
@@ -763,7 +906,9 @@ runu test -r "$CONFIG_DIR/compose.secure.yaml" || die "secure compose override u
 runu test -r "$DEPLOY_ENV" || die "deploy.env unreadable"
 
 if [[ -z "$PREBUILT_IMAGE" ]]; then
-  compose build --pull roadscanner
+  compose build --pull roadscanner llama-scanner docs
+else
+  compose build --pull llama-scanner docs
 fi
 IMAGE_ID="$(dkr image inspect -f '{{.Id}}' "$DEPLOY_IMAGE")"
 APP_UID="$(dkr run --rm --network none --entrypoint /usr/bin/id "$DEPLOY_IMAGE" -u)"
@@ -780,10 +925,20 @@ dkr run --rm --network none \
   -v "$RUNTIME_SECRET_DIR:/run/roadscanner-secrets:ro" \
   "$DEPLOY_IMAGE" -c '
     set -eu
-    for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass; do
+    for required in INVITE_CODE_SECRET_KEY ENCRYPTION_PASSPHRASE admin_username admin_pass QRS_API_KEY_PEPPER QRS_LLAMA_API_TOKEN; do
       test -s "/run/roadscanner-secrets/$required" || exit 78
     done
   ' || die "Final image cannot read required runtime secrets"
+
+dkr run --rm --network none "$DEPLOY_IMAGE" python -c \
+  "import importlib.util; assert importlib.util.find_spec('llama_cpp') is None; assert importlib.util.find_spec('diskcache') is None" \
+  || die "Roadscanner image unexpectedly contains the Llama or DiskCache runtime"
+dkr run --rm --network none "$LLAMA_DEPLOY_IMAGE" python -c \
+  "from llama_cpp import Llama; print('isolated llama runtime verified')" \
+  || die "Llama scanner image is missing llama_cpp"
+dkr run --rm --network none "$LLAMA_DEPLOY_IMAGE" \
+  python /app/scripts/patch-diskcache-pysec-2026-2447.py --check \
+  || die "Llama scanner image is missing the PYSEC-2026-2447 mitigation"
 
 log "11/14 application PQ bootstrap"
 
@@ -824,12 +979,14 @@ qrs_database_has_data() {
     "$DEPLOY_IMAGE" -c 'test -s "${QRS_DB_PATH:-$QRS_DATA_DIR/secure_data.db}"'
 }
 
-if compgen -G "$CRED_DIR/QRS_*.cred" >/dev/null && ! qrs_credentials_valid; then
+if [[ -s "$CRED_DIR/QRS_X25519_PRIV_ENC_B64.cred" ]] && ! qrs_credentials_valid; then
   if qrs_database_has_data; then
     die "QRS credentials are incomplete or corrupt; refusing automatic key regeneration because application data exists"
   fi
   warn "Discarding invalid QRS bootstrap credentials from an uninitialized deployment."
-  find "$CRED_DIR" -maxdepth 1 -type f -name 'QRS_*.cred' -delete
+  for key in "${QRS_REQUIRED[@]}"; do
+    rm -f "$CRED_DIR/$key.cred"
+  done
   systemctl restart roadscanner-secrets.service
 fi
 
@@ -906,6 +1063,11 @@ dkr run --rm --network none --read-only \
   "$PYTHON_IMAGE_DIGEST" \
   /bin/chown -R "$APP_UID:$APP_GID" "$QRS_DATA_DIR"
 
+# The short-lived fetch job has outbound access, verifies the pinned digest,
+# and writes the model volume. The long-running scanner joins only its private
+# internal network and mounts this volume read-only.
+compose --profile model-download run --rm llama-model-init
+
 log "13/14 hardened container service"
 cat >/usr/local/bin/roadscanner-compose <<EOF
 #!/usr/bin/env bash
@@ -944,7 +1106,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/roadscanner-compose up -d --remove-orphans roadscanner
+ExecStart=/usr/local/bin/roadscanner-compose up -d --remove-orphans llama-scanner roadscanner docs
 ExecStop=/usr/local/bin/roadscanner-compose down
 TimeoutStartSec=300
 TimeoutStopSec=90
@@ -976,6 +1138,10 @@ for _ in $(seq 1 90); do
 done
 h="$(dkr inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' roadscanner)"
 [[ "$h" == healthy ]] || die "Container failed health check: $h"
+for service_container in llama-scanner roadscanner-docs; do
+  service_health="$(dkr inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$service_container" 2>/dev/null || true)"
+  [[ "$service_health" == healthy ]] || die "$service_container failed health check: $service_health"
+done
 
 APPARMOR_PROFILE="$(dkr inspect -f '{{.AppArmorProfile}}' roadscanner 2>/dev/null || true)"
 if [[ "$REQUIRE_APPARMOR" == 1 ]]; then

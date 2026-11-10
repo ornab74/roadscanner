@@ -12,7 +12,7 @@ TOKEN_FILE="$SECRET_DIR/tunnel-token"
 CRED_DIR="${CRED_DIR:-/etc/roadscanner/credentials}"
 TOKEN_CRED="$CRED_DIR/CLOUDFLARE_TUNNEL_TOKEN.cred"
 SERVICE_UID="$(id -u "$SERVICE_USER")"
-RUNTIME_TOKEN_FILE="${RUNTIME_TOKEN_FILE:-/run/user/$SERVICE_UID/roadscanner-secrets/CLOUDFLARE_TUNNEL_TOKEN}"
+RUNTIME_TOKEN_FILE="${RUNTIME_TOKEN_FILE:-/run/user/$SERVICE_UID/roadscanner-secrets/cloudflare/CLOUDFLARE_TUNNEL_TOKEN}"
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
@@ -33,10 +33,18 @@ dkr() {
 dkr info >/dev/null 2>&1 || die "rootless Docker is not running for '$SERVICE_USER'"
 dkr inspect "$APP_CONTAINER" >/dev/null 2>&1 || die "container '$APP_CONTAINER' is not running"
 
-APP_NETWORK="$(dkr inspect "$APP_CONTAINER" \
-  --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{println}}{{end}}' \
-  | sed -n '1p')"
-[[ -n "$APP_NETWORK" ]] || die "could not determine the Roadscanner Docker network"
+APP_NETWORK=""
+while IFS= read -r candidate; do
+  [[ -n "$candidate" ]] || continue
+  # Cloudflared belongs only on an egress-capable application network. Never
+  # attach the public tunnel sidecar to the isolated model-service network.
+  if [[ "$(dkr network inspect "$candidate" --format '{{.Internal}}')" == "false" ]]; then
+    APP_NETWORK="$candidate"
+    break
+  fi
+done < <(dkr inspect "$APP_CONTAINER" \
+  --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{println}}{{end}}')
+[[ -n "$APP_NETWORK" ]] || die "could not determine an external Roadscanner Docker network"
 
 install -d -m 0700 -o root -g root "$CRED_DIR"
 
@@ -100,6 +108,10 @@ fi
 printf 'Using encrypted Cloudflare credential (%s at rest).\n' "$CRED_KEY_MODE"
 
 dkr pull "$CLOUDFLARED_IMAGE"
+CLOUDFLARED_RESOLVED="$(dkr image inspect "$CLOUDFLARED_IMAGE" \
+  --format '{{index .RepoDigests 0}}')"
+[[ "$CLOUDFLARED_RESOLVED" =~ @sha256:[0-9a-f]{64}$ ]] \
+  || die "could not resolve an immutable Cloudflared image digest"
 if dkr inspect "$TUNNEL_CONTAINER" >/dev/null 2>&1; then
   dkr rm -f "$TUNNEL_CONTAINER" >/dev/null
 fi
@@ -116,7 +128,7 @@ dkr run -d \
   --security-opt no-new-privileges:true \
   --pids-limit 128 \
   --memory 128m \
-  "$CLOUDFLARED_IMAGE" \
+  "$CLOUDFLARED_RESOLVED" \
   tunnel --no-autoupdate --protocol quic run --post-quantum \
   --token-file /run/secrets/cloudflare-tunnel-token
 

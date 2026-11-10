@@ -10,11 +10,15 @@ services:
       context: ${ROADSCANNER_BUILD_CONTEXT:-/srv/roadscanner}
       dockerfile: Dockerfile
       args:
-        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
+        INCLUDE_LLAMA_RUNTIME: "0"
     container_name: ${ROADSCANNER_CONTAINER:-roadscanner}
     restart: unless-stopped
     environment:
       QRS_DATA_DIR: ${QRS_DATA_DIR:-/var/data}
+      QRS_LLAMA_API_URL: ${QRS_LLAMA_API_URL:-http://llama-scanner:8080}
+      PUBLIC_BASE_URL: ${QRS_PUBLIC_BASE_URL:-https://localhost}
+      QRS_PUBLIC_BASE_URL: ${QRS_PUBLIC_BASE_URL:-https://localhost}
     ports:
       - "${ROADSCANNER_BIND_ADDR:-127.0.0.1}:${ROADSCANNER_PORT:-3000}:3000"
     read_only: true
@@ -31,10 +35,112 @@ services:
     mem_limit: ${ROADSCANNER_MEMORY_LIMIT:-768m}
     cpus: ${ROADSCANNER_CPU_LIMIT:-1.0}
     stop_grace_period: 30s
+    depends_on:
+      llama-scanner:
+        condition: service_started
+    networks:
+      - default
+      - llama-internal
+
+  llama-scanner:
+    image: ${LLAMA_IMAGE:-roadscanner-llama:local}
+    build:
+      context: ${ROADSCANNER_BUILD_CONTEXT:-/srv/roadscanner}
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
+        INCLUDE_LLAMA_RUNTIME: "1"
+    container_name: ${LLAMA_CONTAINER:-llama-scanner}
+    restart: unless-stopped
+    command:
+      - gunicorn
+      - --config
+      - /app/services/llama_scanner/gunicorn.conf.py
+      - --chdir
+      - /app
+      - services.llama_scanner.app:app
+    environment:
+      QRS_LLAMA_API_TOKEN: ${QRS_LLAMA_API_TOKEN:-development-only-change-this-token-0000000000000000}
+      QRS_LLAMA_MODEL_PATH: /models/${QRS_LLAMA_MODEL_FILE:-llama3-small-Q3_K_M.gguf}
+      QRS_LLAMA_MODEL_SHA256: ${QRS_LLAMA_MODEL_SHA256:-8e4f4856fb84bafb895f1eb08e6c03e4be613ead2d942f91561aeac742a619aa}
+      QRS_LLAMA_THREADS: ${QRS_LLAMA_THREADS:-2}
+      QRS_LLAMA_CONCURRENCY: "1"
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    volumes:
+      - llama-models:/models:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: ${LLAMA_PIDS_LIMIT:-128}
+    mem_limit: ${LLAMA_MEMORY_LIMIT:-512m}
+    cpus: ${LLAMA_CPU_LIMIT:-2.0}
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - llama-internal
+
+  llama-model-init:
+    profiles: ["model-download"]
+    image: ${LLAMA_IMAGE:-roadscanner-llama:local}
+    build:
+      context: ${ROADSCANNER_BUILD_CONTEXT:-/srv/roadscanner}
+      dockerfile: Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
+        INCLUDE_LLAMA_RUNTIME: "1"
+    user: "0:0"
+    command: ["python", "/app/services/llama_scanner/fetch_model.py"]
+    environment:
+      QRS_LLAMA_MODEL_URL: ${QRS_LLAMA_MODEL_URL:-https://huggingface.co/tensorblock/llama3-small-GGUF/resolve/main/llama3-small-Q3_K_M.gguf}
+      QRS_LLAMA_MODEL_PATH: /models/${QRS_LLAMA_MODEL_FILE:-llama3-small-Q3_K_M.gguf}
+      QRS_LLAMA_MODEL_SHA256: ${QRS_LLAMA_MODEL_SHA256:-8e4f4856fb84bafb895f1eb08e6c03e4be613ead2d942f91561aeac742a619aa}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    volumes:
+      - llama-models:/models
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+
+  docs:
+    build:
+      context: ./docs
+      dockerfile: Dockerfile
+    image: ${ROADSCANNER_DOCS_IMAGE:-roadscanner-docs:local}
+    container_name: ${DOCS_CONTAINER:-roadscanner-docs}
+    restart: unless-stopped
+    ports:
+      - "${DOCS_BIND_ADDR:-127.0.0.1}:${DOCS_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+      - /var/cache/nginx:rw,nosuid,nodev,noexec,size=16m
+      - /var/run:rw,nosuid,nodev,noexec,size=4m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 64m
+    cpus: 0.25
 
   nginx:
     profiles: ["direct-tls"]
-    image: nginx:1.27-alpine
+    image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
     container_name: ${NGINX_CONTAINER:-roadscanner-nginx}
     restart: unless-stopped
     depends_on:
@@ -82,5 +188,10 @@ services:
 
 volumes:
   roadscanner-data:
+  llama-models:
   letsencrypt:
   certbot-webroot:
+
+networks:
+  llama-internal:
+    internal: true

@@ -38,6 +38,12 @@ else
   warn "Not a git checkout; git-history checks skipped."
 fi
 
+log "1b. Cloudflare-only storage policy"
+if ! python3 "$ROOT/scripts/check-storage-policy.py"; then
+  fail "Disallowed decentralized storage integration detected."
+  AUDIT_FAILED=1
+fi
+
 log "2. Python dependency vulnerability audit"
 if command -v python3 >/dev/null 2>&1 && [[ -f requirements.txt ]]; then
   VENV="$(mktemp -d)"
@@ -45,15 +51,20 @@ if command -v python3 >/dev/null 2>&1 && [[ -f requirements.txt ]]; then
   python3 -m venv "$VENV/venv"
   "$VENV/venv/bin/python" -m pip install --disable-pip-version-check --quiet pip-audit
   set +e
-  "$VENV/venv/bin/pip-audit" --requirement requirements.txt --strict
+  "$VENV/venv/bin/pip-audit" --requirement requirements.txt --strict \
+    --ignore-vuln PYSEC-2026-2447
   rc=$?
   set -e
   if (( rc != 0 )); then
     fail "pip-audit reported vulnerable/unresolved packages (exit $rc). Review findings; do not bulk-upgrade the signed lock."
     AUDIT_FAILED=1
   else
-    echo "pip-audit: no known vulnerable dependencies reported."
+    echo "pip-audit: no unmitigated known vulnerable dependencies reported."
   fi
+  "$VENV/venv/bin/python" -m pip install --disable-pip-version-check --quiet \
+    --no-deps diskcache==5.6.3
+  "$VENV/venv/bin/python" "$ROOT/scripts/patch-diskcache-pysec-2026-2447.py"
+  "$VENV/venv/bin/python" "$ROOT/scripts/patch-diskcache-pysec-2026-2447.py" --check
 else
   warn "python3 or requirements.txt missing; dependency audit skipped."
   AUDIT_FAILED=1
@@ -62,7 +73,8 @@ fi
 log "3. Trivy filesystem / Dockerfile / IaC / secret scan"
 if command -v trivy >/dev/null 2>&1; then
   set +e
-  trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$ROOT"
+  trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL \
+    --ignore-unfixed --ignorefile "$ROOT/.trivyignore.yaml" --exit-code 1 "$ROOT"
   rc=$?
   set -e
   if (( rc != 0 )); then
