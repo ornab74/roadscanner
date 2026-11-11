@@ -49,3 +49,9 @@ credentials/
 node_modules/
 **/node_modules/
 .wrangler/
+
+# Cloudflare local runtime secrets
+.dev.vars
+.dev.vars.*
+**/.dev.vars
+**/.dev.vars.*
