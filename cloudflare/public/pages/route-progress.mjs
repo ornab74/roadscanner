@@ -9,7 +9,7 @@ export function progress(route,point,previous=null,maxAdvance=500){
  }
  if(!best)return null;
  const section=route.sections[best.index],next=route.sections[best.index+1];
- return {...best,remaining:Math.max(0,route.total-best.along),beforeTurn:Math.max(0,section.end-best.along),current:section.instruction,next:next?.instruction??'Approach the destination and confirm its entrance',last:!next};
+ return {...best,remaining:Math.max(0,route.total-best.along),beforeTurn:Math.max(0,section.end-best.along),current:section.instruction,road:section.street,next:next?.instruction??'Approach the destination and confirm its entrance',last:!next};
 }
 export const distanceText=m=>m>=160?((m/1609.344)<10?(m/1609.344).toFixed(1):Math.round(m/1609.344))+' mi':Math.max(0,Math.round(m*3.28084/5)*5)+' ft';
 export function timeText(seconds){if(!Number.isFinite(seconds)||seconds<0)return '—';return seconds<60?Math.max(1,Math.round(seconds))+' sec':Math.round(seconds/60)+' min';}

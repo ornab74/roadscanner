@@ -45,3 +45,7 @@ roadscanner.env
 !.env.example
 credentials/
 *.cred
+
+node_modules/
+**/node_modules/
+.wrangler/

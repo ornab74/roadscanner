@@ -14,7 +14,7 @@
   "exports": {"ScannerContainer": {"type": "durable-object", "storage": "sqlite"}},
   "containers": [{"class_name": "ScannerContainer", "scheduling_policy": "durable_object",
     "images": {"base": {"dockerfile": "Dockerfile", "build_context": ".."}}}],
-  "vars": {"REGISTRATION_ENABLED": "true", "HOME_PROVIDER":"grok", "ROUTE_MODEL":"gpt-6-luna", "GROK_HOME_MODEL":"grok-4-1-fast-non-reasoning", "OPENAI_HOME_MODEL":"gpt-5.5", "OPENAI_SCAN_MODEL":"gpt-5.5"},
+  "vars": {"REGISTRATION_ENABLED": "true", "HOME_PROVIDER":"grok", "ROUTE_MODEL":"gpt-6-luna", "ROUTE_ROAD_TRACE":"true", "GROK_HOME_MODEL":"grok-4-1-fast-non-reasoning", "OPENAI_HOME_MODEL":"gpt-5.5", "OPENAI_SCAN_MODEL":"gpt-5.5"},
   "triggers": {"crons": ["*/5 * * * *"]},
   "observability": {"enabled": true, "head_sampling_rate": 0.1}
 }

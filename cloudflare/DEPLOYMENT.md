@@ -253,3 +253,10 @@ Migration 0007 adds atomic, idempotent operator support grants via ledger insert
 No public grant endpoint exists; these are virtual application credits, not
 purchases. A ten-credit grant and a separate one-credit context-only correction
 were recorded for the support account. Payments remain disabled.
+
+
+### Mapped road geometry and simulated display
+
+`ROUTE_ROAD_TRACE=true` imports bounded public OpenFreeMap/OpenMapTiles vector geometry. The LLM proposes the corridor, mapped geometry supplies coordinates, and a second model pass annotates immutable mapped sections. Missing/rejected geometry requests context instead of drawing a straight road ribbon. This does not verify legal turns or access. Older unmatched reports are dashed and cannot start GPS guidance; re-analyze them.
+
+The NAZA-inspired two-qubit simulation follows the circuit at https://github.com/ornab74/NAZA/tree/65914e1a5f950f8a6b43811bfd54c792ce8c4cd1. It controls only decorative fringes. The UI labels simulation, displays input provenance and a reproducibility receipt, and provides a baseline off switch. The receipt is not a signature or proof of real-world accuracy.

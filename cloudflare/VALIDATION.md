@@ -215,3 +215,14 @@ shutdown, ignored stale callbacks, native/in-app full-screen exit cleanup,
 low-accuracy/off-route pauses, and live distance/time/speed updates. The isolated
 account and three encrypted fixture report objects were removed. No customer
 home address or live vehicle trace was used in these tests.
+
+
+## Mapped road ribbons and simulated NAZA display
+
+49 JavaScript tests passed, including vector geometry matching, immutable mapped-section annotation and reproducible two-qubit circuit tests. An offline Easley–Greenville proposal aligned to 354 imported road vertices over about 21 km with 85% named-corridor coverage. Cartographic alignment does not verify turn restrictions, private access, grade separation or driving legality.
+
+The NAZA-inspired circuit is an analytic simulation with reproducible simulated shots. Only decorative fringe/pulse appearance changes. Risk scores and road geometry remain separate. No physical quantum sensor or road-safety validation is claimed.
+
+The deployed fullscreen GPS check passed with synthetic positions: turn distance/time, speed, poor-accuracy and off-route pauses, hidden-page shutdown, ignored stale callbacks, and native/in-app fullscreen cleanup. Ten Python tests also passed. Runtime npm dependency audit reported no vulnerabilities.
+
+The production end-to-end GPT-6 Luna test returned 12 mapped sections, 334 road vertices and a 20.5 km proposal with 91% named-corridor coverage. All eight automatic street/satellite frame roles loaded. The second model pass accepted and annotated the mapped corridor. Desktop/mobile layouts, state baseline toggle and GPS lifecycle checks passed without page-script errors. RainViewer tiles loaded but contained no precipitation pixels in that area.

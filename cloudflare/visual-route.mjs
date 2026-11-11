@@ -1,3 +1,5 @@
+import {importRoads,alignToRoads} from './road-geometry.mjs';
+import {annotateMappedRoute} from './mapped-directions.mjs';
 import {constrainImage} from './image-constraints.mjs';
 import {captureRouteImagery} from './route-imagery.mjs';
 import {strictJSON} from './security.mjs';
@@ -48,5 +50,10 @@ export async function analyzeVisualRoute(env,request,fetcher=fetch){
  if(!response.ok){let code='unknown';try{const e=JSON.parse(new TextDecoder().decode(await boundedBody(response.body,16384))).error;if(typeof e?.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(e.code))code=e.code;}catch{}throw new Error('Route model failed: HTTP '+response.status+' ('+code+')');}
  const body=strictJSON(new TextDecoder('utf-8',{fatal:true}).decode(await boundedBody(response.body,262144)));if(body.status!=='completed')throw new Error('Route model did not complete');
  const text=(body.output??[]).flatMap(o=>o.content??[]).filter(c=>c.type==='output_text').map(c=>c.text).join(''),result=validateVisualResult(strictJSON(text),request);
- return {...result,imagery_manifest:imagery.frames.map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:body.model??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
+ let final=result;
+ if(result.status==='proposal'&&env.ROUTE_ROAD_TRACE==='true'){
+  try{const source=await importRoads(request,fetcher);final=alignToRoads(result,request,source);}catch{final={...result,status:'needs_context',segments:[],summary:'The visual corridor could not be aligned to a connected mapped road trace. Refine the endpoints or use a shorter section; no solid road ribbon or GPS route was generated.',limitations:[...result.limitations,'Mapped road data or a supported road connection was unavailable.']};}
+  if(final.status==='proposal')final=await annotateMappedRoute(env,final,weather,request.notes,fetcher);
+ } else if(result.status==='proposal'){final={...result,geometry_alignment:{status:'unmatched',provenance:'DERIVED'}};}
+ return {...final,imagery_manifest:imagery.frames.map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:body.model??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
 }

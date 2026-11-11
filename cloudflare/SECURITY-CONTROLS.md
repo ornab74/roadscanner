@@ -41,3 +41,6 @@ The system provides LLM route proposals, not verified legal routing, reliable
 traffic-aware ETA, indoor positioning or measured accident prediction. Forecast
 and imagery age/coverage limitations remain visible. GPS distances are measured
 along the proposed polyline, and time-before-turn assumes current GPS speed.
+
+
+Road geometry imports use fixed HTTPS OpenFreeMap hosts, manual redirects, bounded tile counts, bytes, vertices and search. Imported names remain untrusted text. The annotation model cannot replace mapped coordinates. Cartographic joins do not verify legal routing. Simulated quantum appearance changes neither risk scores nor coordinates; GPS accuracy used by that display stays in the browser. Fullscreen-only GPS lifecycle guards remain enforced.

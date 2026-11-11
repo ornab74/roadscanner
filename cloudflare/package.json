@@ -2,7 +2,9 @@
   "name": "roadscanner-cloudflare",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=22.21.0"},
+  "engines": {
+    "node": ">=22.21.0"
+  },
   "scripts": {
     "build:ui": "python build_frontend.py",
     "test": "node --test ../tests/cloudflare-*.test.mjs",
@@ -10,5 +12,11 @@
     "deploy": "wrangler deploy",
     "migrate": "wrangler d1 migrations apply roadscanner-ride --remote"
   },
-  "devDependencies": {"wrangler": "4.160.0"}
+  "devDependencies": {
+    "wrangler": "4.160.0"
+  },
+  "dependencies": {
+    "@mapbox/vector-tile": "3.0.0",
+    "pbf": "5.1.2"
+  }
 }
