@@ -1,0 +1,74 @@
+
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #ffffff;
+            font-family: 'Roboto', sans-serif;
+        }
+        .navbar { background-color: transparent !important; }
+        .navbar .nav-link { color: #fff; }
+        .navbar .nav-link:hover { color: #66ff66; }
+        .container { max-width: 400px; margin-top: 100px; }
+        .walkd { padding: 30px; background-color: rgba(255, 255, 255, 0.1); border: none; border-radius: 15px; }
+        .error-message { color: #ff4d4d; }
+        .brand {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            background: -webkit-linear-gradient(#f0f, #0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        input, label, .btn, .error-message, a { color: #ffffff; }
+        input::placeholder { color: #cccccc; opacity: 0.7; }
+        .btn-primary {
+            background-color: #00cc00;
+            border-color: #00cc00;
+            font-weight: bold;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+        .btn-primary:hover {
+            background-color: #33ff33;
+            border-color: #33ff33;
+        }
+        a { text-decoration: none; }
+        a:hover { text-decoration: underline; color: #66ff66; }
+        @media (max-width: 768px) {
+            .container { margin-top: 50px; }
+            .brand { font-size: 2rem; }
+        }
+
+        /* Password rules checklist */
+        .pw-rules{ margin-top:10px; display:grid; gap:8px; }
+        .pw-rules-title{
+            font-size:.9rem; font-weight:700; letter-spacing:.2px;
+            color: rgba(255,255,255,.85);
+            margin-top:6px;
+        }
+        .pw-rule{
+            display:flex; align-items:center; gap:10px;
+            padding:10px 12px;
+            border-radius:12px;
+            border: 1px solid rgba(255,255,255,.18);
+            background: rgba(255,255,255,.07);
+            backdrop-filter: blur(2px);
+            transition: transform .12s ease, background-color .2s ease, border-color .2s ease;
+            font-size: .92rem;
+        }
+        .pw-rule:hover{ transform: translateY(-1px); }
+        .pw-icon{
+            width:18px; height:18px; border-radius:6px;
+            display:inline-flex; align-items:center; justify-content:center;
+            border: 1px solid rgba(255,255,255,.28);
+            background: rgba(0,0,0,.12);
+            flex: 0 0 18px;
+            position: relative;
+        }
+        .pw-rule.bad{ border-color: rgba(255,77,77,.75); background: rgba(255,77,77,.10); }
+        .pw-rule.bad .pw-icon{ border-color: rgba(255,77,77,.9); }
+        .pw-rule.bad .pw-icon::after{ content:"✕"; font-size:12px; line-height:1; color:#ff4d4d; }
+        .pw-rule.ok{ border-color: rgba(102,255,102,.75); background: rgba(0,204,0,.12); }
+        .pw-rule.ok .pw-icon{ border-color: rgba(102,255,102,.95); background: rgba(0,0,0,.08); }
+        .pw-rule.ok .pw-icon::after{ content:"✓"; font-size:12px; line-height:1; color:#66ff66; }
+        .pw-submit-disabled{ opacity:.75; filter: grayscale(.2); }

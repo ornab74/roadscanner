@@ -1,0 +1,11 @@
+<section class="card-g p-4 p-md-5"><h2>Scan API</h2><p>Authenticate with <code>Authorization: Bearer YOUR_API_KEY</code>. Scans require an <code>Idempotency-Key</code> of 16–128 characters. A successful scan costs one credit; failed inference refunds the reservation.</p><pre>GET /api/v1/account
+POST /api/v1/scans
+Content-Type: application/json
+Idempotency-Key: a-unique-request-identifier
+
+{"latitude":40.758,"longitude":-73.9855,
+ "vehicle_type":"car","destination":"Midtown",
+ "model":"llama_local","language":"en",
+ "weather":"rain","traffic":"slow",
+ "road_type":"city street","obstacles":"none observed",
+ "sensor_notes":"user observations"}</pre><p>This deployment supports <code>openai</code> (GPT-5.5, when configured) and <code>llama_local</code>, in English. OpenAI calls use the configured OpenAI account directly. Other providers and translations return an unavailable response before charging. Reports are encrypted in private storage. New accounts start with no credits; purchases are disabled during the initial launch.</p></section>

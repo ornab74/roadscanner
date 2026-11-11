@@ -1,0 +1,86 @@
+openapi: 3.1.0
+info:
+  title: Roadscanner Scan API
+  version: 1.0.0
+  description: Metered road-scene classifications from supplied observations. Create API keys in the authenticated workspace. Payments are disabled for the initial launch.
+servers:
+  - url: https://ride.qroadscan.com
+paths:
+  /api/v1/scans:
+    post:
+      summary: Run and store one road-risk scan
+      security:
+        - ApiKey: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 128
+            pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        '200':
+          description: Completed scan, including an idempotent replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+        '400': {description: Invalid JSON or scan fields}
+        '401': {description: Missing or invalid API key}
+        '402': {description: No API credits remain}
+        '409': {description: The same request is still running or previously failed}
+        '413': {description: Request body exceeds 32 KiB}
+        '415': {description: Content-Type must be application/json}
+        '429': {description: API key rate limit exceeded}
+        '503': {description: Scan provider unavailable; a reserved credit is refunded}
+  /api/v1/account:
+    get:
+      summary: Read the authenticated API account and credit balance
+      security:
+        - ApiKey: []
+      responses:
+        '200': {description: Account summary}
+        '401': {description: Missing or invalid API key}
+components:
+  securitySchemes:
+    ApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: qrs_live
+  schemas:
+    ScanRequest:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude, vehicle_type, destination]
+      properties:
+        latitude: {type: number, minimum: -90, maximum: 90}
+        longitude: {type: number, minimum: -180, maximum: 180}
+        vehicle_type: {type: string, minLength: 1, maxLength: 64}
+        destination: {type: string, minLength: 1, maxLength: 256}
+        model: {type: string, enum: [llama_local, openai], default: llama_local}
+        language:
+          type: string
+          enum: [en]
+          default: en
+        road_type: {type: string, maxLength: 96}
+        weather: {type: string, maxLength: 96}
+        traffic: {type: string, maxLength: 96}
+        obstacles: {type: string, maxLength: 512}
+        sensor_notes: {type: string, maxLength: 1000}
+    ScanResponse:
+      type: object
+      required: [result, harm_level, model_used, report_id]
+      properties:
+        result: {type: string}
+        harm_level: {type: string}
+        language: {type: string}
+        model_used: {type: string}
+        report_id: {type: integer}

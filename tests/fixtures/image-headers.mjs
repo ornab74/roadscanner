@@ -1,0 +1,4 @@
+// Header fixtures for validation tests; real image decoding is exercised in Chromium.
+export function pngHeader(width=800,height=600){const b=Buffer.alloc(48);Buffer.from([137,80,78,71,13,10,26,10]).copy(b);b.writeUInt32BE(13,8);b.write('IHDR',12);b.writeUInt32BE(width,16);b.writeUInt32BE(height,20);return b;}
+export function jpegHeader(width=1000,height=750){const b=Buffer.alloc(48);Buffer.from([255,216,255,192,0,17,8,height>>8,height&255,width>>8,width&255,3,1,17,0,2,17,1,3,17,1,255,217]).copy(b);return b;}
+export function imageryResponse(url){if(!url.startsWith('https://server.arcgisonline.com/'))return null;if(url.includes('/export?'))return Response.json({href:'https://server.arcgisonline.com/arcgis/rest/directories/arcgisoutput/fixture.jpg',width:1000,height:750,extent:{xmin:-8240000,ymin:4970000,xmax:-8230000,ymax:4980000}});return new Response(jpegHeader(),{headers:{'Content-Type':'image/jpeg'}});}

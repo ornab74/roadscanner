@@ -1,5 +1,6 @@
 // Private Durable Object bridge. No public route forwards arbitrary requests.
 import { DurableObject } from 'cloudflare:workers';
+import { boundedBody, classifyWithScanner } from './internal-auth.mjs';
 
 export class ScannerContainer extends DurableObject {
   starting;
@@ -7,9 +8,16 @@ export class ScannerContainer extends DurableObject {
     if (request.method !== 'POST' || new URL(request.url).pathname !== '/v1/classify') {
       return new Response('Not found', { status: 404 });
     }
+    if (request.headers.get('Content-Type')?.split(';')[0].trim() !== 'application/json') {
+      return new Response('JSON required', { status: 415 });
+    }
+    let body;
+    try { body = await boundedBody(request.body, 16 * 1024); }
+    catch { return new Response('Request too large', { status: 413 }); }
     this.starting ??= this.start().finally(() => { this.starting = undefined; });
     await this.starting;
-    return this.ctx.container.getTcpPort(8080).fetch(request);
+    return classifyWithScanner(this.ctx.container.getTcpPort(8080),
+      this.env.QRS_LLAMA_API_TOKEN, body);
   }
   async start() {
     const container = this.ctx.container;

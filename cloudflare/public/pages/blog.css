@@ -1,0 +1,12 @@
+
+    :root{ --accent: #49c2ff; }
+    body{ background:#0b0f17; color:#eaf5ff; font-family:'Roboto',sans-serif; }
+    .navbar{ background: #00000088; backdrop-filter:saturate(140%) blur(10px); border-bottom:1px solid #ffffff22; }
+    .brand{ font-family:'Orbitron',sans-serif; }
+    .card-g{ background: #ffffff10; border:1px solid #ffffff22; border-radius:16px; box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+    .post{ padding:18px; border-bottom:1px dashed #ffffff22; }
+    .post:last-child{ border-bottom:0; }
+    .post h3 a{ color:#eaf5ff; text-decoration:none; }
+    .post h3 a:hover{ color: var(--accent); }
+    .tag{ display:inline-block; padding:.2rem .5rem; border-radius:999px; background:#ffffff18; margin-right:.35rem; font-size:.8rem; }
+    .meta{ color:#b8cfe4; font-size:.9rem; }

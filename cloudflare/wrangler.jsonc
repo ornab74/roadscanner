@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "roadscanner-ride",
+  "account_id": "38e2a248033fe5ae6fc32b05c00377ba",
+  "main": "entry.mjs",
+  "compatibility_date": "2026-11-10",
+  "workers_dev": true,
+  "routes": [{"pattern": "ride.qroadscan.com", "custom_domain": true}],
+  "preview_urls": false,
+  "assets": {"directory": "public", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none"},
+  "d1_databases": [{"binding": "DB", "database_name": "roadscanner-ride", "database_id": "28b0b343-9ef0-4608-b0f6-9f9840ff5d4d", "migrations_dir": "migrations"}],
+  "r2_buckets": [{"binding": "REPORTS", "bucket_name": "roadscanner-ride-reports"}],
+  "durable_objects": {"bindings": [{"name": "SCANNER", "class_name": "ScannerContainer"}]},
+  "exports": {"ScannerContainer": {"type": "durable-object", "storage": "sqlite"}},
+  "containers": [{"class_name": "ScannerContainer", "scheduling_policy": "durable_object",
+    "images": {"base": {"dockerfile": "Dockerfile", "build_context": ".."}}}],
+  "vars": {"REGISTRATION_ENABLED": "true", "HOME_PROVIDER":"grok", "ROUTE_MODEL":"gpt-6-luna", "GROK_HOME_MODEL":"grok-4-1-fast-non-reasoning", "OPENAI_HOME_MODEL":"gpt-5.5", "OPENAI_SCAN_MODEL":"gpt-5.5"},
+  "triggers": {"crons": ["*/5 * * * *"]},
+  "observability": {"enabled": true, "head_sampling_rate": 0.1}
+}

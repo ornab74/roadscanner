@@ -1,7 +1,11 @@
 # Cloudflare deployment migration
 
-The existing Flask/SQLite deployment cannot be deployed to Cloudflare unchanged.
-This document describes the target migration; it is not a deployable configuration.
+The new Worker/Container release is implemented under `cloudflare/`; see
+`cloudflare/DEPLOYMENT.md` for deployment and validation. It supports the core
+account/API/scanner workflow with payments disabled, English TinyLlama inference,
+private encrypted report storage, maps, and radar imagery. Existing encrypted
+SQLite data and the remaining Flask features have not all been migrated.
+The architecture and gates below also describe the remaining migration work.
 
 ## Target architecture
 

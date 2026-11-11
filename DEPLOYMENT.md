@@ -1,5 +1,12 @@
 # Roadscanner production deployment
 
+For the Worker/D1/R2/Containers release at `ride.qroadscan.com`, use the
+[Cloudflare deployment guide](cloudflare/DEPLOYMENT.md). The initial release
+supports English TinyLlama assessments and keeps payments disabled. Legacy
+Flask features and existing encrypted SQLite accounts require further migration.
+
+## Docker and Cloudflare Tunnel deployment
+
 The maintained production instructions are in the
 [README installation guides](README.md#production-installation-guides).
 

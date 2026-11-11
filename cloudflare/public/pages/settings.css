@@ -1,0 +1,44 @@
+
+        :root{ --ink:#f4f8ff; --muted:#a8bad0; --line:rgba(255,255,255,.14); --accent:#49c2ff; --accent2:#73f0cf; --panel:#111827; }
+        body{ margin:0; background:radial-gradient(760px 460px at 88% -10%, rgba(73,194,255,.16), transparent 62%), linear-gradient(135deg, #090d14, #111827 54%, #090d14); color:var(--ink); font-family:'Roboto',sans-serif; }
+        .sidebar{ position:fixed; inset:0 auto 0 0; width:232px; padding:24px 14px; background:rgba(7,12,20,.82); border-right:1px solid var(--line); backdrop-filter:blur(16px) saturate(145%); }
+        .sidebar a{ display:flex; align-items:center; gap:12px; min-height:44px; padding:0 14px; margin:6px 0; color:var(--muted); text-decoration:none; border:1px solid transparent; border-radius:12px; transition:background-color .16s ease, color .16s ease, transform .16s ease; }
+        .sidebar a:hover,.sidebar a.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line); transform:translateX(1px); }
+        .sidebar i{ width:18px; text-align:center; color:var(--accent); }
+        .navbar-brand{ display:flex; align-items:center; justify-content:center; height:48px; margin:0 8px 22px; color:var(--ink); border:1px solid var(--line); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)); font-family:'Orbitron',sans-serif; font-size:1.15rem; }
+        .content{ margin-left:232px; min-height:100vh; padding:28px; }
+        .settings-shell{ max-width:980px; margin:0 auto; display:grid; gap:20px; }
+        .settings-hero,.settings-card{ background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.055)); border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 70px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.05); }
+        .settings-hero{ padding:28px; }
+        .settings-hero h2{ margin:0; font-family:'Orbitron',sans-serif; }
+        .settings-hero p,.status-copy{ color:var(--muted); margin:8px 0 0; }
+        .settings-card{ padding:22px; }
+        .nav-tabs{ border-bottom:1px solid var(--line); margin-bottom:18px; }
+        .nav-tabs .nav-link{ color:var(--muted); border:1px solid transparent; border-radius:12px 12px 0 0; font-weight:800; }
+        .nav-tabs .nav-link.active{ color:var(--ink); background:rgba(255,255,255,.08); border-color:var(--line) var(--line) transparent; }
+        .form-control{ min-height:48px; color:var(--ink); background:#0b1220; border:1px solid rgba(255,255,255,.22); border-radius:12px; padding:.75rem .9rem; }
+        .form-control:focus{ color:var(--ink); background:#0b1220; border-color:rgba(73,194,255,.74); box-shadow:0 0 0 .2rem rgba(73,194,255,.16); }
+        label{ font-weight:900; color:var(--ink); }
+        .message{ color:var(--accent2); font-weight:900; }
+        .security-note{ border:1px solid rgba(115,240,207,.26); background:rgba(115,240,207,.08); border-radius:14px; padding:14px; color:var(--ink); }
+        .passkey-list{ display:grid; gap:12px; margin:18px 0; }
+        .passkey-item{ display:flex; align-items:center; justify-content:space-between; gap:16px; padding:15px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.055); }
+        .passkey-item strong{ display:block; color:var(--ink); }
+        .passkey-meta{ color:var(--muted); font-size:.84rem; margin-top:3px; }
+        .passkey-enroll{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:end; margin-top:18px; }
+        .passkey-status{ min-height:1.4rem; margin-top:10px; color:var(--accent2); font-weight:800; }
+        .reauth-warning{ border:1px solid rgba(255,193,7,.42); background:rgba(255,193,7,.10); border-radius:14px; padding:14px; color:#ffe9a8; }
+        .settings-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:16px 0; }
+        .settings-stat{ border:1px solid var(--line); border-radius:14px; padding:12px; background:rgba(255,255,255,.06); }
+        .settings-stat span{ display:block; color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; font-weight:900; }
+        .settings-stat strong{ display:block; margin-top:4px; color:var(--ink); }
+        .prompt-preview{ min-height:220px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.86rem; white-space:pre-wrap; }
+        @media (max-width:768px){ .sidebar{width:70px; padding:18px 10px;} .sidebar a{justify-content:center; padding:0;} .sidebar a span{display:none;} .content{margin-left:70px; padding:16px;} .passkey-item{align-items:flex-start; flex-direction:column;} .passkey-enroll{grid-template-columns:1fr;} }
+
+
+[hidden]{display:none!important}
+#settingsMessage{position:sticky;top:12px;z-index:10;border-radius:12px;background:#111827;padding:12px;color:var(--accent2);}
+#settingsMessage:empty{display:none}
+#keysList:empty::before{content:"No active API keys.";color:var(--muted)}
+#apiKey{font-family:monospace}
+@media(max-width:768px){.sidebar{position:static;width:auto;display:flex;flex-wrap:wrap;gap:6px;padding:12px}.sidebar .navbar-brand{margin:0 8px 0 0}.sidebar a{padding:0 10px;margin:0}.content{margin-left:0;padding:16px}.settings-card,.settings-hero{padding:18px}.settings-shell{min-width:0}#accountSummary{overflow-wrap:anywhere}}
