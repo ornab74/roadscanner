@@ -44,3 +44,41 @@ along the proposed polyline, and time-before-turn assumes current GPS speed.
 
 
 Road geometry imports use fixed HTTPS OpenFreeMap hosts, manual redirects, bounded tile counts, bytes, vertices and search. Imported names remain untrusted text. The annotation model cannot replace mapped coordinates. Cartographic joins do not verify legal routing. Simulated quantum appearance changes neither risk scores nor coordinates; GPS accuracy used by that display stays in the browser. Fullscreen-only GPS lifecycle guards remain enforced.
+
+## Account security and admin console
+
+- All browser mutation routes (including login, signup, logout, password changes,
+  key management, route tools, and admin actions) pass a central exact-Origin,
+  Fetch Metadata and signed expiring cookie/header CSRF check. Bearer-only v1
+  scans remain outside cookie authentication. CSRF refresh reuses a valid cookie
+  to avoid breaking another tab. Disabled billing performs no mutation.
+- Passkeys/FIDO2 credentials use pinned SimpleWebAuthn server 14.1.0 / browser 14.0.0, strict origin/RP
+  validation, required user verification and discoverable credentials. Only
+  public keys are stored. Two-minute challenges are bound to the browser/session,
+  consumed once, and checked for expiry. Signature counters use compare-and-swap.
+- API-key creation/revocation, passkey enrollment/removal, other-session logout,
+  and private admin data/actions require five-minute server-side verification.
+  Password sign-in does not implicitly elevate; verified passkey sign-in does.
+- Named API keys have 1–365-day lifetimes (default 90), one-time disclosure,
+  HMAC-at-rest lookup, revocation and last-use metadata. Existing legacy keys are
+  retained; their lack of expiry is displayed. Listings never return hashes or
+  raw secrets. Browser-session pseudo-keys cannot be managed as API keys.
+- Admin role is an operator-provisioned D1 allowlist. Role checks run on the server
+  for every admin route. Bearer API keys cannot use the console. User search is
+  bounded, parameterized and paginated; the console cannot grant admin roles or
+  decrypt other users' reports. Provider status exposes booleans, never secrets.
+- Support grants are positive, bounded, idempotent ledger transactions. Session
+  and key revocations, grants, enrollment and successful reauthentication create
+  audit records. Audit history expires after 180 days; expired challenges are
+  removed on the existing schedule. No passwords or raw tokens enter audit data.
+- Generated pages hash every local stylesheet, script and module preload with
+  SHA-384 SRI. A build manifest checks final asset bytes. Browser tests proved
+  modified entry modules, transitive module imports and stylesheets are rejected.
+  CSP disallows inline script execution, external scripts, objects and framing.
+  Inline style attributes remain necessary for Leaflet positioning. SRI does not
+  protect against a party replacing both HTML and its referenced asset hashes.
+
+Cloudflare injects an external analytics beacon at the zone layer. CSP deliberately
+blocks it. A ride-only analytics exclusion was attempted but the Cloudflare plan
+rejected an additional rule; no existing zone-wide analytics rule was changed.
+This causes a known console CSP message without preventing app execution.

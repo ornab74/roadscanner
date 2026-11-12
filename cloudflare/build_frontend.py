@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
 
 from bs4 import BeautifulSoup
 from jinja2 import Environment, StrictUndefined
@@ -80,6 +81,9 @@ def fragment(html: str):
 
 def account_navigation(active: str):
     nav=fragment('''<nav class="sidebar account-navigation" aria-label="Account navigation"><div class="navbar-brand">QRS</div><a href="/home" aria-label="Home"><i class="fas fa-globe" aria-hidden="true"></i><span>Home</span></a><a href="/dashboard" data-nav="dashboard" aria-label="Dashboard"><i class="fas fa-home" aria-hidden="true"></i><span>Dashboard</span></a><a href="/settings/user" data-nav="settings" aria-label="User Settings"><i class="fas fa-user-cog" aria-hidden="true"></i><span>User Settings</span></a><a href="/dashboard#locationMap" aria-label="Map and radar"><i class="fas fa-map-marked-alt" aria-hidden="true"></i><span>Map &amp; radar</span></a><form method="post" action="/auth/logout" class="qrs-logout-form" data-action="logout"><button type="submit" class="qrs-logout-button" aria-label="Logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button></form></nav>''').nav
+    if active == 'admin':
+        link=fragment('<a href="/admin" data-nav="admin" data-admin-nav="">Admin console</a>').a
+        nav.insert(-1,link)
     nav.select_one('[data-nav="'+active+'"]').attrs.update({'class':'active','aria-current':'page'})
     return nav
 
@@ -89,7 +93,7 @@ def save(page: str, soup: BeautifulSoup, module: str | None = None, extra_css: s
     (PAGES / (page + '.css')).write_text('\n'.join(line.rstrip() for line in (css+'\n'+extra_css).splitlines()).rstrip()+'\n')
     soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/' + page + '.css'))
     soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/shared.css'))
-    if page in ('dashboard','settings'):
+    if page in ('dashboard','settings','admin'):
         soup.select_one('.sidebar').replace_with(account_navigation(page))
         soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/account-navigation.css'))
     for script in soup.find_all('script'): script.decompose()
@@ -220,23 +224,53 @@ docs.select_one('main').clear()
 docs.select_one('main').append(fragment((ROOT/'cloudflare/frontend/docs-content.html').read_text()))
 save('docs',docs,'navigation.mjs')
 
-# Account controls reuse the original settings layout and exact CSS tokens.
-settings_source=template('user_settings')
-settings_css='\n'.join(re.findall(r'<style>([\s\S]*?)</style>',settings_source))
-settings=BeautifulSoup('''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>User Settings - QRS</title><link rel="stylesheet" href="/static/css/roboto.css"><link rel="stylesheet" href="/static/css/orbitron.css"><link rel="stylesheet" href="/static/css/bootstrap.min.css"><link rel="stylesheet" href="/static/css/fontawesome.min.css"></head><body><div class="sidebar"><div class="navbar-brand">QRS</div><a href="/home">Home</a><a href="/dashboard">Dashboard</a><a href="/settings/user" class="active">User Settings</a><a href="/dashboard#locationMap">Map &amp; radar</a><form data-action="logout" class="qrs-logout-form"><button class="qrs-logout-button" type="submit">Logout</button></form></div><main class="content"><div class="settings-shell"><section class="settings-hero"><h2>User Settings</h2><p>Manage your account, password, and API access.</p><p id="accountSummary"></p></section><p id="settingsMessage" role="status" aria-live="polite"></p><section class="settings-card"><h3>Change password</h3><form id="passwordForm"><div class="form-group"><label for="currentPassword">Current password</label><input id="currentPassword" name="current_password" type="password" class="form-control" autocomplete="current-password" required></div><div class="form-group"><label for="newPassword">New password</label><input id="newPassword" name="new_password" type="password" class="form-control" autocomplete="new-password" minlength="12" maxlength="256" required></div><button class="btn btn-primary" type="submit">Update password and sign out</button></form></section><section class="settings-card"><h3>API access</h3><p>Create a key to integrate scans with your own app. Keep it private; it is shown once.</p><button id="createKey" class="btn btn-primary" type="button">Create API key</button><div class="form-group mt-3"><label for="apiKey">New API key</label><input id="apiKey" class="form-control" type="password" autocomplete="off" readonly></div><button id="copyKey" class="btn btn-outline-light" type="button">Copy key</button><div id="keysList" class="mt-3"></div></section><section class="settings-card"><h3>Plan and credits</h3><p id="planDetails"></p><p>Purchases are currently unavailable. Reports use one credit per successful scan.</p></section></div></main></body></html>''','html.parser')
-style=settings.new_tag('style');style.string=settings_css;settings.head.append(style)
-settings.select_one('#copyKey')['disabled']=True
-settings.select_one('#copyKey').insert_after(fragment('<button id="showKey" class="btn btn-outline-light ml-2" type="button" disabled>Show key</button>'))
-settings.select_one('#planDetails')['aria-live']='polite'
-save('settings',settings,'settings.mjs','''
-[hidden]{display:none!important}
-#settingsMessage{position:sticky;top:12px;z-index:10;border-radius:12px;background:#111827;padding:12px;color:var(--accent2);}
-#settingsMessage:empty{display:none}
-#keysList:empty::before{content:"No active API keys.";color:var(--muted)}
-#apiKey{font-family:monospace}
-@media(max-width:768px){.sidebar{position:static;width:auto;display:flex;flex-wrap:wrap;gap:6px;padding:12px}.sidebar .navbar-brand{margin:0 8px 0 0}.sidebar a{padding:0 10px;margin:0}.content{margin-left:0;padding:16px}.settings-card,.settings-hero{padding:18px}.settings-shell{min-width:0}#accountSummary{overflow-wrap:anywhere}}
-''')
-
 manifest={'name':'QRoadScan.com','short_name':'QRS','start_url':'/home','display':'standalone','theme_color':'#0b0f17','background_color':'#0b0f17','icons':[{'src':'/favicon.svg','sizes':'any','type':'image/svg+xml'}]}
 (PUBLIC/'site.webmanifest').write_text(json.dumps(manifest))
 print('Generated QRS pages and single-page visual route planner.')
+
+# Account and operations consoles use one responsive design system.
+verification_dialog = """<dialog id="verifyDialog"><form id="verifyForm"><span class="eyebrow">CONFIRM IT'S YOU</span><h2>Verify your identity</h2><p>Enter your current password to unlock sensitive changes for five minutes.</p><label for="verifyPassword">Current password</label><input id="verifyPassword" type="password" autocomplete="current-password" maxlength="256" required><p id="verifyMessage" role="alert"></p><div class="button-row"><button type="submit" class="primary">Verify identity</button><button id="verifyCancel" type="button">Cancel</button></div></form></dialog>"""
+for page,module in [('settings','settings.mjs'),('admin','admin.mjs')]:
+    soup=BeautifulSoup((ROOT/'cloudflare/frontend'/f'{page}.html').read_text(),'html.parser')
+    soup.body.append(fragment(verification_dialog))
+    save(page,soup,module,(ROOT/'cloudflare/frontend/console.css').read_text())
+
+login_path=PAGES/'login.html'
+soup=BeautifulSoup(login_path.read_text(),'html.parser')
+button=soup.new_tag('button',id='passkeySignIn',type='button',attrs={'class':'btn btn-outline-light btn-block mt-3'})
+button.string='Sign in with a passkey or security key'
+soup.select_one('#authForm').insert_after(button)
+login_path.write_text(str(soup))
+
+# Bundle pinned WebAuthn browser code locally. No third-party script/CDN execution.
+vendor=PUBLIC/'vendor';vendor.mkdir(exist_ok=True)
+shutil.copyfile(ROOT/'cloudflare/node_modules/@simplewebauthn/browser/LICENSE.md',vendor/'webauthn.LICENSE.txt')
+subprocess.run([str(ROOT/'cloudflare/node_modules/.bin/esbuild'),'@simplewebauthn/browser','--bundle','--format=esm','--minify','--legal-comments=inline','--outfile='+str(vendor/'webauthn.mjs')],cwd=ROOT/'cloudflare',check=True)
+
+# Hash final bytes for every stylesheet/script and transitive module preload.
+# SRI complements CSP; it does not protect against compromise of HTML and assets together.
+def integrity(path):
+    return 'sha384-'+base64.b64encode(hashlib.sha384(path.read_bytes()).digest()).decode()
+def module_dependencies(path,seen):
+    if path in seen:return
+    seen.add(path)
+    text=path.read_text()
+    for spec in re.findall(r"(?:from\s*|import\s*\(?\s*)['\"]([^'\"]+)['\"]",text):
+        target=PUBLIC/spec.lstrip('/') if spec.startswith('/') else path.parent/spec
+        if spec.startswith(('/','.')) and target.is_file() and target.suffix in ('.js','.mjs'):
+            module_dependencies(target.resolve(),seen)
+for page_path in PAGES.glob('*.html'):
+    soup=BeautifulSoup(page_path.read_text(),'html.parser')
+    deps=set()
+    for tag in soup.select('script[src],link[rel=stylesheet]'):
+        src=tag.get('src') or tag.get('href')
+        if not src.startswith('/'):raise ValueError('Non-local executable/style asset: '+src)
+        asset=PUBLIC/src.lstrip('/')
+        tag['integrity']=integrity(asset);tag['crossorigin']='anonymous'
+        if tag.name=='script' and tag.get('type')=='module':module_dependencies(asset.resolve(),deps)
+    for asset in sorted(deps):
+        src='/'+str(asset.relative_to(PUBLIC.resolve()))
+        tag=soup.new_tag('link',rel='modulepreload',href=src,integrity=integrity(asset),crossorigin='anonymous')
+        soup.head.append(tag)
+    page_path.write_text(str(soup))
+(PUBLIC/'asset-integrity.json').write_text(json.dumps({'algorithm':'sha384','assets':{'/'+str(p.relative_to(PUBLIC)):integrity(p) for p in sorted(PUBLIC.rglob('*')) if p.suffix in ('.js','.mjs','.css')}},sort_keys=True))

@@ -46,7 +46,13 @@ async function fixture(){
  }
  const key='qrs_live_0123456789_'+'a'.repeat(48);
  await DB.prepare('INSERT INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,1)').bind('key','owner',await hmac(env.QRS_API_KEY_PEPPER,key)).run();
- const request=async(path,options={})=>worker.fetch(new Request('https://example.test'+path,options),env);
+ const request=async(path,options={})=>{
+  if(options.headers?.Origin==='https://example.test'&&!options.headers['X-CSRF-Token']&&['/auth/login','/auth/register','/auth/password','/auth/logout','/api/session/scans','/api/home/assessment'].includes(path)){
+   const token=await worker.fetch(new Request('https://example.test/api/home/csrf'),env);const data=await token.json();
+   options={...options,headers:{...options.headers,Cookie:[options.headers.Cookie,token.headers.get('Set-Cookie').split(';')[0]].filter(Boolean).join('; '),'X-CSRF-Token':data.csrf_token}};
+  }
+  return worker.fetch(new Request('https://example.test'+path,options),env);
+ };
  return {env,DB,key,objects,request,calls:()=>calls,setFailure:value=>{fail=value;},close:()=>rmSync(directory,{recursive:true,force:true})};
 }
 const scene={latitude:40.7,longitude:-74,vehicle_type:'car',destination:'Home',weather:'rain'};

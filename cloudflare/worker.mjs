@@ -1,3 +1,4 @@
+import {securityRoutes,isAdmin} from './account-security.mjs';
 import {captureRouteImagery} from './route-imagery.mjs';
 import {analyzeVisualRoute,validateVisualRequest,coordinate} from './visual-route.mjs';
 import {geocode} from './geocode.mjs';
@@ -68,8 +69,8 @@ async function principal(request,env,apiOnly=false){
     const match=/^Bearer (qrs_live_[A-Za-z0-9_-]{10}_[A-Za-z0-9_-]{40,})$/i.exec(authorization);
     if(!match)fail('invalid_api_key',401);
     const row=await query(env,`SELECT k.id AS key_id,k.user_id,u.email FROM api_keys k JOIN users u ON u.id=k.user_id
-      WHERE k.key_hash=? AND k.revoked_at IS NULL`,await hmac(env.QRS_API_KEY_PEPPER,match[1])).first();
-    if(!row)fail('invalid_api_key',401);return row;
+      WHERE k.key_hash=? AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>?)`,await hmac(env.QRS_API_KEY_PEPPER,match[1]),now()).first();
+    if(!row)fail('invalid_api_key',401);await query(env,'UPDATE api_keys SET last_used_at=? WHERE id=?',now(),row.key_id).run();return row;
   }
   if(apiOnly)fail('invalid_api_key',401);
   const token=/\b__Host-qrs_session=([a-f0-9]{64})\b/.exec(request.headers.get('Cookie')??'')?.[1];
@@ -166,12 +167,19 @@ async function runVisualRoute(request,env,p){
 }
 async function routes(request,env){
   const url=new URL(request.url), path=url.pathname;
+  if(path.startsWith('/billing/'))fail('payments_disabled',503);
+  // Every cookie/browser mutation, including sign-in, requires a signed CSRF token.
+  // Bearer-only v1 scans do not use ambient browser credentials.
+  if(!['GET','HEAD','OPTIONS'].includes(request.method)&&path!=='/api/v1/scans')await verifyBrowserCSRF(request,env);
+  if(path==='/admin'&&request.method==='GET'){const p=await principal(request,env);if(!p.session_hash||!await isAdmin(env,p.user_id))fail('admin_required',403);}
+  const security=await securityRoutes(request,env,{principal,limit});if(security)return security;
+
   if(request.method==='GET'&&(path==='/'||path==='/home/'))return Response.redirect(new URL('/home',request.url),301);
   if(request.method==='GET'&&path==='/radar')return Response.redirect(new URL('/dashboard#locationMap',request.url),302);
   if(request.method==='GET'&&path==='/favicon.ico')return Response.redirect(new URL('/favicon.svg',request.url),302);
-  const pages={'/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs'};
+  const pages={'/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin'};
   if(request.method==='GET'&&pages[path]){
-    const protectedPage=['/dashboard','/settings/user','/radar'].includes(path);
+    const protectedPage=['/dashboard','/settings/user','/radar','/admin'].includes(path);
     if(protectedPage){
       try{await principal(request,env);}catch(e){if(e.status===401)return Response.redirect(new URL('/login?next='+encodeURIComponent(path),request.url),302);throw e;}
     }
@@ -209,7 +217,7 @@ async function routes(request,env){
     const user=await query(env,'SELECT u.id,c.password_hash,c.password_salt FROM users u JOIN user_credentials c ON c.user_id=u.id WHERE u.email=?',email).first();
     let calculated;try{calculated=await passwordHash(data.password,user?.password_salt??'00'.repeat(16));}catch{fail('invalid_credentials',401);}
     if(!user?.password_hash||!await sameSecret(calculated,user.password_hash))fail('invalid_credentials',401);
-    const token=randomToken();await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at) VALUES (?,?,?)',await sha256(token),user.id,now()+86400).run();
+    const token=randomToken();await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)',await sha256(token),user.id,now()+86400,now()).run();
     return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
   }
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
@@ -243,7 +251,7 @@ async function routes(request,env){
     return json({requested:env.ROUTE_MODEL??'gpt-6-luna',available:ids.includes(env.ROUTE_MODEL??'gpt-6-luna'),models:ids.filter(id=>/^gpt-/.test(id)).sort()});
   }
   if(path==='/api/session'&&request.method==='GET'){
-    const p=await principal(request,env);return json({email:p.email,...await account(env,p.user_id)});
+    const p=await principal(request,env);return json({email:p.email,is_admin:await isAdmin(env,p.user_id),...await account(env,p.user_id)});
   }
   if(path==='/auth/logout'&&request.method==='POST'){
     browserOrigin(request);const p=await principal(request,env);
@@ -265,19 +273,6 @@ async function routes(request,env){
     ]);
     return json({password_changed:true},200,{'Set-Cookie':'__Host-qrs_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
   }
-  if(path==='/api/keys'&&request.method==='GET'){
-    const p=await principal(request,env);const rows=await query(env,"SELECT id,created_at,revoked_at FROM api_keys WHERE user_id=? AND id NOT LIKE 'web:%'",p.user_id).all();return json(rows.results);
-  }
-  if(path==='/api/keys'&&request.method==='POST'){
-    browserOrigin(request);const p=await principal(request,env);await limit(env,'keys:'+p.user_id,10,3600);
-    const token='qrs_live_'+randomToken().slice(0,10)+'_'+randomToken();const id=crypto.randomUUID();
-    await query(env,'INSERT INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',id,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,token),now()).run();
-    return json({id,key:token},201);
-  }
-  if(path.startsWith('/api/keys/')&&request.method==='DELETE'){
-    browserOrigin(request);const p=await principal(request,env);
-    await query(env,"UPDATE api_keys SET revoked_at=? WHERE id=? AND user_id=? AND id NOT LIKE 'web:%'",now(),path.slice('/api/keys/'.length),p.user_id).run();return json({revoked:true});
-  }
   if(path==='/api/reports'&&request.method==='GET'){
     const p=await principal(request,env);const rows=await query(env,"SELECT rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND created_at>=? ORDER BY created_at DESC LIMIT 100",p.user_id,now()-90*86400).all();return json(rows.results);
   }
@@ -287,7 +282,7 @@ async function routes(request,env){
     const obj=await env.REPORTS.get(reportPath(p.user_id,row.id));if(!obj)fail('report_unavailable',503);
     return json(await decryptReport(env.QRS_REPORT_KEY,p.user_id,row.id,await obj.text()));
   }
-  if(request.method==='GET'&&(['/favicon.svg','/leaflet.js','/leaflet.css','/leaflet.LICENSE.txt','/openapi.yaml','/site.webmanifest'].includes(path)||path.startsWith('/images/')||path.startsWith('/static/')||/^\/pages\/[a-z0-9-]+\.(mjs|css)$/.test(path))){
+  if(request.method==='GET'&&(['/vendor/webauthn.mjs','/vendor/webauthn.LICENSE.txt','/asset-integrity.json','/favicon.svg','/leaflet.js','/leaflet.css','/leaflet.LICENSE.txt','/openapi.yaml','/site.webmanifest'].includes(path)||path.startsWith('/images/')||path.startsWith('/static/')||/^\/pages\/[a-z0-9-]+\.(mjs|css)$/.test(path))){
     return env.ASSETS.fetch(request);
   }
   fail('not_found',404);
@@ -298,7 +293,7 @@ export default {
     if(canonicalURL.protocol==='http:'){canonicalURL.protocol='https:';return Response.redirect(canonicalURL.toString(),308);}
     let response;
     try{response=await routes(request,env);}catch(e){
-      const status=e.status??(e.message?.includes('JSON')?400:500);
+      const status=Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:(e.message?.includes('JSON')?400:500);
       if(status===500)console.error('request_failed',e.message);
       response=json({error:status===500?'internal_error':e.message},status,status===429?{'Retry-After':'300'}:{});
     }
@@ -306,13 +301,15 @@ export default {
     headers.set('Strict-Transport-Security','max-age=31536000');
     headers.set('Permissions-Policy','geolocation=(self), camera=(), microphone=()');
     headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');
-    headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://server.arcgisonline.com; connect-src 'self' https://api.rainviewer.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://server.arcgisonline.com; connect-src 'self' https://api.rainviewer.com; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     return new Response(response.body,{status:response.status,headers});
   },
   async scheduled(_controller,env){
     await env.DB.batch([
       query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE status='reserved' AND lease_expires_at<?",now(),now()),
       query(env,'DELETE FROM sessions WHERE expires_at<?',now()),
+      query(env,'DELETE FROM security_challenges WHERE expires_at<?',now()),
+      query(env,'DELETE FROM security_audit WHERE created_at<?',now()-180*86400),
       query(env,'DELETE FROM rate_limits WHERE expires_at<?',now()),
       query(env,'DELETE FROM public_home_previews WHERE expires_at<? AND lease_expires_at<?',now()-3600,now()),
       query(env,'DELETE FROM geocode_cache WHERE expires_at<?',now()),

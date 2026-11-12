@@ -28,3 +28,6 @@ form.addEventListener('submit',async event=>{
 });
 if(mode==='register')api('/api/config').then(config=>{if(!config.registration_enabled){submit.disabled=true;error('Registration is currently closed.');}}).catch(()=>error('Unable to check registration availability. Please reload the page.'));
 session().then(user=>{if(user)location.replace('/dashboard');}).catch(()=>{});
+if(mode==='login'){
+ const button=byId('passkeySignIn');if(button)button.onclick=async()=>{button.disabled=true;try{const {startAuthentication}=await import('/vendor/webauthn.mjs'),options=await api('/auth/passkey/options',{method:'POST',body:'{}'}),response=await startAuthentication({optionsJSON:options.options});await api('/auth/passkey/verify',{method:'POST',body:JSON.stringify({challenge_id:options.challenge_id,response})});location.assign('/dashboard');}catch(e){error(e.message);}finally{button.disabled=false;}};
+}

@@ -260,3 +260,21 @@ were recorded for the support account. Payments remain disabled.
 `ROUTE_ROAD_TRACE=true` imports bounded public OpenFreeMap/OpenMapTiles vector geometry. The LLM proposes the corridor, mapped geometry supplies coordinates, and a second model pass annotates immutable mapped sections. Missing/rejected geometry requests context instead of drawing a straight road ribbon. This does not verify legal turns or access. Older unmatched reports are dashed and cannot start GPS guidance; re-analyze them.
 
 The NAZA-inspired two-qubit simulation follows the circuit at https://github.com/ornab74/NAZA/tree/65914e1a5f950f8a6b43811bfd54c792ce8c4cd1. It controls only decorative fringes. The UI labels simulation, displays input provenance and a reproducibility receipt, and provides a baseline off switch. The receipt is not a signature or proof of real-world accuracy.
+
+### Account/admin rollout
+
+Apply `0008_account_security.sql` before deploying the account-security Worker.
+Build the UI with the pinned project dependencies installed; the build bundles
+SimpleWebAuthn browser code locally and regenerates SRI after all page changes.
+Run the asset-integrity test after changing any public JS or CSS. Deploy HTML and
+assets together. The local browser bundle has an explicit Worker asset route.
+
+An existing verified owner account was provisioned with the D1 `admin` role.
+Open `/admin` after signing in; private user operations require recent verification.
+Further roles must be provisioned through an authenticated operator/D1 workflow,
+not through signup, browser requests or an email-domain heuristic. Do not grant
+roles based on an unverified email string. No provider secret-editing UI is exposed.
+
+Security-key management lives at `/settings/user`; compatible FIDO2 hardware,
+device passkeys, and a PIN/biometric user-verification method are required.
+Passwords remain the recovery method. Changing the password ends all sessions.

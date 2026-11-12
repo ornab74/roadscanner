@@ -226,3 +226,25 @@ The NAZA-inspired circuit is an analytic simulation with reproducible simulated 
 The deployed fullscreen GPS check passed with synthetic positions: turn distance/time, speed, poor-accuracy and off-route pauses, hidden-page shutdown, ignored stale callbacks, and native/in-app fullscreen cleanup. Ten Python tests also passed. Runtime npm dependency audit reported no vulnerabilities.
 
 The production end-to-end GPT-6 Luna test returned 12 mapped sections, 334 road vertices and a 20.5 km proposal with 91% named-corridor coverage. All eight automatic street/satellite frame roles loaded. The second model pass accepted and annotated the mapped corridor. Desktop/mobile layouts, state baseline toggle and GPS lifecycle checks passed without page-script errors. RainViewer tiles loaded but contained no precipitation pixels in that area.
+
+## Account/admin and asset integrity
+
+56 JavaScript tests and 10 Python tests passed. Scoped request-level checks cover
+missing/forged/cross-site CSRF on all browser mutation families, owner isolation,
+admin-role and session-only boundaries, recent verification, key expiry/revocation,
+one-time challenge consumption, browser binding and grant idempotency. Generated
+HTML/asset tests verify SHA-384 on scripts, stylesheets and module preloads.
+
+Production browser tests used an isolated account and Chromium virtual FIDO2
+authenticator. They passed wrong-password rejection followed by reauthentication,
+named API-key creation, non-disclosure in listings, passkey enrollment/sign-in,
+admin search, audited support grant, credential removal and key revocation.
+Desktop/mobile layouts had no horizontal overflow. Browser interception proved
+that altered entry JavaScript, an imported dependency and a stylesheet fail SRI.
+The only expected CSP message is Cloudflare's blocked external analytics beacon.
+
+These are direct scoped implementation checks, not an independent full-repository
+security audit. Specialized Codex Security scan helpers were unavailable here.
+No physical hardware-key compatibility matrix or live-vehicle testing is claimed.
+
+Production checks also confirmed that removing the fixture's temporary admin role immediately denies the admin page, overview, user search and audit APIs, while its ordinary settings remain accessible. Missing CSRF tokens were rejected on live account and admin mutation routes. The isolated account, its credentials, temporary role, sessions and audit fixtures were removed afterward.

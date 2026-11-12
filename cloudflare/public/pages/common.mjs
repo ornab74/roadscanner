@@ -1,5 +1,10 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ reauthentication_required:'Verify your identity to continue with this sensitive action.',
+ admin_required:'This action requires administrator access.',
+ credential_verification_failed:'The security key could not be verified. Please try again.',
+ invalid_challenge:'This security-key request expired or was already used. Please start again.',
+ invalid_expiry:'Choose an API-key lifetime between 1 and 365 days.',
  invalid_credentials:'The email or password is incorrect. Please try again.',
  invalid_email:'Enter a valid email address.',
  account_could_not_be_created:'An account with this email may already exist. Try logging in instead.',
@@ -21,6 +26,11 @@ export const friendly={
  request_too_large:'The request is too large. Shorten the notes and try again.',
 };
 export async function api(path,options={}){
+ if(!['GET','HEAD','OPTIONS'].includes((options.method??'GET').toUpperCase())){
+  const tokenResponse=await fetch('/api/home/csrf',{credentials:'same-origin',cache:'no-store'});
+  if(!tokenResponse.ok)throw new Error('Unable to obtain a security token. Please reload.');
+  options={...options,headers:{...options.headers,'X-CSRF-Token':(await tokenResponse.json()).csrf_token}};
+ }
  const response=await fetch(path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}});
  const value=await response.json().catch(()=>({error:'Unable to read the response. Please try again.'}));
  if(!response.ok)throw Object.assign(new Error(friendly[value.error]??value.error??'Request failed. Please try again.'),{status:response.status,code:value.error});
@@ -30,7 +40,7 @@ export async function session(){
  const response=await fetch('/api/session',{credentials:'same-origin'});
  if(response.status===401)return null;
  if(!response.ok)throw new Error('Unable to load your account. Please try again.');
- return response.json();
+ const user=await response.json();if(user.is_admin){for(const nav of document.querySelectorAll('.account-navigation')){if(!nav.querySelector('[data-admin-nav]')){const link=document.createElement('a');link.href='/admin';link.dataset.adminNav='';link.textContent='Admin console';nav.insertBefore(link,nav.querySelector('form'));}}}return user;
 }
 export async function requireSession(){
  const user=await session();
