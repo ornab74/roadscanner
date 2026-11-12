@@ -12,6 +12,9 @@ This targeted review covers the deployed Cloudflare Worker architecture. It is n
 
 ## Verified evidence
 
+- Follow-up API/data-access review found no additional confirmed bypass in the inspected garage, image, report pagination, operation status, aviation and browser/admin scope boundaries. Added a denial matrix using an account-only key across eleven feature endpoints and three browser-only endpoints; requests are rejected before scanner calls or credit consumption. Existing tests cover owner-bound cursors/report retrieval and scoped marker output. Explicit full-scope legacy defaults remain documented compatibility behavior; the Settings UI submits an explicit preset.
+- Follow-up verification: all 79 existing Cloudflare tests passed, then all seven API-contract tests passed with the added denial matrix. The production dependency audit again returned zero known advisories. Reviewed imagery download origin/path checks and redirect handling, image dimension/byte limits, and constrained SVG interpolation; no new confirmed vulnerability was identified in those inspected paths. This result does not expand coverage to all legacy deployment components or certify model/navigation output.
+
 - Focused Worker/security/account tests: 23 passed, including rotating-IP attempts, case/whitespace email normalization, unrelated account login, CSRF rejection, administrator authorization and elevation, expiring/revoked API keys, report ownership, billing reservation/refund behavior, and encrypted report storage.
 - `npm audit --omit=dev --json` in `cloudflare`: no known production dependency advisories at review time.
 - Source confirms HttpOnly/Secure/SameSite session cookies, signed browser CSRF tokens, strict CSP, scoped API authentication, private encrypted R2 image retrieval with no-store responses, bounded request/provider bodies, and a scanner container with outbound internet disabled.
