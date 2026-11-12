@@ -94,12 +94,17 @@ These files must not be printed in logs, committed, or included in Docker contex
 1. Apply migrations and verify the actual D1 credit invariants.
 2. Verify the model checksum, container readiness, signed inference requests,
    and signed responses with the real model.
-3. Deploy on the Worker's workers.dev hostname and test login, origin/CSRF
+3. Use an isolated staging Worker with separate secrets/storage and test login, origin/CSRF
    enforcement, API authorization, a real scan, idempotent replay, encrypted
    report retrieval, and credit/refund behavior.
 4. Test the browser workflow, then add the custom-domain route. Preserve any
    existing hostname configuration rather than overwriting unrelated records.
 5. Repeat the health and authenticated workflow checks on the custom domain.
+
+The production configuration disables `workers_dev` and preview URLs. Keep
+these disabled so production requests use `ride.qroadscan.com` and its zone
+firewall. Do not temporarily enable the production development hostname for
+staging tests.
 
 Enabling Stripe later requires implementing and testing the D1 fulfillment
 and subscription paths, not just adding credentials or enabling a button.

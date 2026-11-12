@@ -17,7 +17,7 @@ This targeted review covers the deployed Cloudflare Worker architecture. It is n
 ## Remaining limits and follow-up
 
 - The deployment environment currently uses an account-wide Global API Key. Replace it with a narrowly scoped deployment token when practical; this review did not revoke or rotate credentials and interrupt deployment access.
-- The Workers development hostname remains enabled. Application controls apply there, but zone WAF rules apply to the custom hostname only. Converging production access onto one hostname needs explicit host policy and staging/test configuration.
+- Disabled the production Worker development hostname (`workers_dev: false`); preview URLs remain disabled. Production traffic uses the custom domain and its zone WAF controls. Local test origins remain independent of the deployed routing configuration.
 - Password hashes currently use PBKDF2-SHA256 at 100,000 iterations. A future versioned credential migration should raise cost within measured Workers runtime constraints; this review did not change existing credential formats.
 - No claim is made of full legacy Flask, installer, supply-chain, Cloudflare-account membership, or historical-secret exposure coverage. Production user credentials were not used for attack testing. Provider model calls were mocked in the focused suite.
 - Anonymous homepage model calls remain subject to existing per-IP and global application limits, rather than a new interactive challenge. API clients are not required to solve browser challenges by the added WAF execution rule itself; managed rule matches may still block malicious requests.
