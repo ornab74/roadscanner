@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import worker from '../cloudflare/worker.mjs';
 import {fixture} from './fixtures/account-worker.mjs';
 const origin='https://example.test';
+test('distributed login attempts share a normalized account limit while other accounts remain usable',async()=>{
+ const f=await fixture();try{
+  const token=await f.request('/api/home/csrf'),csrf=await token.json();
+  const headers={Origin:origin,'Content-Type':'application/json','X-CSRF-Token':csrf.csrf_token,Cookie:token.headers.get('Set-Cookie').split(';')[0]};
+  for(let i=0;i<31;i++){
+   const r=await f.request('/auth/login',{method:'POST',headers:{...headers,'CF-Connecting-IP':'192.0.2.'+(i+1)},body:JSON.stringify({email:i%2?' OWNER@example.test ':'owner@example.test',password:'wrong-password-1234'})});
+   assert.equal(r.status,i<30?401:429);
+  }
+  const r=await f.request('/auth/login',{method:'POST',headers:{...headers,'CF-Connecting-IP':'192.0.2.100'},body:JSON.stringify({email:'other@example.test',password:'test-password-1234'})});assert.equal(r.status,200);
+  const rows=(await f.DB.prepare("SELECT key FROM rate_limits WHERE key LIKE 'auth-account:%'").all()).results;
+  assert.ok(rows.length>0);assert.ok(rows.every(r=>!r.key.includes('@')));
+ }finally{f.close();}
+});
 async function client(f,email='owner@example.test'){
  const token=await f.request('/api/home/csrf'),csrf=await token.json();let cookie=token.headers.get('Set-Cookie').split(';')[0];
  const headers={Origin:origin,'Content-Type':'application/json','X-CSRF-Token':csrf.csrf_token,Cookie:cookie};

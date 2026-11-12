@@ -212,6 +212,8 @@ async function routes(request,env,context){
     const data=await readJSON(request,4096);
     if(!data||typeof data.email!=='string'||typeof data.password!=='string')fail('invalid_credentials',400);
     const email=data.email.trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254)fail('invalid_email',400);
+    // Bound distributed password guessing without storing email addresses in rate keys.
+    if(path==='/auth/login')await limit(env,'auth-account:'+await hmac(env.QRS_API_KEY_PEPPER,email),30,300);
     if(path==='/auth/register'){
       if(env.REGISTRATION_ENABLED!=='true')fail('registration_disabled',403);
       const salt=randomToken().slice(0,32);let hash;
