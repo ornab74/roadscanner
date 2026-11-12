@@ -81,6 +81,7 @@ def fragment(html: str):
 
 def account_navigation(active: str):
     nav=fragment('''<nav class="sidebar account-navigation" aria-label="Account navigation"><div class="navbar-brand">QRS</div><a href="/home" aria-label="Home"><i class="fas fa-globe" aria-hidden="true"></i><span>Home</span></a><a href="/dashboard" data-nav="dashboard" aria-label="Dashboard"><i class="fas fa-home" aria-hidden="true"></i><span>Dashboard</span></a><a href="/settings/user" data-nav="settings" aria-label="User Settings"><i class="fas fa-user-cog" aria-hidden="true"></i><span>User Settings</span></a><a href="/dashboard#locationMap" aria-label="Map and radar"><i class="fas fa-map-marked-alt" aria-hidden="true"></i><span>Map &amp; radar</span></a><form method="post" action="/auth/logout" class="qrs-logout-form" data-action="logout"><button type="submit" class="qrs-logout-button" aria-label="Logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button></form></nav>''').nav
+    nav.insert(-1,fragment('<a href="/aircraft" data-nav="aircraft" aria-label="Aircraft briefing"><i class="fas fa-plane" aria-hidden="true"></i><span>Aircraft briefing</span></a>').a)
     if active == 'admin':
         link=fragment('<a href="/admin" data-nav="admin" data-admin-nav="">Admin console</a>').a
         nav.insert(-1,link)
@@ -93,7 +94,7 @@ def save(page: str, soup: BeautifulSoup, module: str | None = None, extra_css: s
     (PAGES / (page + '.css')).write_text('\n'.join(line.rstrip() for line in (css+'\n'+extra_css).splitlines()).rstrip()+'\n')
     soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/' + page + '.css'))
     soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/shared.css'))
-    if page in ('dashboard','settings','admin'):
+    if page in ('dashboard','settings','admin','aircraft'):
         soup.select_one('.sidebar').replace_with(account_navigation(page))
         soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/account-navigation.css'))
     for script in soup.find_all('script'): script.decompose()
@@ -119,7 +120,7 @@ def save(page: str, soup: BeautifulSoup, module: str | None = None, extra_css: s
         tag=soup.new_tag('script',src=src,defer=True)
         tag['integrity']='sha256-'+base64.b64encode(hashlib.sha256((ROOT/src.lstrip('/')).read_bytes()).digest()).decode()
         tag['crossorigin']='anonymous';soup.body.append(tag)
-    if page == 'dashboard':
+    if page in ('dashboard','aircraft'):
         soup.body.append(soup.new_tag('script',src='/leaflet.js',defer=True))
     if module:
         soup.body.append(soup.new_tag('script',type='module',src='/pages/'+module))
@@ -230,10 +231,10 @@ print('Generated QRS pages and single-page visual route planner.')
 
 # Account and operations consoles use one responsive design system.
 verification_dialog = """<dialog id="verifyDialog"><form id="verifyForm"><span class="eyebrow">CONFIRM IT'S YOU</span><h2>Verify your identity</h2><p>Enter your current password to unlock sensitive changes for five minutes.</p><label for="verifyPassword">Current password</label><input id="verifyPassword" type="password" autocomplete="current-password" maxlength="256" required><p id="verifyMessage" role="alert"></p><div class="button-row"><button type="submit" class="primary">Verify identity</button><button id="verifyCancel" type="button">Cancel</button></div></form></dialog>"""
-for page,module in [('settings','settings.mjs'),('admin','admin.mjs')]:
+for page,module in [('settings','settings.mjs'),('admin','admin.mjs'),('aircraft','aircraft.mjs')]:
     soup=BeautifulSoup((ROOT/'cloudflare/frontend'/f'{page}.html').read_text(),'html.parser')
     soup.body.append(fragment(verification_dialog))
-    save(page,soup,module,(ROOT/'cloudflare/frontend/console.css').read_text())
+    save(page,soup,module,(ROOT/'cloudflare/frontend/console.css').read_text()+((ROOT/'cloudflare/frontend/aircraft.css').read_text() if page=='aircraft' else ''))
 
 login_path=PAGES/'login.html'
 soup=BeautifulSoup(login_path.read_text(),'html.parser')

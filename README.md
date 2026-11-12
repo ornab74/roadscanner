@@ -2728,3 +2728,19 @@ No dependency version was changed. The Python dependency file is hash-locked
 and authenticated by the ML-DSA manifest, so package upgrades must be driven by
 actual `pip-audit`/Trivy findings and regenerated through the signed-lock
 workflow rather than by an unreviewed bulk upgrade.
+
+
+### Cloudflare garage and aircraft briefings
+
+The deployed Cloudflare adapter includes a private vehicle garage in Settings,
+PHF-gated GPT Image 2 illustrations with holiday themes, road-profile support for
+cars/motorcycles/heavy trucks, rail advisory checklists, and a separate aircraft
+briefing workspace. Aircraft evidence combines OpenSky (when reachable), NOAA
+METAR/TAF, Open-Meteo winds aloft and explicit fuel/wind scenario arithmetic.
+The aircraft surface is advisory and provides no ATC clearance, separation,
+flight-control, terrain/airspace certification or approved flight navigation.
+
+See [deployment and provider setup](cloudflare/DEPLOYMENT.md),
+[implemented controls](cloudflare/SECURITY-CONTROLS.md),
+[validation and limitations](cloudflare/VALIDATION.md), and
+[the multimodal API specification](cloudflare/public/openapi.yaml).

@@ -278,3 +278,41 @@ roles based on an unverified email string. No provider secret-editing UI is expo
 Security-key management lives at `/settings/user`; compatible FIDO2 hardware,
 device passkeys, and a PIN/biometric user-verification method are required.
 Passwords remain the recovery method. Changing the password ends all sessions.
+
+### Garage and aircraft briefing
+
+Apply `0009_garage_aviation.sql` before deploying these endpoints. `/settings/user#garage`
+manages encrypted profiles for cars, motorcycles, trucks/18-wheelers, trains and
+crew-operated aircraft. `/aircraft` is a separate advisory workspace. Main road
+analysis accepts an owned garage profile ID; aircraft and train profiles are
+rejected by the road-route handler rather than receiving road GPS instructions.
+
+`GARAGE_IMAGE_MODEL=gpt-image-2` was verified in the configured account's model
+catalog and exercised with an actual generated image. Images use one existing
+scan credit, two attempts/user/day and ten global attempts/day. Input and output
+PHF gates use bounded local instruction checks and OpenAI moderation; filtering
+failure blocks delivery and refunds the reservation. No image is generated just
+by saving or changing a theme. Name/performance edits retain art; appearance
+changes clear it. Image blobs and profile JSON use owner-bound AES-GCM encryption.
+Old/deleted/expired illustrations are removed by scheduled cleanup; maximum image
+retention is 90 days. Do not alter QRS_REPORT_KEY without an encryption migration.
+
+OpenSky anonymous requests are supported with a 240-upstream-request/day global
+budget and a short shared cache. Optional `OPENSKY_CLIENT_ID` and
+`OPENSKY_CLIENT_SECRET` Worker secrets enable OAuth2 client credentials and a
+higher application budget; never place these in browser variables. Authentication
+alone does not guarantee upstream availability. During production checks the
+OpenSky endpoint timed out from Cloudflare, although a workspace request succeeded.
+The UI reports unavailable, never a clear-airspace indication. NOAA Aviation
+Weather Center METAR/TAF and Open-Meteo pressure-level winds were available.
+
+Open-Meteo public-service usage and OpenSky access/data terms must be reviewed
+before commercial use or scaling. Appropriate provider agreements/paid access
+may be required. Provider attributions are included. Aircraft monitoring is a
+user-started two-minute refresh that stops when hidden/inputs change; it is not
+real-time surveillance, ATC, TCAS, certified navigation or flight control.
+
+The multimodal API is documented at `/openapi.yaml` and `/docs#garage-api`.
+`/api/v1/garage/*` and `/api/v1/aviation/*` require Bearer API keys; browser routes
+omit `/v1` and enforce sessions/CSRF. Image generation additionally requires
+recent verification in the browser. Provider secrets remain server-side.

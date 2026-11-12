@@ -1,5 +1,12 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ phf_blocked:'The PHF safety filter did not approve this illustration. Change the appearance details and try again.',
+ phf_unavailable:'The PHF filter is unavailable. No illustration was delivered; the reserved credit was refunded.',
+ image_generation_failed:'The illustration could not be completed. Your reserved credit was refunded.',
+ vehicle_changed:'This vehicle changed during your request. Reload the garage and try again.',
+ image_processing:'An image request is already processing. Please wait before retrying.',
+ vehicle_mode_incompatible:'This vehicle uses a dedicated aircraft or rail briefing, not road GPS guidance.',
+ aircraft_profile_required:'Choose an aircraft profile from your garage.',
  reauthentication_required:'Verify your identity to continue with this sensitive action.',
  admin_required:'This action requires administrator access.',
  credential_verification_failed:'The security key could not be verified. Please try again.',

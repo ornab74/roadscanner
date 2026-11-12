@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-  title: Roadscanner Scan API
-  version: 1.0.0
+  title: QRoadScan Multimodal API
+  version: 2.0.0
   description: Metered road-scene classifications from supplied observations. Create API keys in the authenticated workspace. Payments are disabled for the initial launch.
 servers:
   - url: https://ride.qroadscan.com
@@ -49,6 +49,140 @@ paths:
       responses:
         '200': {description: Account summary}
         '401': {description: Missing or invalid API key}
+  /api/v1/garage/vehicles:
+    get:
+      summary: List your private garage and active vehicle
+      security: [{ApiKey: []}]
+      responses:
+        '200': {description: Vehicle profiles and active_vehicle_id}
+    post:
+      summary: Create an encrypted vehicle profile (maximum 20 active vehicles)
+      security: [{ApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/GarageVehicle'}
+      responses:
+        '201': {description: Saved vehicle with id and optimistic version}
+  /api/v1/garage/active:
+    put:
+      summary: Set active garage vehicle (null clears selection)
+      security: [{ApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vehicle_id]
+              properties:
+                vehicle_id: {type: [string, 'null']}
+      responses:
+        '200': {description: Active selection saved}
+  /api/v1/garage/vehicles/{vehicle_id}:
+    parameters:
+      - {in: path, name: vehicle_id, required: true, schema: {type: string, format: uuid}}
+    get:
+      summary: Read an owned vehicle
+      security: [{ApiKey: []}]
+      responses:
+        '200': {description: Vehicle profile and version}
+        '404': {description: Vehicle missing or not owned by this API key's account}
+    put:
+      summary: Replace a vehicle using its current version; clears illustration when appearance changes
+      security: [{ApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: '#/components/schemas/GarageVehicle'}
+                - {type: object, required: [version], properties: {version: {type: integer}}}
+      responses:
+        '200': {description: Updated vehicle}
+        '409': {description: Version conflict; reload before saving}
+    delete:
+      summary: Delete an owned vehicle and schedule its encrypted illustration for removal
+      security: [{ApiKey: []}]
+      responses:
+        '200': {description: Vehicle deleted}
+  /api/v1/garage/vehicles/{vehicle_id}/image:
+    parameters:
+      - {in: path, name: vehicle_id, required: true, schema: {type: string, format: uuid}}
+    get:
+      summary: Retrieve owned private PNG illustration
+      security: [{ApiKey: []}]
+      responses:
+        '200': {description: Decrypted PNG with no-store cache policy, content: {image/png: {schema: {type: string, format: binary}}}}
+        '404': {description: No current unexpired illustration}
+    post:
+      summary: Generate GPT Image 2 illustration, gated by input/output PHF, costing one scan credit
+      description: At most 2 attempts/account/day and 10 attempts globally/day. Requests are idempotent. Failures refund the reserved credit. Images expire after 90 days. Browser equivalent requires recent verification and CSRF; API keys authenticate directly.
+      security: [{ApiKey: []}]
+      parameters:
+        - {in: header, name: Idempotency-Key, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{16,100}$'}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, maxProperties: 0}
+      responses:
+        '201': {description: Model metadata, PHF results and private browser image_url; use this v1 path with your key to download}
+        '200': {description: Idempotent replay without another generation or debit}
+        '402': {description: Insufficient existing scan credits}
+        '422': {description: PHF blocked request or output; credit refunded}
+        '503': {description: Filtering or generation unavailable; credit refunded}
+  /api/v1/garage/vehicles/{vehicle_id}/guidance:
+    parameters:
+      - {in: path, name: vehicle_id, required: true, schema: {type: string, format: uuid}}
+    post:
+      summary: Read mode-specific advisory checklist and optional area weather
+      security: [{ApiKey: []}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                location:
+                  type: object
+                  properties:
+                    latitude: {type: number}
+                    longitude: {type: number}
+      responses:
+        '200': {description: Vehicle scope, checklist and optional weather; no train movement authority}
+  /api/v1/aviation/config:
+    get:
+      summary: Providers, quotas and advisory scope (no secrets)
+      security: [{ApiKey: []}]
+      responses:
+        '200': {description: OpenSky OAuth status and weather/AI configuration}
+  /api/v1/aviation/snapshot:
+    post:
+      summary: Aircraft briefing snapshot with OpenSky traffic, AWC METAR/TAF, winds aloft and fuel scenario
+      description: Briefing only, not ATC, TCAS, approved routing or a go/no-go decision. Codes and coordinates are user supplied. Coverage and timestamps must be checked. Maximum 40 requests/account/hour; anonymous OpenSky global budget is 240 upstream requests/day with short shared caching.
+      security: [{ApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AircraftBriefingRequest'}
+      responses:
+        '200': {description: Independent provider statuses, timestamped observations/forecasts, bounded traffic and fuel assumptions}
+  /api/v1/aviation/briefing:
+    post:
+      summary: Refresh aircraft evidence and request a bounded GPT-6 Luna briefing review
+      description: Same inputs as snapshot. Up to 4 requests/account/day and 20 globally/day; no scan credit charged. Does not generate ATC clearances or maneuver instructions.
+      security: [{ApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AircraftBriefingRequest'}
+      responses:
+        '200': {description: Snapshot plus advisory evidence review}
 components:
   securitySchemes:
     ApiKey:
@@ -56,6 +190,41 @@ components:
       scheme: bearer
       bearerFormat: qrs_live
   schemas:
+    GarageVehicle:
+      type: object
+      required: [name, kind]
+      description: Typed mode-specific specs are validated server-side. Optional fields default to empty; unsupported fields are rejected. PUT also requires current version.
+      properties:
+        name: {type: string, minLength: 1, maxLength: 60}
+        kind: {type: string, enum: [car, motorcycle, truck, train, aircraft]}
+        make: {type: string, maxLength: 60}
+        model: {type: string, maxLength: 60}
+        year: {type: [integer, 'null'], minimum: 1880}
+        color: {type: string, maxLength: 40}
+        theme: {type: string, enum: [none, winter, halloween, autumn, festive, lunar_new_year]}
+        appearance_notes: {type: string, maxLength: 400}
+        specs:
+          type: object
+          description: 'car: mass_kg; motorcycle: engine_cc,mass_kg; truck: height_m,width_m,length_m,mass_kg,axles,hazmat; train: length_m,mass_kg,rail_gauge_mm,traction; aircraft: true_airspeed_kt,fuel_burn_per_hour,fuel_capacity,fuel_unit,reserve_minutes,icao24,type_designator. All numeric values must be finite and positive, except reserve_minutes may be zero. Fuel units: gal,l,kg. icao24 is six hex characters.'
+    AircraftBriefingRequest:
+      type: object
+      additionalProperties: false
+      required: [vehicle_id, start, destination, departure_airport, arrival_airport, altitude_ft, usable_fuel]
+      properties:
+        vehicle_id: {type: string, format: uuid}
+        start: {$ref: '#/components/schemas/BriefingCoordinate'}
+        destination: {$ref: '#/components/schemas/BriefingCoordinate'}
+        departure_airport: {type: string, pattern: '^[A-Z0-9]{3,4}$'}
+        arrival_airport: {type: string, pattern: '^[A-Z0-9]{3,4}$'}
+        altitude_ft: {type: number, minimum: 0, maximum: 45000}
+        usable_fuel: {type: [number, 'null'], minimum: 0, maximum: 1000000}
+    BriefingCoordinate:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude]
+      properties:
+        latitude: {type: number, minimum: -85, maximum: 85}
+        longitude: {type: number, minimum: -180, maximum: 180}
     ScanRequest:
       type: object
       additionalProperties: false

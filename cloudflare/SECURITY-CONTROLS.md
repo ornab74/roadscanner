@@ -82,3 +82,40 @@ Cloudflare injects an external analytics beacon at the zone layer. CSP deliberat
 blocks it. A ride-only analytics exclusion was attempted but the Cloudflare plan
 rejected an additional rule; no existing zone-wide analytics rule was changed.
 This causes a known console CSP message without preventing app execution.
+
+## Garage images and aviation evidence
+
+- Vehicle schemas bound fields and validate kind-specific numeric specs. All
+  garage lookups and active-profile updates check ownership. Profile JSON is
+  encrypted with a vehicle-specific owner-bound AAD. Optimistic versions reject
+  stale edits; road guidance loads the actual owned profile server-side.
+- Artwork is produced only by an explicit, metered request with an idempotency
+  key. Reservation/debit/refund use the existing transactional credit ledger.
+  Local PHF instruction checks and provider moderation fail closed. Both prompt
+  and output must pass before any image is delivered. Output format/dimensions
+  and response byte counts are bounded. Private PNG blobs use AES-GCM with
+  owner/vehicle/image AAD and authenticated no-store retrieval; no public bucket
+  or raw provider image URL is used. Prompts omit dedicated plate/VIN/registration fields and request no visible registrations; user appearance text is explicitly warned against personal identifiers. Pending/orphaned objects have bounded cleanup leases.
+- Aviation endpoints accept only owned aircraft profiles, bounded coordinates,
+  airport-code syntax and bounded fuel/altitude inputs. Providers use fixed HTTPS
+  hosts, no redirects, timeouts, body caps and quota limits. OpenSky OAuth tokens
+  are memory-only. Provider failures expose safe status categories, not bodies,
+  credential-bearing URLs or secrets. Source records remain untrusted text.
+- Public surveillance is filtered for recent positions and snapshot age. Cached
+  stale positions are withheld. Missing/empty traffic never implies clear airspace.
+  Airport reports expose issue/observation/validity times and missing/stale fields.
+  Wind samples validate time, units and numeric ranges, and distinguish model
+  pressure levels from measured flight-level wind. 250 hPa context is not a jet
+  axis, turbulence or icing forecast. Provider caches are short and expire.
+- Fuel/wind arithmetic is deterministic, unit-consistent and explicitly based on
+  user inputs. No fuel is invented when required inputs are missing or exceed
+  declared capacity. The model reviews existing facts without authority to issue
+  flight commands, clearance, separation, regulatory reserve approval or go/no-go
+  decisions. Structured advisory output is bounded and obvious operational
+  command forms are rejected. No flight-control or aviation GPS interface exists.
+- Input changes clear displayed scenario results; stale surveillance is removed
+  from the map/table. Polling stops on hidden/page-exit/input change. Aviation
+  source data, not art or simulated quantum output, drives scenario arithmetic.
+  No synthetic vehicle image is used as aircraft-performance or weather evidence.
+
+Garage image reservations are excluded from scan-report history, report retrieval, homepage scene sources and scan statistics. Admin metrics count generated images separately. Deletion clears encrypted profile contents immediately, schedules private image deletion and later purges the tombstone.

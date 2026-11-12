@@ -248,3 +248,30 @@ security audit. Specialized Codex Security scan helpers were unavailable here.
 No physical hardware-key compatibility matrix or live-vehicle testing is claimed.
 
 Production checks also confirmed that removing the fixture's temporary admin role immediately denies the admin page, overview, user search and audit APIs, while its ordinary settings remain accessible. Missing CSRF tokens were rejected on live account and admin mutation routes. The isolated account, its credentials, temporary role, sessions and audit fixtures were removed afterward.
+
+## Garage, image PHF and aircraft briefing
+
+68 JavaScript tests and 10 Python tests passed. Added tests exercise typed vehicle
+specs, encrypted owner isolation, optimistic edits, active-profile deletion,
+PHF rejection/unavailability, owner-bound image encryption, one-time image billing,
+replay/refund behavior, aircraft data validation, stale traffic filtering, wind
+units, wind/fuel math and advisory-only AI output. SRI is rebuilt and checked.
+The expanded OpenAPI YAML parsed successfully with ten documented resource paths.
+
+Production Chromium used an isolated funded account. PHF rejected an
+instruction-smuggling description; a subsequent actual GPT Image 2 generation
+passed input/output moderation and displayed a private winter-themed illustration.
+Cars, motorcycles, heavy trucks, trains and aircraft were saved; the active truck
+profile reached the road workspace. Actual GPT-6 Luna reviewed live airport
+weather/forecast winds and scenario fuel math. Monitoring start/stop worked.
+A mobile grid overflow was found and fixed; final phone layout and clearing of
+old scenario data on input changes passed. Anonymous illustration retrieval was
+denied. Real Bearer-key API checks passed garage listing, private PNG download,
+aircraft snapshots and rail advisory retrieval. No production user's credit
+balance was changed; the image used the isolated fixture's credit.
+
+OpenSky returned data to the workspace, but production Worker requests timed out;
+provider status remained unavailable with no invented positions. Actual live
+traffic-marker coverage is therefore unverified from production. Unit tests cover
+valid, missing and stale source records. No physical aircraft, flight-control,
+certified ATC, live vehicle or physical-hardware sensor testing is claimed.

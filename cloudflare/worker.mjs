@@ -1,3 +1,6 @@
+import {garageRoutes,cleanupGarage} from './garage.mjs';
+import {aviationRoutes} from './aviation.mjs';
+import {vehicleFor,guidanceScope} from './vehicle-profile.mjs';
 import {securityRoutes,isAdmin} from './account-security.mjs';
 import {captureRouteImagery} from './route-imagery.mjs';
 import {analyzeVisualRoute,validateVisualRequest,coordinate} from './visual-route.mjs';
@@ -18,7 +21,7 @@ async function homeAssessment(request,env){
   if(!p.session_hash)fail('login_required',401);
   if(!env.OPENAI_API_KEY)fail('home_model_not_configured',503);
   const model=env.OPENAI_HOME_MODEL??'gpt-5.5';
-  const source=await query(env,"SELECT id,rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND created_at>=? ORDER BY created_at DESC,rowid DESC LIMIT 1",p.user_id,now()-90*86400).first();
+  const source=await query(env,"SELECT id,rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND api_key_id NOT LIKE 'web:garage:%' AND created_at>=? ORDER BY created_at DESC,rowid DESC LIMIT 1",p.user_id,now()-90*86400).first();
   if(!source)fail('home_source_required',409);
   const existing=await query(env,'SELECT id,status,lease_expires_at FROM home_assessments WHERE user_id=? AND source_request_id=? AND model=?',p.user_id,source.id,model).first();
   if(existing?.status==='completed'){
@@ -146,6 +149,7 @@ async function runVisualRoute(request,env,p){
   if(!env.OPENAI_API_KEY)fail('route_model_not_configured',503);
   const idem=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idem??''))fail('invalid_idempotency_key',400);
   const input=validateVisualRequest(await readJSON(request,4000000));
+  if(input.vehicle_id){input.vehicle=await vehicleFor(env,p.user_id,input.vehicle_id);if(!['car','motorcycle','truck'].includes(input.vehicle.kind))fail('vehicle_mode_incompatible',400);input.vehicle_scope=guidanceScope(input.vehicle);}
   const keyID='web:'+p.user_id;
   await query(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,'web-session-v1:'+p.user_id),now()).run();
   const prior=await query(env,'SELECT id,status FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(prior){if(prior.status==='refunded')fail('route_analysis_failed',409);return replay(env,p,prior);}
@@ -156,7 +160,7 @@ async function runVisualRoute(request,env,p){
   try{
     const assessment=await analyzeVisualRoute(env,input);
     const scores=assessment.segments.map(s=>s.risk_score).filter(Number.isFinite),peak=scores.length?Math.max(...scores):null;
-    const payload={...assessment,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode};
+    const payload={...assessment,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode,vehicle:input.vehicle?{id:input.vehicle.id,name:input.vehicle.name,kind:input.vehicle.kind,specs:input.vehicle.specs}:null};
     if(assessment.status==='needs_context'){
       await query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();
       return json({...payload,report_id:null,scan_credit_refunded:true,credits_used:0});
@@ -170,16 +174,17 @@ async function routes(request,env){
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
   // Every cookie/browser mutation, including sign-in, requires a signed CSRF token.
   // Bearer-only v1 scans do not use ambient browser credentials.
-  if(!['GET','HEAD','OPTIONS'].includes(request.method)&&path!=='/api/v1/scans')await verifyBrowserCSRF(request,env);
+  if(!['GET','HEAD','OPTIONS'].includes(request.method)&&!path.startsWith('/api/v1/'))await verifyBrowserCSRF(request,env);
   if(path==='/admin'&&request.method==='GET'){const p=await principal(request,env);if(!p.session_hash||!await isAdmin(env,p.user_id))fail('admin_required',403);}
+  const feature=await garageRoutes(request,env,{principal,limit,hmac})??await aviationRoutes(request,env,{principal,limit});if(feature)return feature;
   const security=await securityRoutes(request,env,{principal,limit});if(security)return security;
 
   if(request.method==='GET'&&(path==='/'||path==='/home/'))return Response.redirect(new URL('/home',request.url),301);
   if(request.method==='GET'&&path==='/radar')return Response.redirect(new URL('/dashboard#locationMap',request.url),302);
   if(request.method==='GET'&&path==='/favicon.ico')return Response.redirect(new URL('/favicon.svg',request.url),302);
-  const pages={'/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin'};
+  const pages={'/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
   if(request.method==='GET'&&pages[path]){
-    const protectedPage=['/dashboard','/settings/user','/radar','/admin'].includes(path);
+    const protectedPage=['/dashboard','/settings/user','/radar','/admin','/aircraft'].includes(path);
     if(protectedPage){
       try{await principal(request,env);}catch(e){if(e.status===401)return Response.redirect(new URL('/login?next='+encodeURIComponent(path),request.url),302);throw e;}
     }
@@ -274,10 +279,10 @@ async function routes(request,env){
     return json({password_changed:true},200,{'Set-Cookie':'__Host-qrs_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
   }
   if(path==='/api/reports'&&request.method==='GET'){
-    const p=await principal(request,env);const rows=await query(env,"SELECT rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND created_at>=? ORDER BY created_at DESC LIMIT 100",p.user_id,now()-90*86400).all();return json(rows.results);
+    const p=await principal(request,env);const rows=await query(env,"SELECT rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND api_key_id NOT LIKE 'web:garage:%' AND created_at>=? ORDER BY created_at DESC LIMIT 100",p.user_id,now()-90*86400).all();return json(rows.results);
   }
   if(/^\/api\/reports\/\d+$/.test(path)&&request.method==='GET'){
-    const p=await principal(request,env);const row=await query(env,"SELECT id,created_at FROM api_requests WHERE rowid=? AND user_id=? AND status='completed'",Number(path.split('/').pop()),p.user_id).first();
+    const p=await principal(request,env);const row=await query(env,"SELECT id,created_at FROM api_requests WHERE rowid=? AND user_id=? AND status='completed' AND api_key_id NOT LIKE 'web:garage:%'",Number(path.split('/').pop()),p.user_id).first();
     if(!row)fail('report_not_found',404);if(row.created_at<now()-90*86400)fail('report_expired',410);
     const obj=await env.REPORTS.get(reportPath(p.user_id,row.id));if(!obj)fail('report_unavailable',503);
     return json(await decryptReport(env.QRS_REPORT_KEY,p.user_id,row.id,await obj.text()));
@@ -314,5 +319,6 @@ export default {
       query(env,'DELETE FROM public_home_previews WHERE expires_at<? AND lease_expires_at<?',now()-3600,now()),
       query(env,'DELETE FROM geocode_cache WHERE expires_at<?',now()),
     ]);
+    await cleanupGarage(env);
   },
 };

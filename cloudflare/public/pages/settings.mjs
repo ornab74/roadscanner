@@ -1,3 +1,4 @@
+import {garageUI} from './garage-ui.mjs';
 import {api,byId,bindLogout,requireSession,status} from './common.mjs';
 import {date,record,action,verified} from './security-ui.mjs';
 import {startRegistration} from '/vendor/webauthn.mjs';
@@ -22,3 +23,5 @@ byId('revokeSessions').onclick=protect(async()=>{await verified(()=>api('/api/se
 byId('passwordForm').onsubmit=async event=>{event.preventDefault();const b=event.target.querySelector('button');b.disabled=true;try{await api('/auth/password',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});event.target.reset();location.assign('/login');}catch(e){message(e.message,true);}finally{b.disabled=false;}};
 window.addEventListener('pagehide',clearKey);document.addEventListener('visibilitychange',()=>{if(document.hidden){byId('apiKey').type='password';byId('showKey').textContent='Show key';}});
 refresh().catch(e=>message(e.message,true));
+
+garageUI().catch(e=>status('garageMessage',e.message,true));
