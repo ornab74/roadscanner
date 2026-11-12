@@ -123,10 +123,16 @@ def save(page: str, soup: BeautifulSoup, module: str | None = None, extra_css: s
         if href.startswith('/static/'):
             data=(ROOT / href.lstrip('/')).read_bytes()
             link['integrity']='sha256-'+base64.b64encode(hashlib.sha256(data).digest()).decode()
-    for src in ('/static/js/jquery.min.js','/static/js/bootstrap.bundle.min.js'):
-        tag=soup.new_tag('script',src=src,defer=True)
-        tag['integrity']='sha256-'+base64.b64encode(hashlib.sha256((ROOT/src.lstrip('/')).read_bytes()).digest()).decode()
-        tag['crossorigin']='anonymous';soup.body.append(tag)
+    toggles=soup.select('button.navbar-toggler[data-toggle="collapse"]')
+    for button in toggles:
+        target=button.get('data-target','')
+        if not re.fullmatch(r'#[A-Za-z][A-Za-z0-9_-]*',target) or soup.find(id=target[1:]) is None:
+            raise ValueError('Invalid navigation collapse target')
+        button['aria-controls']=target[1:];button['aria-expanded']='false'
+        button['aria-label']=button.get('aria-label','Toggle navigation')
+        del button['data-toggle'];del button['data-target']
+    if toggles:
+        soup.body.append(soup.new_tag('script',type='module',src='/pages/nav-collapse.mjs'))
     if page in ('dashboard','aircraft'):
         soup.body.append(soup.new_tag('script',src='/leaflet.js',defer=True))
     if module:

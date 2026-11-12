@@ -40,12 +40,12 @@
 <link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/>
 <link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/>
 <link crossorigin="anonymous" href="/static/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" rel="stylesheet"/>
-<link crossorigin="anonymous" href="/pages/home.css" integrity="sha384-D7IIsCbWSPB5uOD58IwJti+HKp6kx/NYyGdJoB991F62UA7tXcGDr/FSXYQEKQy7" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-+gXIOLQvydBwy5aIk76nuO7U1Jgh90EXC77pd556RkelYqOY+n2TLhRM8jgwl9L4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-RIeVoEepWTh0S22ticnMtZCnXzWElPGS+E5E2wFSO15ae4Beylto3ZqGABpDhNBB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/home.mjs" integrity="sha384-HDT3pxYahNck26LwVIEOaBGOjdgJFBuHsFf1o9H9Q1y1+n49OZbWMXh5X0bNNDsS" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/wheel-base.mjs" integrity="sha384-GG9gsALicplcW8tn4N1BCHK+bMLd+lMdQU+9XikCc26OASOVq+brDZOAuLx0wx2p" rel="modulepreload"/></head>
+<link crossorigin="anonymous" href="/pages/home.css" integrity="sha384-D7IIsCbWSPB5uOD58IwJti+HKp6kx/NYyGdJoB991F62UA7tXcGDr/FSXYQEKQy7" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-+gXIOLQvydBwy5aIk76nuO7U1Jgh90EXC77pd556RkelYqOY+n2TLhRM8jgwl9L4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-RIeVoEepWTh0S22ticnMtZCnXzWElPGS+E5E2wFSO15ae4Beylto3ZqGABpDhNBB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/home.mjs" integrity="sha384-HDT3pxYahNck26LwVIEOaBGOjdgJFBuHsFf1o9H9Q1y1+n49OZbWMXh5X0bNNDsS" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/nav-collapse.mjs" integrity="sha384-NXPEHSQmx/+Ir0yydNks9Nqf3Yb3HXkQugh8X0YfXj3s+uKP8mkCKIolVyJxUXuB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/wheel-base.mjs" integrity="sha384-GG9gsALicplcW8tn4N1BCHK+bMLd+lMdQU+9XikCc26OASOVq+brDZOAuLx0wx2p" rel="modulepreload"/></head>
 <body>
 <div aria-hidden="true" class="nebula"></div>
 <nav class="navbar navbar-expand-lg navbar-dark">
 <a class="navbar-brand" href="/home">QRoadScan.com</a>
-<button class="navbar-toggler" data-target="#nav" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
+<button aria-controls="nav" aria-expanded="false" aria-label="Toggle navigation" class="navbar-toggler" type="button"><span class="navbar-toggler-icon"></span></button>
 <div class="collapse navbar-collapse justify-content-end" id="nav">
 <ul class="navbar-nav">
 <li class="nav-item"><a class="nav-link" href="/docs">Docs</a></li><li class="nav-item"><a class="nav-link" href="/home">Home</a></li>
@@ -160,5 +160,5 @@
 </div>
 </section>
 </main>
-<script crossorigin="anonymous" defer="True" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" src="/static/js/jquery.min.js"></script><script crossorigin="anonymous" defer="True" integrity="sha384-LtrjvnR4Twt/qOuYxE721u19sVFLVSA4hf/rRt6PrZTmiPltdZcI7q7PXQBYTKyf" src="/static/js/bootstrap.bundle.min.js"></script><script crossorigin="anonymous" integrity="sha384-HDT3pxYahNck26LwVIEOaBGOjdgJFBuHsFf1o9H9Q1y1+n49OZbWMXh5X0bNNDsS" src="/pages/home.mjs" type="module"></script></body>
+<script crossorigin="anonymous" integrity="sha384-NXPEHSQmx/+Ir0yydNks9Nqf3Yb3HXkQugh8X0YfXj3s+uKP8mkCKIolVyJxUXuB" src="/pages/nav-collapse.mjs" type="module"></script><script crossorigin="anonymous" integrity="sha384-HDT3pxYahNck26LwVIEOaBGOjdgJFBuHsFf1o9H9Q1y1+n49OZbWMXh5X0bNNDsS" src="/pages/home.mjs" type="module"></script></body>
 </html>
