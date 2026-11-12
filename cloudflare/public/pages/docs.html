@@ -17,6 +17,7 @@
 <li><a href="#trucks-18-wheelers-and-commercial-loads">Trucks, 18-wheelers, and commercial loads</a></li>
 <li><a href="#train-and-rail-advisory">Train and rail advisory</a></li>
 <li><a href="#aircraft-briefing-workflow">Aircraft briefing workflow</a></li>
+<li><a href="#helicopter-and-fixed-wing-profiles">Helicopter and fixed-wing profiles</a></li>
 <li><a href="#airport-weather-metar-and-taf">Airport weather: METAR and TAF</a></li>
 <li><a href="#winds-aloft-jet-stream-context-and-units">Winds aloft, jet-stream context, and units</a></li>
 <li><a href="#fuel-and-wind-scenario-arithmetic">Fuel and wind scenario arithmetic</a></li>
@@ -143,11 +144,31 @@ curl --fail-with-body --silent --show-error \
 <p>Chromographic ribbons distinguish lower, moderate, elevated, and unknown modeled caution. A gray or unknown section is not a safe section; it means the supplied evidence does not support a score. Scores must not be read as a measured probability of a crash. A weather estimate near a street is an area forecast, not a measurement of grip on that exact lane.</p>
 <p>The optional NAZA-inspired state layer is a labeled two-qubit simulation. It changes a decorative fringe or pulse and has a baseline off switch. It does not change mapped coordinates, reported weather, risk scores, or vehicle performance. A reproducibility receipt identifies a simulation state; it is not a signature proving real-world safety or evidence of a physical quantum sensor.</p>
 </section><section class="doc-section" id="motorcycle-guidance"><h2>Motorcycle guidance</h2>
+<p>Garage profiles now accept an optional boolean <code>specs.abs</code>. Leave it unspecified when unknown. Selecting No saves <code>false</code>; an empty selector omits the field. ABS is equipment context and does not prove traction. The route profile panel summarizes the motorcycle-specific focus, and the same structured focus reaches both visual planning and the mapped-section annotation pass.</p>
 <p>Save a motorcycle as <code>motorcycle</code> so the garage icon and route context reflect two-wheel exposure. Engine displacement and mass are descriptive assumptions, not a complete handling or braking model. A motorcycle’s real behavior also depends on tires, loading, suspension, road surface, rider skill, maintenance, and conditions that the application does not measure.</p>
 <p>The model’s motorcycle context emphasizes wind exposure, precipitation, visibility, temperature, and uncertainty about surface grip. A weather forecast does not establish that a particular corner is dry, wet, icy, contaminated, or free of gravel. A low weather caution score is therefore not permission to select a particular lean angle, entry speed, following distance, or braking technique.</p>
 <p>Use the satellite and street context to inspect a proposed entrance or intersection, but remember that imagery may be old. Small obstacles can be invisible, and a route image does not show whether a driver has yielded. If the model cannot support a street connection, the correct result is a request for more context, not a confident motorcycle shortcut.</p>
 <p>For the Kawasaki Z125 example, distinguish the model description from the saved type. The garage can highlight that specific mismatch and offer a type correction. The user chooses whether to apply it; the application does not silently rewrite every manufacturer/model entry. After changing operating specifications, re-analyze a route when you need guidance to reflect the new profile.</p>
 </section><section class="doc-section" id="trucks-18-wheelers-and-commercial-loads"><h2>Trucks, 18-wheelers, and commercial loads</h2>
+<p>Choose <code>specs.configuration</code> as <code>articulated</code> for a tractor/trailer combination or <code>rigid</code> for a rigid truck. The label “18-wheeler” never fills in dimensions, mass or axle count automatically. <code>length_m</code> describes the entire combination; <code>trailer_length_m</code> describes the trailer. The dashboard's expandable guidance panel lists relevant missing fields so you can update Garage before re-analysis. The prompts emphasize off-tracking, trailer swing, junction geometry, loading-site access, and the evidence needed to verify restrictions.</p>
+<p>Illustrative API profile, with deliberately explicit values rather than model-derived specifications:</p>
+<pre><code class="language-json">{
+  "name": "Example combination",
+  "kind": "truck",
+  "specs": {
+    "configuration": "articulated",
+    "height_m": 4.0,
+    "width_m": 2.5,
+    "length_m": 22,
+    "trailer_length_m": 16,
+    "mass_kg": 35000,
+    "axles": 5,
+    "hazmat": false
+  }
+}
+</code></pre>
+<p>These numbers are examples, not defaults or legal dimensions. Car profiles also accept overall dimensions, optional <code>towing</code>, and <code>trailer_length_m</code>, so a car towing a trailer can carry its own combination context without being mislabeled as a commercial truck.</p>
+<p><code>POST /api/v1/garage/vehicles/{id}/guidance</code> now includes <code>navigation_profile</code> alongside the existing checklist. It contains the profile label, supplied specifications, vehicle-specific focus, missing profile fields, instruction style and geometry policy. Aviation snapshots include the same field. Integrations can present these checks without making a model call; the actual route analysis and AI briefing continue to use their existing scoped endpoints.</p>
 <p>Use <code>truck</code> for an 18-wheeler or other heavy road vehicle. Enter the actual operating height, width, length, loaded mass, axle count, and hazmat status when known. A tractor’s brochure mass is not the same as the gross loaded combination mass. A nominal trailer length does not fully describe articulation or turning envelope.</p>
 <p>The supplied dimensions become model context. They do not turn the imported road graph into a verified truck-restriction database. Bridge capacity, overhead clearance, seasonal load limits, axle restrictions, hazmat permissions, loading-zone rules, and turning clearance remain unknown unless independently verified from appropriate current sources.</p>
 <p>The app should not certify clearance because a road looks wide in satellite imagery. Shadows, canopy, perspective, image age, and unmapped infrastructure can all make such an inference unreliable. A mapped road connection can be unsuitable for an articulated vehicle even when a car could use it. Treat a proposal’s restriction checks as items to verify with official signs, a truck-appropriate routing source, or the operator.</p>
@@ -162,6 +183,24 @@ curl --fail-with-body --silent --show-error \
 <p>Choose a scenario altitude and enter usable fuel in the unit saved with the aircraft. Refresh weather and traffic, then inspect the individual provider statuses. A successful HTTP response can contain an unavailable traffic feed and available weather feeds. Do not replace those independent status fields with one green “everything is safe” badge.</p>
 <p>The optional AI review receives the same snapshot and explicit assumptions. It can summarize airport weather, wind samples, surveillance gaps, fuel arithmetic, and questions to verify with the pilot, dispatcher, or official briefing. It must not issue takeoff/landing clearances, separation instructions, movement commands, regulatory fuel approval, or a go/no-go decision. No connection to an autopilot, flight-control system, radio transmitter, or certified avionics is provided.</p>
 <p>Monitoring is a user-started refresh at two-minute intervals. It stops when inputs change, the page is hidden, or the user stops it. It is not a real-time traffic service. The UI removes stale surveillance positions and clears previous scenario figures when you change the inputs, so old calculations are not silently presented as current results for a new aircraft or corridor.</p>
+</section><section class="doc-section" id="helicopter-and-fixed-wing-profiles"><h2>Helicopter and fixed-wing profiles</h2>
+<p>Both remain <code>kind: aircraft</code> in the API. Choose <code>specs.airframe</code> as <code>fixed_wing</code> or <code>helicopter</code>; existing aircraft without this field remain unspecified. The garage uses “Airplane / helicopter” as the vehicle-type label and shows the category selector with aircraft specifications. A helicopter profile uses a distinct transparent rotorcraft map icon. Changing the aircraft category invalidates an existing generated portrait so a previous airplane illustration is not reused as the new helicopter illustration.</p>
+<pre><code class="language-json">{
+  "name": "Example helicopter",
+  "kind": "aircraft",
+  "specs": {
+    "airframe": "helicopter",
+    "rotor_diameter_m": 10,
+    "true_airspeed_kt": 100,
+    "fuel_burn_per_hour": 15,
+    "fuel_capacity": 60,
+    "fuel_unit": "gal",
+    "reserve_minutes": 30
+  }
+}
+</code></pre>
+<p>This is an illustrative scenario, not a real aircraft's performance data. Helicopter briefing prompts focus on rotor/wire/obstacle evidence, landing-site permission and dimensions, density altitude, IGE/OGE hover performance, gusts and terrain winds. Rotor diameter alone cannot establish landing-site suitability. Satellite imagery cannot authorize a landing or show every wire. The existing fuel calculation remains a direct-corridor cruise scenario: it excludes hovering, rotor start, ground running, reconnaissance and landing maneuvers, and the interface reports that limitation explicitly.</p>
+<p>Fixed-wing prompts instead focus on runway/performance, crosswind and alternate questions. In either category, use appropriate nearby weather-station codes separately from the actual endpoint coordinates, and confirm their relevance. Traffic remains a limited-area OpenSky snapshot. This update does not add ATC commands, hover navigation, aircraft control or certified aviation routing.</p>
 </section><section class="doc-section" id="airport-weather-metar-and-taf"><h2>Airport weather: METAR and TAF</h2>
 <p>Airport weather is requested from NOAA Aviation Weather Center. A METAR is an airport observation with an observation time. A TAF is an airport forecast with an issue time and validity interval. The interface preserves the raw report text so a qualified reader can compare the AI interpretation with the source.</p>
 <p>A station’s weather does not establish conditions at every point between airports. Terrain, local precipitation, cloud, wind, and visibility can vary substantially away from the reporting station. The application does not treat a clear airport report as proof that a mountain corridor or an entire flight path is clear.</p>

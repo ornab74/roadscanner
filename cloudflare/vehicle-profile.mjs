@@ -1,10 +1,11 @@
 import {decryptReport} from './security.mjs';
+import {VEHICLE_FIELDS} from './public/pages/vehicle-guidance.mjs';
 export const KINDS=['car','motorcycle','truck','train','aircraft'];
 export const THEMES=['none','winter','halloween','autumn','festive','lunar_new_year'];
 const fail=m=>{throw Object.assign(new Error(m),{status:400});};
 function text(v,max=60){if(typeof v!=='string'||v.length>max||/[\x00-\x1f\x7f]/.test(v))fail('invalid_vehicle_field');return v.trim();}
-const ranges={height_m:[.2,12],width_m:[.2,12],length_m:[.5,5000],mass_kg:[1,10000000],axles:[1,1000],rail_gauge_mm:[300,2500],engine_cc:[1,10000],true_airspeed_kt:[25,700],fuel_burn_per_hour:[.1,100000],fuel_capacity:[.1,1000000],reserve_minutes:[0,240]};
-const fields={car:['mass_kg'],motorcycle:['engine_cc','mass_kg'],truck:['height_m','width_m','length_m','mass_kg','axles','hazmat'],train:['length_m','mass_kg','rail_gauge_mm','traction'],aircraft:['true_airspeed_kt','fuel_burn_per_hour','fuel_capacity','fuel_unit','reserve_minutes','icao24','type_designator']};
+const ranges={height_m:[.2,12],width_m:[.2,12],length_m:[.5,5000],trailer_length_m:[.5,100],rotor_diameter_m:[1,50],mass_kg:[1,10000000],axles:[1,1000],rail_gauge_mm:[300,2500],engine_cc:[1,10000],true_airspeed_kt:[25,700],fuel_burn_per_hour:[.1,100000],fuel_capacity:[.1,1000000],reserve_minutes:[0,240]};
+const fields=Object.fromEntries(Object.entries(VEHICLE_FIELDS).map(([k,list])=>[k,list.map(f=>f[0])]));
 export function validateVehicle(v){
  if(!v||Array.isArray(v)||Object.keys(v).some(k=>!['name','kind','make','model','year','color','theme','appearance_notes','specs'].includes(k))||!KINDS.includes(v.kind)||!THEMES.includes(v.theme??'none'))fail('invalid_vehicle');
  const name=text(v.name);if(!name)fail('vehicle_name_required');const year=v.year??null;if(year!==null&&(!Number.isInteger(year)||year<1880||year>new Date().getUTCFullYear()+2))fail('invalid_vehicle_year');
@@ -12,7 +13,9 @@ export function validateVehicle(v){
  for(const [key,value] of Object.entries(specs)){
   if(value===null||value==='')continue;
   if(ranges[key]){const [lo,hi]=ranges[key];if(typeof value!=='number'||!Number.isFinite(value)||value<lo||value>hi||['axles'].includes(key)&&!Number.isInteger(value))fail('invalid_vehicle_'+key);normalized[key]=value;}
-  else if(key==='hazmat'){if(typeof value!=='boolean')fail('invalid_vehicle_hazmat');normalized[key]=value;}
+  else if(['hazmat','towing','abs'].includes(key)){if(typeof value!=='boolean')fail('invalid_vehicle_'+key);normalized[key]=value;}
+  else if(key==='configuration'){if(!['rigid','articulated'].includes(value))fail('invalid_truck_configuration');normalized[key]=value;}
+  else if(key==='airframe'){if(!['fixed_wing','helicopter'].includes(value))fail('invalid_aircraft_category');normalized[key]=value;}
   else if(key==='fuel_unit'){if(!['gal','l','kg'].includes(value))fail('invalid_fuel_unit');normalized[key]=value;}
   else if(key==='traction'){if(!['diesel','electric','steam','hybrid'].includes(value))fail('invalid_train_traction');normalized[key]=value;}
   else if(key==='icao24'){if(typeof value!=='string'||!/^[a-f0-9]{6}$/i.test(value))fail('invalid_aircraft_icao24');normalized[key]=value.toLowerCase();}

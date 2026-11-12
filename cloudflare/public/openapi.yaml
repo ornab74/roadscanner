@@ -860,8 +860,18 @@ paths:
                       type: number
       responses:
         '200':
-          description: Vehicle scope
-          checklist and optional weather; no train movement authority: null
+          description: Vehicle scope, structured navigation profile, checklist and optional weather; no train movement authority.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  navigation_profile:
+                    $ref: '#/components/schemas/VehicleNavigationProfile'
+                  checklist:
+                    type: array
+                    items:
+                      type: string
           headers:
             X-Request-ID: *id001
             RateLimit-Limit: *id002
@@ -1833,10 +1843,41 @@ components:
           maxLength: 400
         specs:
           type: object
-          description: 'car: mass_kg; motorcycle: engine_cc,mass_kg; truck: height_m,width_m,length_m,mass_kg,axles,hazmat;
-            train: length_m,mass_kg,rail_gauge_mm,traction; aircraft: true_airspeed_kt,fuel_burn_per_hour,fuel_capacity,fuel_unit,reserve_minutes,icao24,type_designator.
+          description: 'car: mass_kg,height_m,width_m,length_m,towing,trailer_length_m;
+            motorcycle: engine_cc,mass_kg,abs; truck: configuration,height_m,width_m,length_m,trailer_length_m,mass_kg,axles,hazmat;
+            train: length_m,mass_kg,rail_gauge_mm,traction; aircraft: airframe,rotor_diameter_m,true_airspeed_kt,fuel_burn_per_hour,fuel_capacity,fuel_unit,reserve_minutes,icao24,type_designator.
+            configuration is rigid or articulated; airframe is fixed_wing or helicopter.
+            towing,abs,hazmat are booleans; omitted values remain unknown. Total truck length and mass describe the loaded combination.
             All numeric values must be finite and positive, except reserve_minutes may be zero. Fuel units:
             gal,l,kg. icao24 is six hex characters.'
+    VehicleNavigationProfile:
+      type: object
+      description: Vehicle-specific review context; specifications are user supplied, not independently verified restrictions or performance data.
+      properties:
+        version:
+          type: integer
+          const: 1
+        kind:
+          type: string
+        label:
+          type: string
+        specifications:
+          type: object
+        focus:
+          type: array
+          items:
+            type: string
+        missing_profile_fields:
+          type: array
+          items:
+            type: string
+        specification_source:
+          type: string
+          const: USER_SUPPLIED
+        geometry_policy:
+          type: string
+        instruction_style:
+          type: string
     AircraftBriefingRequest:
       type: object
       additionalProperties: false

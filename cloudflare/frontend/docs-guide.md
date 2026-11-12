@@ -138,6 +138,8 @@ The optional NAZA-inspired state layer is a labeled two-qubit simulation. It cha
 
 ## Motorcycle guidance
 
+Garage profiles now accept an optional boolean `specs.abs`. Leave it unspecified when unknown. Selecting No saves `false`; an empty selector omits the field. ABS is equipment context and does not prove traction. The route profile panel summarizes the motorcycle-specific focus, and the same structured focus reaches both visual planning and the mapped-section annotation pass.
+
 Save a motorcycle as `motorcycle` so the garage icon and route context reflect two-wheel exposure. Engine displacement and mass are descriptive assumptions, not a complete handling or braking model. A motorcycle’s real behavior also depends on tires, loading, suspension, road surface, rider skill, maintenance, and conditions that the application does not measure.
 
 The model’s motorcycle context emphasizes wind exposure, precipitation, visibility, temperature, and uncertainty about surface grip. A weather forecast does not establish that a particular corner is dry, wet, icy, contaminated, or free of gravel. A low weather caution score is therefore not permission to select a particular lean angle, entry speed, following distance, or braking technique.
@@ -147,6 +149,31 @@ Use the satellite and street context to inspect a proposed entrance or intersect
 For the Kawasaki Z125 example, distinguish the model description from the saved type. The garage can highlight that specific mismatch and offer a type correction. The user chooses whether to apply it; the application does not silently rewrite every manufacturer/model entry. After changing operating specifications, re-analyze a route when you need guidance to reflect the new profile.
 
 ## Trucks, 18-wheelers, and commercial loads
+
+Choose `specs.configuration` as `articulated` for a tractor/trailer combination or `rigid` for a rigid truck. The label “18-wheeler” never fills in dimensions, mass or axle count automatically. `length_m` describes the entire combination; `trailer_length_m` describes the trailer. The dashboard's expandable guidance panel lists relevant missing fields so you can update Garage before re-analysis. The prompts emphasize off-tracking, trailer swing, junction geometry, loading-site access, and the evidence needed to verify restrictions.
+
+Illustrative API profile, with deliberately explicit values rather than model-derived specifications:
+
+```json
+{
+  "name": "Example combination",
+  "kind": "truck",
+  "specs": {
+    "configuration": "articulated",
+    "height_m": 4.0,
+    "width_m": 2.5,
+    "length_m": 22,
+    "trailer_length_m": 16,
+    "mass_kg": 35000,
+    "axles": 5,
+    "hazmat": false
+  }
+}
+```
+
+These numbers are examples, not defaults or legal dimensions. Car profiles also accept overall dimensions, optional `towing`, and `trailer_length_m`, so a car towing a trailer can carry its own combination context without being mislabeled as a commercial truck.
+
+`POST /api/v1/garage/vehicles/{id}/guidance` now includes `navigation_profile` alongside the existing checklist. It contains the profile label, supplied specifications, vehicle-specific focus, missing profile fields, instruction style and geometry policy. Aviation snapshots include the same field. Integrations can present these checks without making a model call; the actual route analysis and AI briefing continue to use their existing scoped endpoints.
 
 Use `truck` for an 18-wheeler or other heavy road vehicle. Enter the actual operating height, width, length, loaded mass, axle count, and hazmat status when known. A tractor’s brochure mass is not the same as the gross loaded combination mass. A nominal trailer length does not fully describe articulation or turning envelope.
 
@@ -175,6 +202,30 @@ Choose a scenario altitude and enter usable fuel in the unit saved with the airc
 The optional AI review receives the same snapshot and explicit assumptions. It can summarize airport weather, wind samples, surveillance gaps, fuel arithmetic, and questions to verify with the pilot, dispatcher, or official briefing. It must not issue takeoff/landing clearances, separation instructions, movement commands, regulatory fuel approval, or a go/no-go decision. No connection to an autopilot, flight-control system, radio transmitter, or certified avionics is provided.
 
 Monitoring is a user-started refresh at two-minute intervals. It stops when inputs change, the page is hidden, or the user stops it. It is not a real-time traffic service. The UI removes stale surveillance positions and clears previous scenario figures when you change the inputs, so old calculations are not silently presented as current results for a new aircraft or corridor.
+
+## Helicopter and fixed-wing profiles
+
+Both remain `kind: aircraft` in the API. Choose `specs.airframe` as `fixed_wing` or `helicopter`; existing aircraft without this field remain unspecified. The garage uses “Airplane / helicopter” as the vehicle-type label and shows the category selector with aircraft specifications. A helicopter profile uses a distinct transparent rotorcraft map icon. Changing the aircraft category invalidates an existing generated portrait so a previous airplane illustration is not reused as the new helicopter illustration.
+
+```json
+{
+  "name": "Example helicopter",
+  "kind": "aircraft",
+  "specs": {
+    "airframe": "helicopter",
+    "rotor_diameter_m": 10,
+    "true_airspeed_kt": 100,
+    "fuel_burn_per_hour": 15,
+    "fuel_capacity": 60,
+    "fuel_unit": "gal",
+    "reserve_minutes": 30
+  }
+}
+```
+
+This is an illustrative scenario, not a real aircraft's performance data. Helicopter briefing prompts focus on rotor/wire/obstacle evidence, landing-site permission and dimensions, density altitude, IGE/OGE hover performance, gusts and terrain winds. Rotor diameter alone cannot establish landing-site suitability. Satellite imagery cannot authorize a landing or show every wire. The existing fuel calculation remains a direct-corridor cruise scenario: it excludes hovering, rotor start, ground running, reconnaissance and landing maneuvers, and the interface reports that limitation explicitly.
+
+Fixed-wing prompts instead focus on runway/performance, crosswind and alternate questions. In either category, use appropriate nearby weather-station codes separately from the actual endpoint coordinates, and confirm their relevance. Traffic remains a limited-area OpenSky snapshot. This update does not add ATC commands, hover navigation, aircraft control or certified aviation routing.
 
 ## Airport weather: METAR and TAF
 
