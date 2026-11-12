@@ -10,6 +10,7 @@ import {verifyBrowserCSRF} from './public-home.mjs';
 import {publicHomeCSRF,publicHomePreview} from './public-home.mjs';
 import { hmac,sha256,randomToken,passwordHash,verifyPassword,sameSecret,readJSON,validateScan,encryptReport,decryptReport } from './security.mjs';
 import { assessWithOpenAI } from './openai.mjs';
+import { boundedBody } from './internal-auth.mjs';
 const now=()=>Math.floor(Date.now()/1000);
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
 const fail=(message,status)=>{throw Object.assign(new Error(message),{status});};
@@ -270,7 +271,12 @@ async function routes(request,env,context){
     if(!env.OPENAI_API_KEY)fail('route_model_not_configured',503);
     const r=await fetch('https://api.openai.com/v1/models',{redirect:'manual',headers:{Authorization:'Bearer '+env.OPENAI_API_KEY},signal:AbortSignal.timeout(15000)});
     if(!r.ok)fail('route_model_catalog_unavailable',503);
-    const data=await r.json(),ids=(data.data??[]).map(m=>m.id).filter(id=>typeof id==='string');
+    let ids;
+    try{
+      const data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await boundedBody(r.body,1048576)));
+      if(!Array.isArray(data.data)||data.data.length>10000)throw new Error('Invalid catalog');
+      ids=data.data.map(m=>m?.id).filter(id=>typeof id==='string'&&id.length<=200);
+    }catch{fail('route_model_catalog_unavailable',503);}
     return json({requested:env.ROUTE_MODEL??'gpt-6-luna',available:ids.includes(env.ROUTE_MODEL??'gpt-6-luna'),models:ids.filter(id=>/^gpt-/.test(id)).sort()});
   }
   if(path==='/api/session'&&request.method==='GET'){

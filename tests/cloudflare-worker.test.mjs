@@ -56,6 +56,22 @@ async function fixture(){
  return {env,DB,key,objects,request,calls:()=>calls,setFailure:value=>{fail=value;},close:()=>rmSync(directory,{recursive:true,force:true})};
 }
 const scene={latitude:40.7,longitude:-74,vehicle_type:'car',destination:'Home',weather:'rain'};
+test('model catalog bounds upstream data, cancels oversized streams and preserves normal discovery',async()=>{
+ const f=await fixture(),original=globalThis.fetch;try{
+  f.env.OPENAI_API_KEY='private-test-provider-key';f.env.ROUTE_MODEL='gpt-6-luna';
+  const login=await f.request('/auth/login',{method:'POST',headers:{Origin:'https://example.test','Content-Type':'application/json'},body:JSON.stringify({email:'owner@example.test',password:'test-password-1234'})});assert.equal(login.status,200);
+  const headers={Cookie:login.headers.get('Set-Cookie').split(';')[0]};let mode='valid',cancelled=false;
+  globalThis.fetch=async(url,options)=>{
+   assert.equal(url,'https://api.openai.com/v1/models');assert.equal(options.redirect,'manual');
+   if(mode==='oversized')return new Response(new ReadableStream({start(c){c.enqueue(new Uint8Array(1048577));},cancel(){cancelled=true;}}));
+   if(mode==='malformed')return Response.json({data:{id:'not-an-array'}});
+   return Response.json({data:[{id:'gpt-6-luna'},{id:'other-provider-model'}]});
+  };
+  let r=await f.request('/api/route/models',{headers});assert.equal(r.status,200);const valid=await r.json();assert.equal(valid.available,true);assert.deepEqual(valid.models,['gpt-6-luna']);
+  for(mode of ['oversized','malformed']){r=await f.request('/api/route/models',{headers});assert.equal(r.status,503);assert.deepEqual(await r.json(),{error:'route_model_catalog_unavailable'});}
+  assert.equal(cancelled,true);
+ }finally{globalThis.fetch=original;f.close();}
+});
 test('registration creates an account that can log in and reports duplicate accounts',async()=>{
  const f=await fixture();try{
   const headers={Origin:'https://example.test','Content-Type':'application/json'};
