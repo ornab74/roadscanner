@@ -56,6 +56,20 @@ async function fixture(){
  return {env,DB,key,objects,request,calls:()=>calls,setFailure:value=>{fail=value;},close:()=>rmSync(directory,{recursive:true,force:true})};
 }
 const scene={latitude:40.7,longitude:-74,vehicle_type:'car',destination:'Home',weather:'rain'};
+test('unexpected scanner and database exceptions do not expose private message text in logs or responses',async()=>{
+ const f=await fixture(),original=console.error,originalFetch=globalThis.fetch,logs=[];const sensitive='PRIVATE-TEST-LOCATION-AND-CREDENTIAL-SENTINEL';
+ console.error=(...args)=>logs.push(args);
+ try{
+  f.env.SCANNER.get=()=>({fetch:async()=>{throw new Error(sensitive);}});
+  let r=await f.request('/api/v1/scans',{method:'POST',headers:{Authorization:'Bearer '+f.key,'Content-Type':'application/json','Idempotency-Key':'private-logging-test-12345'},body:JSON.stringify(scene)});
+  assert.equal(r.status,503);assert.ok(!(await r.text()).includes(sensitive));
+  f.env.OPENAI_API_KEY='test-only-key';globalThis.fetch=async()=>{throw new Error(sensitive);};
+  const csrf=await f.request('/api/home/csrf'),token=(await csrf.json()).csrf_token;
+  r=await f.request('/api/home/preview',{method:'POST',headers:{Origin:'https://example.test','Content-Type':'application/json',Cookie:csrf.headers.get('Set-Cookie').split(';')[0],'X-CSRF-Token':token},body:'{"mode":"simulation"}'});assert.equal(r.status,503);assert.ok(!(await r.text()).includes(sensitive));
+  f.env.DB.prepare=()=>{throw new Error(sensitive);};r=await f.request('/healthz');assert.equal(r.status,500);assert.equal((await r.json()).error,'internal_error');
+  assert.ok(logs.some(args=>args[0]==='scan_failed'));assert.ok(logs.some(args=>args[0]==='request_failed'&&args[1]===r.headers.get('X-Request-ID')));assert.ok(!JSON.stringify(logs).includes(sensitive));
+ }finally{console.error=original;globalThis.fetch=originalFetch;f.close();}
+});
 test('model catalog bounds upstream data, cancels oversized streams and preserves normal discovery',async()=>{
  const f=await fixture(),original=globalThis.fetch;try{
   f.env.OPENAI_API_KEY='private-test-provider-key';f.env.ROUTE_MODEL='gpt-6-luna';

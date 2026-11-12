@@ -57,7 +57,7 @@ async function homeAssessment(request,env){
     return json({...payload,cached:false});
   }catch(e){
     await query(env,"UPDATE home_assessments SET status='failed',lease_expires_at=?,updated_at=? WHERE id=? AND status='reserved'",now()+60,now(),claimed.id).run();
-    console.error('home_openai_failed',claimed.id,e.status??e.message);
+    console.error('home_openai_failed',claimed.id,Number.isInteger(e.status)?e.status:'provider_unavailable');
     fail(e.status===429?'rate_limit_exceeded':'home_model_unavailable',e.status===429?429:503);
   }
 }
@@ -145,7 +145,7 @@ async function runScan(request,env,p){
     return json(payload);
   }catch(e){
     await query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();
-    console.error('scan_failed',id,String(e.message));
+    console.error('scan_failed',id);
     fail('scan_unavailable',503);
   }
 }
@@ -328,7 +328,7 @@ export default {
       const quota=['garage_full','api_key_limit','security_key_limit'].find(code=>String(e.message).includes(code));
       if(quota)e=Object.assign(new Error(quota),{status:409});
       const status=Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:(e.message?.includes('JSON')?400:500);
-      if(status===500)console.error('request_failed',e.message);
+      if(status===500)console.error('request_failed',context.request_id);
       const code=status===500?'internal_error':e.message;context.rate=e.rate??context.rate;
       const errorHeaders=status===429?{'Retry-After':String(e.retry_after??300)}:{};
       if(canonicalURL.pathname.startsWith('/api/v1/')){if(status===401)errorHeaders['WWW-Authenticate']='Bearer realm="QRoadScan", error="invalid_token"';if(e.required_scope)errorHeaders['WWW-Authenticate']='Bearer error="insufficient_scope", scope="'+e.required_scope+'"';response=json({type:'about:blank',title:code.replaceAll('_',' '),status,code,error:code,detail:code,request_id:context.request_id,...(e.required_scope?{required_scope:e.required_scope}:{})},status,{...errorHeaders,'Content-Type':'application/problem+json'});}else response=json({error:code},status,errorHeaders);

@@ -75,6 +75,6 @@ export async function publicHomePreview(request,env){
   return json({...payload,cached:false});
  }catch(e){
   if(!simulated)await q(env,'UPDATE public_home_previews SET lease_expires_at=? WHERE model=?',now()+60,cacheKey).run();
-  console.error('public_home_provider_failed',e.message);fail(e.status===429?'rate_limit_exceeded':e.message==='weather_unavailable'?'weather_unavailable':'home_model_unavailable',e.status===429?429:503);
+  console.error('public_home_provider_failed',Number.isInteger(e.status)?e.status:'provider_unavailable');fail(e.status===429?'rate_limit_exceeded':e.message==='weather_unavailable'?'weather_unavailable':'home_model_unavailable',e.status===429?429:503);
  }
 }
