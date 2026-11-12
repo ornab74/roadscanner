@@ -9,6 +9,10 @@ const bytes64=bytes=>btoa(String.fromCharCode(...bytes));
 const from64=value=>Uint8Array.from(atob(value),x=>x.charCodeAt(0));
 function label(value,fallback){const s=value??fallback;if(typeof s!=='string'||!s.trim()||s.length>60||/[\x00-\x1f\x7f]/.test(s))fail('invalid_name',400);return s.trim();}
 export async function isAdmin(env,id){return !!await q(env,"SELECT user_id FROM user_roles WHERE user_id=? AND role='admin'",id).first();}
+export async function issuePasskeySession(env,key,counter,token){
+ const result=await q(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at,elevated_until) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM security_keys WHERE id=? AND user_id=? AND public_key=? AND counter=?)',await sha256(token),key.user_id,now()+86400,now(),now()+300,key.id,key.user_id,key.public_key,counter).run();
+ if(result.meta.changes!==1)fail('credential_verification_failed',400);
+}
 export async function requireElevated(env,p){if(!p.session_hash)fail('login_required',401);const r=await q(env,'SELECT elevated_until FROM sessions WHERE token_hash=? AND user_id=? AND expires_at>?',p.session_hash,p.user_id,now()).first();if(!r||r.elevated_until<=now())fail('reauthentication_required',403);}
 export async function securityRoutes(request,env,{principal,limit}){
  const url=new URL(request.url),path=url.pathname,method=request.method;
@@ -52,7 +56,8 @@ export async function securityRoutes(request,env,{principal,limit}){
   if(!result.verified)fail('credential_verification_failed',400);const token=randomToken(),actor={user_id:key.user_id};
   // Compare-and-swap the signature counter before issuing a session. Synced keys may use zero.
   const updated=await q(env,'UPDATE security_keys SET counter=?,last_used_at=? WHERE id=? AND counter=? RETURNING id',result.authenticationInfo.newCounter,now(),key.id,key.counter).first();if(!updated)fail('credential_verification_failed',400);
-  await env.DB.batch([q(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at,elevated_until) VALUES (?,?,?,?,?)',await sha256(token),key.user_id,now()+86400,now(),now()+300),audit(env,actor,'security_key.sign_in',key.id)]);
+  await issuePasskeySession(env,key,result.authenticationInfo.newCounter,token);
+  await audit(env,actor,'security_key.sign_in',key.id).run();
   return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
  }
  if(path==='/api/security/sessions'&&method==='GET')return json((await q(env,'SELECT token_hash,created_at,expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY expires_at DESC',p.user_id,now()).all()).results.map(s=>({id:s.token_hash,current:s.token_hash===p.session_hash,created_at:s.created_at,expires_at:s.expires_at})));

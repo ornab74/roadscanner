@@ -1,8 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../cloudflare/worker.mjs';
+import {issuePasskeySession} from '../cloudflare/account-security.mjs';
 import {fixture} from './fixtures/account-worker.mjs';
 const origin='https://example.test';
+test('passkey session issuance rechecks revocation, ownership, public key and counter at its write boundary',async()=>{
+ const f=await fixture();try{
+  const key={id:'test-passkey',user_id:'owner',public_key:'test-public-key'};
+  await f.DB.prepare('INSERT INTO security_keys VALUES (?,?,?,?,?,?,?,?,?)').bind(key.id,'owner','Test key',key.public_key,0,'[]',0,1,null).run();
+  await issuePasskeySession(f.env,key,0,'valid-passkey-token');
+  for(const invalid of [{...key,user_id:'other'},{...key,public_key:'replaced-key'}])await assert.rejects(issuePasskeySession(f.env,invalid,0,'invalid-token'));
+  await assert.rejects(issuePasskeySession(f.env,key,1,'stale-counter-token'));
+  await f.DB.prepare('DELETE FROM security_keys WHERE id=?').bind(key.id).run();
+  await assert.rejects(issuePasskeySession(f.env,key,0,'revoked-key-token'));
+  assert.equal((await f.DB.prepare('SELECT COUNT(*) AS n FROM sessions').first()).n,1);
+ }finally{f.close();}
+});
 test('a concurrent credential replacement prevents session issuance, elevation and stale password overwrites',async()=>{
  for(const mode of ['login','reauth','change']){
   const f=await fixture();try{
