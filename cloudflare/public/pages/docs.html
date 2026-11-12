@@ -1336,8 +1336,8 @@ print('Available credits:', account['api_credits'])
 </tr>
 <tr>
 <td>Scene scans</td>
-<td>20 attempts/key/minute</td>
-<td>Successful metered work uses a credit.</td>
+<td>20 attempts/key/minute; 20 new scans/account/minute</td>
+<td>API keys and browser scans share the account limit. Stored idempotent replays do not consume the new-scan allowance; ordinary per-key request limits still apply. Successful metered work uses a credit.</td>
 </tr>
 <tr>
 <td>Visual route analysis</td>

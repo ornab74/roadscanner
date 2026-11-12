@@ -2,10 +2,29 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {fixture} from './fixtures/account-worker.mjs';
 import {API_SCOPES} from '../cloudflare/public/pages/api-scopes.mjs';
 import {validateScopes} from '../cloudflare/api-contract.mjs';
+import {hmac} from '../cloudflare/security.mjs';
 import {markerSVG,markerPalette,vehicleKindHint} from '../cloudflare/public/pages/vehicle-marker.mjs';
 import {pngHeader} from './fixtures/image-headers.mjs';
 const scene={latitude:40.7,longitude:-74,vehicle_type:'car',destination:'Example',model:'llama_local',language:'en'};
 const call=(f,path,method='GET',body,headers={})=>f.request(path,{method,headers:{Authorization:'Bearer '+f.key,'Content-Type':'application/json',...headers},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+test('rotating API keys cannot bypass the account scan limit and stored replays remain available',async()=>{
+ const f=await fixture();try{
+  const headers={'Idempotency-Key':'account-budget-original-1'};
+  const first=await call(f,'/api/v1/scans','POST',scene,headers);assert.equal(first.status,200);
+  const now=Math.floor(Date.now()/1000),bucket='scan-user:owner:'+Math.floor(now/60);
+  await f.DB.prepare('UPDATE rate_limits SET count=20 WHERE key=?').bind(bucket).run();
+  const alternate='qrs_live_9876543210_'+'b'.repeat(48);
+  await f.DB.prepare('INSERT INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)').bind('alternate','owner',await hmac(f.env.QRS_API_KEY_PEPPER,alternate),now).run();
+  for(const key of [f.key,alternate]){
+   const r=await call(f,'/api/v1/scans','POST',scene,{'Authorization':'Bearer '+key,'Idempotency-Key':'account-budget-blocked-1'});assert.equal(r.status,429);assert.ok(Number(r.headers.get('Retry-After'))>0);
+  }
+  const login=await f.request('/auth/login',{method:'POST',headers:{Origin:'https://example.test','Content-Type':'application/json'},body:JSON.stringify({email:'owner@example.test',password:'test-password-1234'})});assert.equal(login.status,200);
+  const browser=await f.request('/api/session/scans',{method:'POST',headers:{Origin:'https://example.test','Content-Type':'application/json',Cookie:login.headers.get('Set-Cookie').split(';')[0],'Idempotency-Key':'browser-budget-blocked-1'},body:JSON.stringify(scene)});assert.equal(browser.status,429);
+  const replay=await call(f,'/api/v1/scans','POST',scene,headers);assert.equal(replay.status,200);assert.equal(replay.headers.get('Idempotent-Replay'),'true');
+  assert.equal(f.calls(),1);assert.equal((await f.DB.prepare("SELECT credits FROM accounts WHERE user_id='owner'").first()).credits,1);
+  assert.equal((await f.DB.prepare('SELECT COUNT(*) AS n FROM api_requests').first()).n,1);
+ }finally{f.close();}
+});
 test('an account-only key cannot reach protected feature scopes or browser administration',async()=>{
  const f=await fixture();try{
   await f.DB.prepare('UPDATE api_keys SET scopes=? WHERE id=?').bind(JSON.stringify(['account:read']),'key').run();

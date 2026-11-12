@@ -108,6 +108,8 @@ async function runScan(request,env,p){
   await limit(env,'scan:'+keyID,20,60);
   const existing=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
   if(existing){if(existing.operation_kind!=='scan')fail('idempotency_conflict',409);return replay(env,p,existing);}
+  // API keys and browser scans share one account budget for new inference work.
+  await limit(env,'scan-user:'+p.user_id,20,60);
   const id=crypto.randomUUID();let reservation;
   try{
     reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at)

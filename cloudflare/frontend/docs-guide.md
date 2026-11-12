@@ -1349,7 +1349,7 @@ Responses with a known API budget include `RateLimit-Limit`, `RateLimit-Remainin
 | Feature | Current account/key budget | Additional considerations |
 | --- | --- | --- |
 | API baseline | 120 requests/key/minute | Applies to discovery and ordinary API calls too. |
-| Scene scans | 20 attempts/key/minute | Successful metered work uses a credit. |
+| Scene scans | 20 attempts/key/minute; 20 new scans/account/minute | API keys and browser scans share the account limit. Stored idempotent replays do not consume the new-scan allowance; ordinary per-key request limits still apply. Successful metered work uses a credit. |
 | Visual route analysis | 6 attempts/account/hour | A separate global route budget also applies. |
 | Atlas preview | 6 requests/account/hour | No route-model credit, but mapping-provider limits still apply. |
 | Route search | 15 requests/account/minute | Upstream geocoder pacing and availability also apply. |
