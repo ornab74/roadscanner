@@ -37,6 +37,14 @@
 <li><a href="#reports-and-signed-pagination">Reports and signed pagination</a></li>
 <li><a href="#operation-status-and-idempotent-recovery">Operation status and idempotent recovery</a></li>
 <li><a href="#aircraft-api-end-to-end-example">Aircraft API end-to-end example</a></li>
+<li><a href="#python-with-httpx">Python with httpx</a></li>
+<li><a href="#python-with-async-httpx">Python with async httpx</a></li>
+<li><a href="#python-with-requests">Python with requests</a></li>
+<li><a href="#javascript-with-axios">JavaScript with Axios</a></li>
+<li><a href="#typescript-with-fetch">TypeScript with fetch</a></li>
+<li><a href="#go-client-example">Go client example</a></li>
+<li><a href="#c-sharp-client-example">C sharp client example</a></li>
+<li><a href="#php-curl-client-example">PHP cURL client example</a></li>
 <li><a href="#javascript-server-client-example">JavaScript server client example</a></li>
 <li><a href="#python-server-client-example">Python server client example</a></li>
 <li><a href="#errors-request-ids-and-retries">Errors, request IDs, and retries</a></li>
@@ -63,6 +71,7 @@
 </div></details><a class="docs-top-link" href="#">Back to top ↑</a></aside><main class="docs-content" id="docsContent" tabindex="-1"><p>This handbook describes the deployed QRoadScan application and its versioned HTTP API. It covers the browser workspace, private vehicle garage, road proposals, aircraft briefings, account security, and server integration. Examples use illustrative vehicles and public airport coordinates. Example performance values are not manufacturer recommendations, flight-planning standards, or observations about your vehicle.</p>
 <p>The visible interface and the machine-readable <a href="/openapi.yaml">OpenAPI specification</a> serve different purposes. This handbook explains the workflows, assumptions, failure cases, and integration decisions. The specification lists request fields and endpoint contracts. Use both when building an integration. Keep your API key on your own server, and begin with the smallest permissions needed for the job.</p>
 <section class="doc-section" id="api-quick-start"><h2>API quick start</h2>
+<p>Choose a server client: <a href="#python-with-httpx">Python httpx</a>, <a href="#python-with-async-httpx">async httpx</a>, <a href="#python-with-requests">Python requests</a>, <a href="#javascript-server-client-example">JavaScript fetch</a>, <a href="#javascript-with-axios">Axios</a>, <a href="#typescript-with-fetch">TypeScript</a>, <a href="#go-client-example">Go</a>, <a href="#c-sharp-client-example">C#/.NET</a>, or <a href="#php-curl-client-example">PHP cURL</a>. The complete examples below read credentials from server environment settings and include timeout, redirect, and error handling.</p>
 <p>The versioned API uses the production base URL below. The URL path remains <code>/api/v1/</code> for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.</p>
 <pre><code class="language-text">https://ride.qroadscan.com/api/v1
 </code></pre>
@@ -666,6 +675,464 @@ curl --fail-with-body --silent --show-error \
   --data-binary @briefing.json
 </code></pre>
 <p>The result contains <code>snapshot</code> and <code>briefing</code>. The briefing separates weather review, traffic review, fuel review, and items to verify before flight. Do not transform those advisory text arrays into a stream of automated cockpit commands. Keep the snapshot time and the limitations beside the commentary, especially when a provider is unavailable.</p>
+</section><section class="doc-section" id="python-with-httpx"><h2>Python with httpx</h2>
+<p>Use this synchronous client in a trusted Python service or command-line program. It reuses connections, reads the key from the environment, rejects redirects, and attaches idempotency keys only when you supply one. A local timeout does not prove that the server canceled a metered operation. Keep the original body and operation identity if you need to retry.</p>
+<pre><code class="language-bash">python -m pip install httpx
+# Save the following as qrs_httpx.py, then run:
+python qrs_httpx.py
+</code></pre>
+<pre><code class="language-python">import os
+import httpx
+
+
+class QRSClient:
+    def __init__(self):
+        self.http = httpx.Client(
+            base_url=os.environ.get('QRS_BASE', 'https://ride.qroadscan.com').rstrip('/'),
+            headers={'Authorization': 'Bearer ' + os.environ['QRS_API_KEY']},
+            timeout=httpx.Timeout(360.0, connect=10.0),
+            follow_redirects=False,
+        )
+
+    def close(self):
+        self.http.close()
+
+    def request(self, method, path, *, body=None, idempotency_key=None, params=None):
+        headers = {}
+        if idempotency_key:
+            headers['Idempotency-Key'] = idempotency_key
+        options = {'headers': headers, 'params': params}
+        if body is not None:
+            options['json'] = body
+        response = self.http.request(method, path, **options)
+        if not 200 &lt;= response.status_code &lt; 300:
+            try:
+                problem = response.json()
+            except ValueError:
+                problem = {}
+            raise RuntimeError({
+                'status': response.status_code,
+                'code': problem.get('code', problem.get('error', 'http_error')),
+                'request_id': response.headers.get('X-Request-ID'),
+                'retry_after': response.headers.get('Retry-After'),
+            })
+        return response.json()
+
+
+if __name__ == '__main__':
+    client = QRSClient()
+    try:
+        account = client.request('GET', '/api/v1/account')
+        print('Credits:', account['api_credits'])
+        page = client.request('GET', '/api/v1/reports', params={'limit': 5})
+        for report in page['data']:
+            print('Report:', report['report_id'], report['operation_kind'])
+    finally:
+        client.close()
+</code></pre>
+<p>A Read-only key with the appropriate account/report scopes is enough for the default calls above. With <code>garage:write</code>, the same client can explicitly create a vehicle. This is a profile write, not an image-generation request:</p>
+<pre><code class="language-python">client = QRSClient()
+try:
+    vehicle = client.request('POST', '/api/v1/garage/vehicles', body={
+        'name': 'Example motorcycle',
+        'kind': 'motorcycle',
+        'make': 'Example',
+        'model': 'Tourer',
+        'color': 'blue',
+        'specs': {'engine_cc': 650},
+    })
+    print('Saved vehicle ID:', vehicle['id'])
+finally:
+    client.close()
+</code></pre>
+<p>For a metered request, supply a stable key such as <code>str(uuid.uuid4())</code> once per logical job. Save it before sending. Do not put a <code>uuid4()</code> call inside an automatic retry loop, because each iteration would create a new job rather than recover the original one.</p>
+</section><section class="doc-section" id="python-with-async-httpx"><h2>Python with async httpx</h2>
+<p>Use <code>httpx.AsyncClient</code> when your Python server already uses an event loop. Share a client for a batch of work instead of constructing one for every report. The semaphore below bounds concurrent reads, and the example fetches only five report details. This does not remove server quotas: high concurrency still consumes requests and can reach a rate limit quickly.</p>
+<pre><code class="language-python">import asyncio
+import os
+import httpx
+
+
+async def main():
+    limit = asyncio.Semaphore(3)
+    async with httpx.AsyncClient(
+        base_url=os.environ.get('QRS_BASE', 'https://ride.qroadscan.com').rstrip('/'),
+        headers={'Authorization': 'Bearer ' + os.environ['QRS_API_KEY']},
+        timeout=httpx.Timeout(360.0, connect=10.0),
+        follow_redirects=False,
+    ) as client:
+        async def get_json(path, **kwargs):
+            async with limit:
+                response = await client.get(path, **kwargs)
+                if not 200 &lt;= response.status_code &lt; 300:
+                    try:
+                        problem = response.json()
+                    except ValueError:
+                        problem = {}
+                    raise RuntimeError({
+                        'status': response.status_code,
+                        'code': problem.get('code', problem.get('error', 'http_error')),
+                        'request_id': response.headers.get('X-Request-ID'),
+                    })
+                return response.json()
+
+        page = await get_json('/api/v1/reports', params={'limit': 5})
+        reports = await asyncio.gather(*(
+            get_json(item['url']) for item in page['data']
+        ))
+        for report in reports:
+            # Avoid logging the private report text or observations.
+            print('Retrieved report:', report['report_id'])
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
+</code></pre>
+<p>If your task is canceled while waiting for a paid model operation, the remote job may continue. Keep its idempotency identity and use the operation resource when available. Do not use task cancellation as a billing or provider-cancellation guarantee. The default async example above performs read-only report requests.</p>
+</section><section class="doc-section" id="python-with-requests"><h2>Python with requests</h2>
+<p>Use a <code>requests.Session</code> for connection reuse. Set timeouts explicitly: Requests does not choose a useful production timeout for you. Disable redirects for credentialed API calls, inspect non-2xx responses, and log only the safe problem fields rather than an entire request object with its Authorization header.</p>
+<pre><code class="language-bash">python -m pip install requests
+# Save the following as qrs_requests.py, then run:
+python qrs_requests.py
+</code></pre>
+<pre><code class="language-python">import os
+import requests
+
+
+class QRSClient:
+    def __init__(self):
+        self.base = os.environ.get('QRS_BASE', 'https://ride.qroadscan.com').rstrip('/')
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': 'Bearer ' + os.environ['QRS_API_KEY'],
+            'Accept': 'application/json',
+        })
+
+    def close(self):
+        self.session.close()
+
+    def request(self, method, path, *, body=None, params=None, idempotency_key=None):
+        options = {
+            'params': params,
+            'timeout': (10, 360),
+            'allow_redirects': False,
+            'headers': {},
+        }
+        if body is not None:
+            options['json'] = body
+        if idempotency_key:
+            options['headers']['Idempotency-Key'] = idempotency_key
+        response = self.session.request(method, self.base + path, **options)
+        if not 200 &lt;= response.status_code &lt; 300:
+            try:
+                problem = response.json()
+            except ValueError:
+                problem = {}
+            raise RuntimeError({
+                'status': response.status_code,
+                'code': problem.get('code', problem.get('error', 'http_error')),
+                'request_id': response.headers.get('X-Request-ID'),
+                'retry_after': response.headers.get('Retry-After'),
+            })
+        return response.json()
+
+
+if __name__ == '__main__':
+    client = QRSClient()
+    try:
+        print('Credits:', client.request('GET', '/api/v1/account')['api_credits'])
+        cursor = None
+        while True:
+            params = {'limit': 20}
+            if cursor:
+                params['cursor'] = cursor
+            page = client.request('GET', '/api/v1/reports', params=params)
+            for report in page['data']:
+                print('Report ID:', report['report_id'])
+            cursor = page['pagination']['next_cursor']
+            if not cursor:
+                break
+    finally:
+        client.close()
+</code></pre>
+<p>For binary downloads, validate the response before writing the destination file. This example uses the transparent SVG marker endpoint. A JSON problem response should never be saved as though it were a valid image.</p>
+<pre><code class="language-python">import os
+from pathlib import Path
+import requests
+
+base = os.environ.get('QRS_BASE', 'https://ride.qroadscan.com').rstrip('/')
+vehicle_id = os.environ['QRS_VEHICLE_ID']
+with requests.Session() as session:
+    response = session.get(
+        f'{base}/api/v1/garage/vehicles/{vehicle_id}/marker',
+        headers={'Authorization': 'Bearer ' + os.environ['QRS_API_KEY']},
+        timeout=(10, 60),
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f'Marker download failed: HTTP {response.status_code}')
+    if 'image/svg+xml' not in response.headers.get('Content-Type', ''):
+        raise RuntimeError('Expected SVG, received another content type')
+    Path('vehicle-marker.svg').write_bytes(response.content)
+</code></pre>
+<p>The same principle applies to a private generated PNG, with <code>images:read</code> and the image endpoint. Use <code>image/png</code> as the expected media type. Never make an illustration public merely to avoid sending proper authentication from your server.</p>
+</section><section class="doc-section" id="javascript-with-axios"><h2>JavaScript with Axios</h2>
+<p>This example is for Node.js on your backend, not a public browser bundle. Install Axios in your own project and keep its lockfile. The client disables redirects, sets a timeout, and deliberately avoids logging Axios request configuration because that configuration contains the secret header.</p>
+<pre><code class="language-bash">npm install axios
+# Save the following as qrs-axios.mjs, then run:
+node qrs-axios.mjs
+</code></pre>
+<pre><code class="language-javascript">import axios from 'axios';
+
+const key = process.env.QRS_API_KEY;
+if (!key) throw new Error('QRS_API_KEY is required');
+const client = axios.create({
+  baseURL: (process.env.QRS_BASE || 'https://ride.qroadscan.com').replace(/\/$/, ''),
+  headers: {Authorization: `Bearer ${key}`},
+  timeout: 360_000,
+  maxRedirects: 0,
+  validateStatus: () =&gt; true,
+});
+
+async function qrs(method, path, {body, idempotencyKey, params} = {}) {
+  const response = await client.request({
+    method,
+    url: path,
+    data: body,
+    params,
+    headers: idempotencyKey ? {'Idempotency-Key': idempotencyKey} : {},
+  });
+  if (response.status &lt; 200 || response.status &gt;= 300) {
+    const problem = typeof response.data === 'object' ? response.data : {};
+    const error = new Error(problem.code || problem.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.requestId = response.headers['x-request-id'];
+    error.retryAfter = response.headers['retry-after'];
+    throw error;
+  }
+  return response.data;
+}
+
+try {
+  const account = await qrs('GET', '/api/v1/account');
+  console.log('Credits:', account.api_credits);
+} catch (error) {
+  console.error({message: error.message, status: error.status, requestId: error.requestId});
+  process.exitCode = 1;
+}
+</code></pre>
+<p>The existing <a href="#javascript-server-client-example">JavaScript fetch example</a> is an alternative with no HTTP-library dependency. Both clients follow the same server contract. Neither one should automatically generate a new idempotency key when retrying the same paid request.</p>
+</section><section class="doc-section" id="typescript-with-fetch"><h2>TypeScript with fetch</h2>
+<p>TypeScript helps describe expected response shapes, but an interface is not runtime validation. For larger integrations, generate types from the OpenAPI artifact and validate untrusted data at your service boundary. The example below retains a typed result, safe problem details, and request correlation without exposing the secret in a browser bundle.</p>
+<p>Save this as <code>qrs-client.mts</code> in a Node.js TypeScript project. Install TypeScript and Node type definitions in that project if needed. A typical build uses <code>npx tsc qrs-client.mts --module nodenext --target es2022 --outDir dist</code>, followed by <code>node dist/qrs-client.mjs</code>.</p>
+<pre><code class="language-typescript">interface Account {
+  plan: string;
+  status: string;
+  api_credits: number;
+}
+
+interface Problem {
+  code?: string;
+  error?: string;
+  required_scope?: string;
+  request_id?: string;
+}
+
+const key = process.env.QRS_API_KEY;
+if (!key) throw new Error('QRS_API_KEY is required');
+const base = (process.env.QRS_BASE || 'https://ride.qroadscan.com').replace(/\/$/, '');
+
+async function qrs&lt;T&gt;(
+  path: string,
+  options: {method?: string; body?: unknown; idempotencyKey?: string} = {},
+): Promise&lt;{data: T; requestId: string | null}&gt; {
+  const response = await fetch(base + path, {
+    method: options.method || 'GET',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      ...(options.body !== undefined ? {'Content-Type': 'application/json'} : {}),
+      ...(options.idempotencyKey ? {'Idempotency-Key': options.idempotencyKey} : {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    redirect: 'error',
+    signal: AbortSignal.timeout(360_000),
+  });
+  const data: unknown = await response.json();
+  if (!response.ok) {
+    const problem = data as Problem;
+    throw new Error(JSON.stringify({
+      status: response.status,
+      code: problem.code || problem.error || 'http_error',
+      requestId: response.headers.get('X-Request-ID'),
+    }));
+  }
+  return {data: data as T, requestId: response.headers.get('X-Request-ID')};
+}
+
+const result = await qrs&lt;Account&gt;('/api/v1/account');
+console.log('Credits:', result.data.api_credits);
+</code></pre>
+</section><section class="doc-section" id="go-client-example"><h2>Go client example</h2>
+<p>This standard-library example uses an HTTP client with an explicit timeout and a redirect policy. It reads only account metadata when run. JSON writes can use the same request pattern with a marshaled body, <code>Content-Type: application/json</code>, and a persisted idempotency key for metered operations.</p>
+<p>Save the example as <code>main.go</code> and run it with <code>go run main.go</code> from your own project. Keep the key in your server environment. Do not print an entire request or its headers when handling an error.</p>
+<pre><code class="language-go">package main
+
+import (
+    "encoding/json"
+    "errors"
+    "fmt"
+    "net/http"
+    "os"
+    "strings"
+    "time"
+)
+
+type Account struct {
+    Plan    string `json:"plan"`
+    Status  string `json:"status"`
+    Credits int    `json:"api_credits"`
+}
+
+type Problem struct {
+    Code  string `json:"code"`
+    Error string `json:"error"`
+}
+
+func run() error {
+    key := os.Getenv("QRS_API_KEY")
+    if key == "" {
+        return errors.New("QRS_API_KEY is required")
+    }
+    base := strings.TrimRight(os.Getenv("QRS_BASE"), "/")
+    if base == "" {
+        base = "https://ride.qroadscan.com"
+    }
+    client := &amp;http.Client{
+        Timeout: 360 * time.Second,
+        CheckRedirect: func(req *http.Request, via []*http.Request) error {
+            return http.ErrUseLastResponse
+        },
+    }
+    req, err := http.NewRequest(http.MethodGet, base+"/api/v1/account", nil)
+    if err != nil {
+        return err
+    }
+    req.Header.Set("Authorization", "Bearer "+key)
+    req.Header.Set("Accept", "application/json")
+    response, err := client.Do(req)
+    if err != nil {
+        return errors.New("QRoadScan transport failed; check connectivity")
+    }
+    defer response.Body.Close()
+    if response.StatusCode &lt; 200 || response.StatusCode &gt;= 300 {
+        var problem Problem
+        _ = json.NewDecoder(response.Body).Decode(&amp;problem)
+        return fmt.Errorf("HTTP %d code=%s request_id=%s",
+            response.StatusCode, problem.Code, response.Header.Get("X-Request-ID"))
+    }
+    var account Account
+    if err := json.NewDecoder(response.Body).Decode(&amp;account); err != nil {
+        return errors.New("could not decode account response")
+    }
+    fmt.Println("Credits:", account.Credits)
+    return nil
+}
+
+func main() {
+    if err := run(); err != nil {
+        fmt.Fprintln(os.Stderr, err.Error())
+        os.Exit(1)
+    }
+}
+</code></pre>
+<p>For report pagination in Go, use <code>url.Values</code> for <code>limit</code> and <code>cursor</code>, decode the <code>data</code> and <code>pagination.next_cursor</code> fields, and reuse the returned opaque cursor unchanged. Do not concatenate an unescaped cursor into a URL. Stop when the cursor is null, and preserve ownership boundaries in any downstream service that displays the reports.</p>
+</section><section class="doc-section" id="c-sharp-client-example"><h2>C sharp client example</h2>
+<p>This example targets modern .NET with top-level statements. It uses <code>HttpClient</code>, JSON deserialization, a fixed timeout, and disabled automatic redirects. Reuse an appropriate <code>HttpClient</code> in a long-running service instead of creating a new connection pool for every request. An <code>IHttpClientFactory</code> configuration is useful in ASP.NET applications.</p>
+<p>Create a console project with <code>dotnet new console</code>, place the following in <code>Program.cs</code>, and run it with <code>dotnet run</code>. The program performs one account read. Provider credentials and the QRoadScan key belong in your service’s secret configuration, not in the source file.</p>
+<pre><code class="language-csharp">using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+
+var key = Environment.GetEnvironmentVariable("QRS_API_KEY")
+    ?? throw new InvalidOperationException("QRS_API_KEY is required");
+var origin = Environment.GetEnvironmentVariable("QRS_BASE")
+    ?? "https://ride.qroadscan.com";
+
+using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+using var client = new HttpClient(handler) {
+    BaseAddress = new Uri(origin.TrimEnd('/') + "/"),
+    Timeout = TimeSpan.FromSeconds(360)
+};
+client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
+using var response = await client.GetAsync("api/v1/account");
+var requestId = response.Headers.TryGetValues("X-Request-ID", out var values)
+    ? values.FirstOrDefault() : null;
+if (!response.IsSuccessStatusCode) {
+    // Keep raw request headers and credentials out of logs.
+    throw new HttpRequestException($"QRoadScan HTTP {(int)response.StatusCode}; request_id={requestId}");
+}
+var account = await response.Content.ReadFromJsonAsync&lt;Account&gt;()
+    ?? throw new InvalidOperationException("Missing account response");
+Console.WriteLine($"Credits: {account.Credits}");
+
+public sealed record Account(
+    [property: JsonPropertyName("plan")] string Plan,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("api_credits")] int Credits
+);
+</code></pre>
+<p>For writes, build a request message, use <code>JsonContent.Create(body)</code>, and add a stable <code>Idempotency-Key</code> header before sending metered work. Inspect a problem response before retrying. The .NET example does not log a failed response’s entire content, which may contain details that are unsuitable for a general application log.</p>
+</section><section class="doc-section" id="php-curl-client-example"><h2>PHP cURL client example</h2>
+<p>This example uses PHP 8 with the cURL extension. The helper performs JSON requests, preserves the response’s request ID, disables redirects, and rejects non-2xx status codes. TLS verification remains enabled by the normal cURL defaults. Do not disable certificate checks to solve a deployment problem.</p>
+<pre><code class="language-php">&lt;?php
+function qrs(string $method, string $path, ?array $body = null): array {
+    $key = getenv('QRS_API_KEY');
+    if (!$key) {
+        throw new RuntimeException('QRS_API_KEY is required');
+    }
+    $base = rtrim(getenv('QRS_BASE') ?: 'https://ride.qroadscan.com', '/');
+    $requestId = null;
+    $headers = ['Authorization: Bearer ' . $key, 'Accept: application/json'];
+    if ($body !== null) {
+        $headers[] = 'Content-Type: application/json';
+    }
+    $ch = curl_init($base . $path);
+    $options = [
+        CURLOPT_CUSTOMREQUEST =&gt; $method,
+        CURLOPT_HTTPHEADER =&gt; $headers,
+        CURLOPT_RETURNTRANSFER =&gt; true,
+        CURLOPT_FOLLOWLOCATION =&gt; false,
+        CURLOPT_CONNECTTIMEOUT =&gt; 10,
+        CURLOPT_TIMEOUT =&gt; 360,
+        CURLOPT_HEADERFUNCTION =&gt; function ($curl, string $line) use (&amp;$requestId): int {
+            if (stripos($line, 'X-Request-ID:') === 0) {
+                $requestId = trim(substr($line, strlen('X-Request-ID:')));
+            }
+            return strlen($line);
+        },
+    ];
+    if ($body !== null) {
+        $options[CURLOPT_POSTFIELDS] = json_encode($body, JSON_THROW_ON_ERROR);
+    }
+    curl_setopt_array($ch, $options);
+    $raw = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($raw === false) {
+        throw new RuntimeException('QRoadScan transport failed');
+    }
+    $data = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+    if ($status &lt; 200 || $status &gt;= 300) {
+        $code = $data['code'] ?? $data['error'] ?? 'http_error';
+        throw new RuntimeException("HTTP $status code=$code request_id=$requestId");
+    }
+    return $data;
+}
+
+$account = qrs('GET', '/api/v1/account');
+echo 'Credits: ' . $account['api_credits'] . PHP_EOL;
+</code></pre>
+<p>The helper intentionally does not enable automatic retries. If you add a metered POST, extend its arguments to accept a stored idempotency key and send that same key for recovery of the same request. Do not generate a new UUID on every retry or execute a model operation whenever a PHP page is simply reloaded.</p>
 </section><section class="doc-section" id="javascript-server-client-example"><h2>JavaScript server client example</h2>
 <p>The following example is intended for Node.js on your trusted server. It reads the API key from an environment variable. Do not paste the key into a browser script or publish it in a static frontend build. The helper checks content type, preserves the server request ID, and distinguishes a JSON problem response from a successful payload.</p>
 <pre><code class="language-javascript">const origin = process.env.QRS_BASE || 'https://ride.qroadscan.com';
