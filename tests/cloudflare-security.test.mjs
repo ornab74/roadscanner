@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {strictJSON,validateScan,passwordHash,sameSecret,encryptReport,decryptReport} from '../cloudflare/security.mjs';
+import {strictJSON,validateScan,passwordHash,verifyPassword,sameSecret,encryptReport,decryptReport} from '../cloudflare/security.mjs';
+test('versioned password hashes require the correct independent pepper and retain legacy verification',async()=>{
+ const password='a-long-test-password',salt='11'.repeat(16),pepper='p'.repeat(48);
+ const legacy=await passwordHash(password,salt),modern=await passwordHash(password,salt,pepper);
+ assert.match(modern,/^qrs-pbkdf2-sha256-hmac-v1\$100000\$/);
+ assert.equal(await verifyPassword(password,salt,legacy,pepper),true);
+ assert.equal(await verifyPassword(password,salt,modern,pepper),true);
+ assert.equal(await verifyPassword(password,salt,modern,'x'.repeat(48)),false);
+ assert.equal(await verifyPassword('incorrect-password',salt,modern,pepper),false);
+ assert.equal(await verifyPassword(password,salt,modern.replace('100000','999999999'),pepper),false);
+ await assert.rejects(verifyPassword(password,salt,modern));
+});
 test('strict JSON rejects nested duplicate keys, malformed tokens and excessive depth',()=>{
  assert.deepEqual(strictJSON('{"x":[true,null,{"a":1}]}'),{x:[true,null,{a:1}]});
  for(const text of ['{"x":1,"x":2}','{"a":{"x":1,"x":2}}','[1,]','{"x":1e999}','[NaN]','{','[] x','['.repeat(20)+']'.repeat(20)])assert.throws(()=>strictJSON(text));

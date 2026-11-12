@@ -8,7 +8,7 @@ import {analyzeVisualRoute,validateVisualRequest,coordinate} from './visual-rout
 import {geocode} from './geocode.mjs';
 import {verifyBrowserCSRF} from './public-home.mjs';
 import {publicHomeCSRF,publicHomePreview} from './public-home.mjs';
-import { hmac,sha256,randomToken,passwordHash,sameSecret,readJSON,validateScan,encryptReport,decryptReport } from './security.mjs';
+import { hmac,sha256,randomToken,passwordHash,verifyPassword,sameSecret,readJSON,validateScan,encryptReport,decryptReport } from './security.mjs';
 import { assessWithOpenAI } from './openai.mjs';
 const now=()=>Math.floor(Date.now()/1000);
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
@@ -217,7 +217,8 @@ async function routes(request,env,context){
     if(path==='/auth/register'){
       if(env.REGISTRATION_ENABLED!=='true')fail('registration_disabled',403);
       const salt=randomToken().slice(0,32);let hash;
-      try{hash=await passwordHash(data.password,salt);}catch(e){fail(e.message,400);}
+      if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
+      try{hash=await passwordHash(data.password,salt,env.QRS_PASSWORD_PEPPER);}catch(e){fail(e.message,400);}
       const id=crypto.randomUUID();
       try{await env.DB.batch([
         query(env,'INSERT INTO users(id,email,created_at) VALUES (?,?,?)',id,email,now()),
@@ -227,8 +228,14 @@ async function routes(request,env,context){
       return json({created:true},201);
     }
     const user=await query(env,'SELECT u.id,c.password_hash,c.password_salt FROM users u JOIN user_credentials c ON c.user_id=u.id WHERE u.email=?',email).first();
-    let calculated;try{calculated=await passwordHash(data.password,user?.password_salt??'00'.repeat(16));}catch{fail('invalid_credentials',401);}
-    if(!user?.password_hash||!await sameSecret(calculated,user.password_hash))fail('invalid_credentials',401);
+    if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
+    let valid;try{valid=await verifyPassword(data.password,user?.password_salt??'00'.repeat(16),user?.password_hash??'00'.repeat(32),env.QRS_PASSWORD_PEPPER);}catch{fail('invalid_credentials',401);}
+    if(!user||!valid)fail('invalid_credentials',401);
+    if(/^[a-f0-9]{64}$/.test(user.password_hash)){
+      const salt=randomToken().slice(0,32),hash=await passwordHash(data.password,salt,env.QRS_PASSWORD_PEPPER);
+      const updated=await query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=? AND password_hash=? AND password_salt=?',hash,salt,user.id,user.password_hash,user.password_salt).run();
+      if(updated.meta.changes!==1)fail('invalid_credentials',401);
+    }
     const token=randomToken();await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)',await sha256(token),user.id,now()+86400,now()).run();
     return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
   }
@@ -276,9 +283,10 @@ async function routes(request,env,context){
     await limit(env,'password:'+p.user_id,5,300);
     const data=await readJSON(request,4096);
     const credentials=await query(env,'SELECT password_hash,password_salt FROM user_credentials WHERE user_id=?',p.user_id).first();
-    let previous,next;const salt=randomToken().slice(0,32);
-    try{previous=await passwordHash(data.current_password,credentials.password_salt);next=await passwordHash(data.new_password,salt);}catch(e){fail(e.message,400);}
-    if(!await sameSecret(previous,credentials.password_hash))fail('invalid_credentials',401);
+    if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
+    let valid,next;const salt=randomToken().slice(0,32);
+    try{valid=await verifyPassword(data.current_password,credentials.password_salt,credentials.password_hash,env.QRS_PASSWORD_PEPPER);next=await passwordHash(data.new_password,salt,env.QRS_PASSWORD_PEPPER);}catch(e){fail(e.message,400);}
+    if(!valid)fail('invalid_credentials',401);
     await env.DB.batch([
       query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=?',next,salt,p.user_id),
       query(env,'DELETE FROM sessions WHERE user_id=?',p.user_id),

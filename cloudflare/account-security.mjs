@@ -1,6 +1,6 @@
 import {validateScopes} from './api-contract.mjs';
 import {generateRegistrationOptions,verifyRegistrationResponse,generateAuthenticationOptions,verifyAuthenticationResponse} from '@simplewebauthn/server';
-import {hmac,sha256,passwordHash,sameSecret,randomToken,readJSON} from './security.mjs';
+import {hmac,sha256,passwordHash,verifyPassword,sameSecret,randomToken,readJSON} from './security.mjs';
 const now=()=>Math.floor(Date.now()/1000),json=(v,s=200,h={})=>Response.json(v,{status:s,headers:{'Cache-Control':'no-store',...h}});
 const fail=(m,s)=>{throw Object.assign(new Error(m),{status:s});};
 const q=(env,sql,...args)=>env.DB.prepare(sql).bind(...args);
@@ -24,8 +24,9 @@ export async function securityRoutes(request,env,{principal,limit}){
  async function saveChallenge(options,purpose,name=null){const id=crypto.randomUUID();await q(env,'INSERT INTO security_challenges VALUES (?,?,?,?,?,?,?)',id,p?.user_id??null,binding,purpose,options.challenge,name,now()+120).run();return json({challenge_id:id,options});}
  if(path==='/api/security/reauth'&&method==='POST'){
   await limit(env,'reauth:'+p.user_id,5,300);const data=await readJSON(request,2048),c=await q(env,'SELECT password_hash,password_salt FROM user_credentials WHERE user_id=?',p.user_id).first();let hash;
-  try{hash=await passwordHash(data.password,c.password_salt);}catch{fail('invalid_credentials',401);}
-  if(!await sameSecret(hash,c.password_hash))fail('invalid_credentials',401);
+  if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
+  try{hash=await verifyPassword(data.password,c.password_salt,c.password_hash,env.QRS_PASSWORD_PEPPER);}catch{fail('invalid_credentials',401);}
+  if(!hash)fail('invalid_credentials',401);
   await env.DB.batch([q(env,'UPDATE sessions SET elevated_until=? WHERE token_hash=?',now()+300,p.session_hash),audit(env,p,'session.reauthenticated',p.user_id)]);return json({elevated_until:now()+300});
  }
  if(path==='/api/security/keys'&&method==='GET')return json((await q(env,'SELECT id,name,created_at,last_used_at,backed_up FROM security_keys WHERE user_id=? ORDER BY created_at DESC',p.user_id).all()).results);

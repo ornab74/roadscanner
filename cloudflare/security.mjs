@@ -12,10 +12,19 @@ export async function hmac(secret,value) {
   const key=await crypto.subtle.importKey('raw',enc.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   return hex(await crypto.subtle.sign('HMAC',key,enc.encode(value)));
 }
-export async function passwordHash(password,salt) {
+export async function passwordHash(password,salt,pepper) {
   if (typeof password !== 'string' || password.length < 12 || password.length > 256) throw new Error('Password must contain 12–256 characters');
   const key=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
-  return hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:unhex(salt),iterations:100000},key,256));
+  const derived=hex(await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:unhex(salt),iterations:100000},key,256));
+  if(pepper===undefined)return derived; // Legacy verifier and fixture compatibility only.
+  return 'qrs-pbkdf2-sha256-hmac-v1$100000$'+await hmac(pepper,'qrs-password-v1\0'+salt+'\0'+derived);
+}
+export async function verifyPassword(password,salt,stored,pepper){
+  if(typeof stored!=='string')return false;
+  const legacy=/^[a-f0-9]{64}$/.test(stored);
+  if(!legacy&&!/^qrs-pbkdf2-sha256-hmac-v1\$100000\$[a-f0-9]{64}$/.test(stored))return false;
+  if(!legacy&&pepper===undefined)throw new Error('missing password pepper');
+  return sameSecret(await passwordHash(password,salt,legacy?undefined:pepper),stored);
 }
 export async function sameSecret(a,b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;

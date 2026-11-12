@@ -106,6 +106,13 @@ these disabled so production requests use `ride.qroadscan.com` and its zone
 firewall. Do not temporarily enable the production development hostname for
 staging tests.
 
+Password authentication additionally requires the dedicated Worker secret
+`QRS_PASSWORD_PEPPER` (at least 32 random bytes encoded as text). Preserve this
+secret across deployments and back it up through the operator's secure secret
+management process. Never store it in D1, frontend assets, source, or logs. Existing
+legacy passwords upgrade after successful login; no database migration is needed.
+Do not rotate or delete this secret without a tested password recovery plan.
+
 Enabling Stripe later requires implementing and testing the D1 fulfillment
 and subscription paths, not just adding credentials or enabling a button.
 

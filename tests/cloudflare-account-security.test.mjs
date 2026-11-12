@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import worker from '../cloudflare/worker.mjs';
 import {fixture} from './fixtures/account-worker.mjs';
 const origin='https://example.test';
+test('legacy login upgrades only a verified password and remains usable for reauthentication and password changes',async()=>{
+ const f=await fixture();try{
+  const before=await f.DB.prepare("SELECT password_hash FROM user_credentials WHERE user_id='owner'").first();assert.match(before.password_hash,/^[a-f0-9]{64}$/);
+  const token=await f.request('/api/home/csrf'),csrf=await token.json();
+  const rejected=await f.request('/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-CSRF-Token':csrf.csrf_token,Cookie:token.headers.get('Set-Cookie').split(';')[0]},body:JSON.stringify({email:'owner@example.test',password:'incorrect-password-1234'})});assert.equal(rejected.status,401);
+  assert.equal((await f.DB.prepare("SELECT password_hash FROM user_credentials WHERE user_id='owner'").first()).password_hash,before.password_hash);
+  const c=await client(f);const after=await f.DB.prepare("SELECT password_hash FROM user_credentials WHERE user_id='owner'").first();assert.match(after.password_hash,/^qrs-pbkdf2-sha256-hmac-v1\$/);
+  await c.elevate();await client(f);
+  assert.equal((await c.request('/auth/password','POST',{current_password:'test-password-1234',new_password:'replacement-password-1234'})).status,200);
+  assert.equal((await c.request('/api/session')).status,401);
+  assert.equal((await c.request('/auth/login','POST',{email:'owner@example.test',password:'replacement-password-1234'})).status,200);
+ }finally{f.close();}
+});
 test('distributed login attempts share a normalized account limit while other accounts remain usable',async()=>{
  const f=await fixture();try{
   const token=await f.request('/api/home/csrf'),csrf=await token.json();
