@@ -27,7 +27,7 @@ COPY services/llama_scanner ./services/llama_scanner
 COPY cloudflare/model-artifacts/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf /models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
 COPY cloudflare/MODEL.md cloudflare/MODEL-LICENSE.txt /models/
 RUN echo '9fecc3b3cd76bba89d504f29b616eedf7da85b96540e490ca5824d3f7d2776a0  /models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf' | sha256sum --check \
- && useradd --uid 10001 --create-home scanner && chown -R scanner:scanner /app \
+ && useradd --uid 10001 --create-home scanner && chmod -R a=rX /app \
  && chmod 0555 /models && chmod 0444 /models/*
 USER scanner
 EXPOSE 8080
