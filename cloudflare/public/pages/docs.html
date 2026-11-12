@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 
-<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-F95iScvq2n1Aeg16obllHbOdEnMfJm/9RK3Cle6RQed/HmO5eYSRfGCaBnuwqQkB" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-+gXIOLQvydBwy5aIk76nuO7U1Jgh90EXC77pd556RkelYqOY+n2TLhRM8jgwl9L4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-RIeVoEepWTh0S22ticnMtZCnXzWElPGS+E5E2wFSO15ae4Beylto3ZqGABpDhNBB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-It0fwZRu1/2/Zcp1qen0+6U1vPDzQE2mfEeVuf3PfOKe4gsHJdkCfPurNd1fIdGR" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>The QRoadScan handbook.</h1><p>From your first vehicle profile to a complete server integration. Understand the data, the requests, and the limits behind every result.</p><div class="docs-hero-links"><a href="#quick-start-in-the-app">Start in the app</a><a href="#api-quick-start">Make your first API call</a><a href="/openapi.yaml">Download OpenAPI</a></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search this handbook</label><input autocomplete="off" id="docsSearch" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><details id="docsNav" open=""><summary>On this page</summary><div id="docsTOC"><div class="toc">
+<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-F95iScvq2n1Aeg16obllHbOdEnMfJm/9RK3Cle6RQed/HmO5eYSRfGCaBnuwqQkB" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-+gXIOLQvydBwy5aIk76nuO7U1Jgh90EXC77pd556RkelYqOY+n2TLhRM8jgwl9L4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-RIeVoEepWTh0S22ticnMtZCnXzWElPGS+E5E2wFSO15ae4Beylto3ZqGABpDhNBB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-It0fwZRu1/2/Zcp1qen0+6U1vPDzQE2mfEeVuf3PfOKe4gsHJdkCfPurNd1fIdGR" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>The QRoadScan handbook.</h1><p>From your first vehicle profile to a complete server integration. Understand the data, the requests, and the limits behind every result.</p><div class="docs-hero-links"><a href="#api-quick-start">API quick start</a><a href="#quick-start-in-the-app">Start in the app</a><a href="/openapi.yaml">Download OpenAPI</a></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search this handbook</label><input autocomplete="off" id="docsSearch" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><details id="docsNav" open=""><summary>On this page</summary><div id="docsTOC"><div class="toc">
 <ul>
+<li><a href="#api-quick-start">API quick start</a></li>
 <li><a href="#quick-start-in-the-app">Quick start in the app</a></li>
 <li><a href="#what-the-different-outputs-mean">What the different outputs mean</a></li>
 <li><a href="#account-credits-and-privacy-basics">Account, credits, and privacy basics</a></li>
@@ -21,7 +22,6 @@
 <li><a href="#fuel-and-wind-scenario-arithmetic">Fuel and wind scenario arithmetic</a></li>
 <li><a href="#opensky-traffic-coverage-and-failures">OpenSky traffic, coverage, and failures</a></li>
 <li><a href="#rainviewer-controls-and-basemap-troubleshooting">RainViewer controls and basemap troubleshooting</a></li>
-<li><a href="#api-quick-start">API quick start</a></li>
 <li><a href="#authentication-permissions-and-key-lifecycle">Authentication, permissions, and key lifecycle</a></li>
 <li><a href="#endpoint-reference-and-response-shapes">Endpoint reference and response shapes</a></li>
 <li><a href="#create-and-update-vehicles-through-the-api">Create and update vehicles through the API</a></li>
@@ -62,7 +62,31 @@
 </div>
 </div></details><a class="docs-top-link" href="#">Back to top ↑</a></aside><main class="docs-content" id="docsContent" tabindex="-1"><p>This handbook describes the deployed QRoadScan application and its versioned HTTP API. It covers the browser workspace, private vehicle garage, road proposals, aircraft briefings, account security, and server integration. Examples use illustrative vehicles and public airport coordinates. Example performance values are not manufacturer recommendations, flight-planning standards, or observations about your vehicle.</p>
 <p>The visible interface and the machine-readable <a href="/openapi.yaml">OpenAPI specification</a> serve different purposes. This handbook explains the workflows, assumptions, failure cases, and integration decisions. The specification lists request fields and endpoint contracts. Use both when building an integration. Keep your API key on your own server, and begin with the smallest permissions needed for the job.</p>
-<section class="doc-section" id="quick-start-in-the-app"><h2>Quick start in the app</h2>
+<section class="doc-section" id="api-quick-start"><h2>API quick start</h2>
+<p>The versioned API uses the production base URL below. The URL path remains <code>/api/v1/</code> for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.</p>
+<pre><code class="language-text">https://ride.qroadscan.com/api/v1
+</code></pre>
+<p>Create a named, expiring API key in <a href="/settings/user#apiAccess">Settings → API access</a>. Choose Read-only, Road planner, or Full user API according to your integration’s needs. Copy the key once and put it in your trusted server’s secret store. The app does not show the raw key again. Changing a password ends browser sessions; it does not automatically replace every integration key, so revoke keys explicitly when required.</p>
+<p>For a local server-side experiment, set the environment variable without committing it to a repository. The value below is a placeholder, not a usable key. Shell history, logs, shared terminals, build output, and crash reports can expose credentials, so use your normal secret-management practices.</p>
+<pre><code class="language-bash">export QRS_API_KEY='YOUR_PRIVATE_QRS_API_KEY'
+export QRS_BASE='https://ride.qroadscan.com'
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/account" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p>A successful account response includes the current plan, account status, and available scan credits. Reading an account does not reserve a credit. If this first request fails, solve authentication or scope issues before submitting a scan, image, or route request. Do not debug authentication by repeatedly making paid model calls.</p>
+<p>Next, inspect capabilities and the permissions on your current key:</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/capabilities" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/key" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p>Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.</p>
+</section><section class="doc-section" id="quick-start-in-the-app"><h2>Quick start in the app</h2>
 <p>Start at <a href="/home">Home</a>, create an account if registration is open, and sign in. Your account can have a garage, private API keys, security keys, signed-in sessions, and saved scan reports. Creating an account does not purchase credits or automatically grant administrator access. Purchases are currently disabled. If your account has no scan credits, you can still manage its settings and inspect the available briefing tools; metered analyses and generated illustrations require an existing credit balance.</p>
 <p>Open <a href="/settings/user#garage">Settings → Garage</a> and add a vehicle. Choose its actual vehicle type explicitly. A motorcycle should be saved as <code>motorcycle</code>, an articulated truck as <code>truck</code>, and an airplane as <code>aircraft</code>. The make or model text does not silently override the type. This matters because the type selects the appropriate workspace, advisory language, specifications, and transparent map icon. The garage highlights the known Kawasaki Z125/type mismatch and offers a correction that you must choose yourself.</p>
 <p>For a road journey, select your garage vehicle in <a href="/dashboard">Dashboard</a>, choose a start and destination, and inspect the map. You may type coordinates, search for an address, or choose points on the map. Confirm the returned address precision before continuing. Select Streets for labeled road context. Satellite imagery can help inspect an entrance, but it does not establish that a private road, loading bay, doorway, or apartment corridor is legally accessible.</p>
@@ -156,30 +180,6 @@
 <p>A transparent radar tile can mean no detected precipitation in that tile, incomplete coverage, or another source limitation. It does not establish an absence of all weather hazards. Precipitation imagery does not provide aircraft icing clearance, turbulence avoidance, road grip, or a safety forecast for a particular street.</p>
 <p>The basemap uses hosted OpenStreetMap tiles with attribution. Those servers require a legitimate application referrer and compliance with their usage policy. The aircraft and road maps set a map-specific cross-origin referrer policy so the provider receives the site origin without a private page path. The application does not disguise itself as another site or proxy around a provider block.</p>
 <p>If you see a tile reading “403 Access blocked,” refresh the page so the latest map code is loaded, then check the actual map request and referrer in your browser’s developer tools. A network or provider block can also occur independently of radar. Keep required attribution visible. Do not bulk-download or prefetch tile regions, and use an appropriate hosted or licensed service when application scale exceeds a public provider’s intended use.</p>
-</section><section class="doc-section" id="api-quick-start"><h2>API quick start</h2>
-<p>The versioned API uses the production base URL below. The URL path remains <code>/api/v1/</code> for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.</p>
-<pre><code class="language-text">https://ride.qroadscan.com/api/v1
-</code></pre>
-<p>Create a named, expiring API key in <a href="/settings/user#apiAccess">Settings → API access</a>. Choose Read-only, Road planner, or Full user API according to your integration’s needs. Copy the key once and put it in your trusted server’s secret store. The app does not show the raw key again. Changing a password ends browser sessions; it does not automatically replace every integration key, so revoke keys explicitly when required.</p>
-<p>For a local server-side experiment, set the environment variable without committing it to a repository. The value below is a placeholder, not a usable key. Shell history, logs, shared terminals, build output, and crash reports can expose credentials, so use your normal secret-management practices.</p>
-<pre><code class="language-bash">export QRS_API_KEY='YOUR_PRIVATE_QRS_API_KEY'
-export QRS_BASE='https://ride.qroadscan.com'
-
-curl --fail-with-body --silent --show-error \
-  "$QRS_BASE/api/v1/account" \
-  -H "Authorization: Bearer $QRS_API_KEY"
-</code></pre>
-<p>A successful account response includes the current plan, account status, and available scan credits. Reading an account does not reserve a credit. If this first request fails, solve authentication or scope issues before submitting a scan, image, or route request. Do not debug authentication by repeatedly making paid model calls.</p>
-<p>Next, inspect capabilities and the permissions on your current key:</p>
-<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
-  "$QRS_BASE/api/v1/capabilities" \
-  -H "Authorization: Bearer $QRS_API_KEY"
-
-curl --fail-with-body --silent --show-error \
-  "$QRS_BASE/api/v1/key" \
-  -H "Authorization: Bearer $QRS_API_KEY"
-</code></pre>
-<p>Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.</p>
 </section><section class="doc-section" id="authentication-permissions-and-key-lifecycle"><h2>Authentication, permissions, and key lifecycle</h2>
 <p>Every versioned request sends <code>Authorization: Bearer …</code>. A browser session cookie is not a substitute. The server hashes API-key material for lookup and checks revocation and expiry. A missing, malformed, revoked, or expired token returns <code>401</code>. An authenticated key that lacks a required permission returns <code>403 insufficient_scope</code> and identifies the missing scope.</p>
 <table>

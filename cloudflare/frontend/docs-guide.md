@@ -2,6 +2,44 @@ This handbook describes the deployed QRoadScan application and its versioned HTT
 
 The visible interface and the machine-readable [OpenAPI specification](/openapi.yaml) serve different purposes. This handbook explains the workflows, assumptions, failure cases, and integration decisions. The specification lists request fields and endpoint contracts. Use both when building an integration. Keep your API key on your own server, and begin with the smallest permissions needed for the job.
 
+## API quick start
+
+The versioned API uses the production base URL below. The URL path remains `/api/v1/` for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.
+
+```text
+https://ride.qroadscan.com/api/v1
+```
+
+Create a named, expiring API key in [Settings → API access](/settings/user#apiAccess). Choose Read-only, Road planner, or Full user API according to your integration’s needs. Copy the key once and put it in your trusted server’s secret store. The app does not show the raw key again. Changing a password ends browser sessions; it does not automatically replace every integration key, so revoke keys explicitly when required.
+
+For a local server-side experiment, set the environment variable without committing it to a repository. The value below is a placeholder, not a usable key. Shell history, logs, shared terminals, build output, and crash reports can expose credentials, so use your normal secret-management practices.
+
+```bash
+export QRS_API_KEY='YOUR_PRIVATE_QRS_API_KEY'
+export QRS_BASE='https://ride.qroadscan.com'
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/account" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+```
+
+A successful account response includes the current plan, account status, and available scan credits. Reading an account does not reserve a credit. If this first request fails, solve authentication or scope issues before submitting a scan, image, or route request. Do not debug authentication by repeatedly making paid model calls.
+
+Next, inspect capabilities and the permissions on your current key:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/capabilities" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/key" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+```
+
+Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.
+
+
 ## Quick start in the app
 
 Start at [Home](/home), create an account if registration is open, and sign in. Your account can have a garage, private API keys, security keys, signed-in sessions, and saved scan reports. Creating an account does not purchase credits or automatically grant administrator access. Purchases are currently disabled. If your account has no scan credits, you can still manage its settings and inspect the available briefing tools; metered analyses and generated illustrations require an existing credit balance.
@@ -190,42 +228,6 @@ The basemap uses hosted OpenStreetMap tiles with attribution. Those servers requ
 
 If you see a tile reading “403 Access blocked,” refresh the page so the latest map code is loaded, then check the actual map request and referrer in your browser’s developer tools. A network or provider block can also occur independently of radar. Keep required attribution visible. Do not bulk-download or prefetch tile regions, and use an appropriate hosted or licensed service when application scale exceeds a public provider’s intended use.
 
-## API quick start
-
-The versioned API uses the production base URL below. The URL path remains `/api/v1/` for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.
-
-```text
-https://ride.qroadscan.com/api/v1
-```
-
-Create a named, expiring API key in [Settings → API access](/settings/user#apiAccess). Choose Read-only, Road planner, or Full user API according to your integration’s needs. Copy the key once and put it in your trusted server’s secret store. The app does not show the raw key again. Changing a password ends browser sessions; it does not automatically replace every integration key, so revoke keys explicitly when required.
-
-For a local server-side experiment, set the environment variable without committing it to a repository. The value below is a placeholder, not a usable key. Shell history, logs, shared terminals, build output, and crash reports can expose credentials, so use your normal secret-management practices.
-
-```bash
-export QRS_API_KEY='YOUR_PRIVATE_QRS_API_KEY'
-export QRS_BASE='https://ride.qroadscan.com'
-
-curl --fail-with-body --silent --show-error \
-  "$QRS_BASE/api/v1/account" \
-  -H "Authorization: Bearer $QRS_API_KEY"
-```
-
-A successful account response includes the current plan, account status, and available scan credits. Reading an account does not reserve a credit. If this first request fails, solve authentication or scope issues before submitting a scan, image, or route request. Do not debug authentication by repeatedly making paid model calls.
-
-Next, inspect capabilities and the permissions on your current key:
-
-```bash
-curl --fail-with-body --silent --show-error \
-  "$QRS_BASE/api/v1/capabilities" \
-  -H "Authorization: Bearer $QRS_API_KEY"
-
-curl --fail-with-body --silent --show-error \
-  "$QRS_BASE/api/v1/key" \
-  -H "Authorization: Bearer $QRS_API_KEY"
-```
-
-Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.
 
 ## Authentication, permissions, and key lifecycle
 
