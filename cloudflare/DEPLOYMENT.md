@@ -316,3 +316,34 @@ The multimodal API is documented at `/openapi.yaml` and `/docs#garage-api`.
 `/api/v1/garage/*` and `/api/v1/aviation/*` require Bearer API keys; browser routes
 omit `/v1` and enforce sessions/CSRF. Image generation additionally requires
 recent verification in the browser. Provider secrets remain server-side.
+
+
+### Handbook, transparent markers and API 2.1
+
+Apply `0010_api_contract.sql` before the new Worker. It adds key scopes and
+operation types, classifies existing garage images, and protects image classification
+during a rolling upgrade from an older Worker. Existing keys retain full previous
+user capabilities; newly created Settings keys default to an explicit Read-only preset.
+No key scope grants an application administrator role. Versioned requests and legacy
+Bearer report reads share the key's baseline budget. Browser session/account pages
+require an actual session.
+
+Frontend builds now use pinned build-time dependencies in
+`cloudflare/frontend-requirements.txt`, including Markdown. Install that file into a
+development virtual environment, then run `cloudflare/build_frontend.py`. The long
+handbook source is `frontend/docs-guide.md`; its public shell and styles are
+`frontend/docs.html` and `frontend/docs.css`. The old short docs fragment is no longer
+the handbook build input. Rebuild before publishing so all generated navigation and
+module integrity hashes match. Never serve an edited JS module with stale SRI HTML.
+
+Free map markers are constrained type/color SVGs, not downscaled studio photos or
+new model calls. Selected-start markers carry an A badge. Actual road GPS markers
+are shown only through the existing fullscreen geolocation lifecycle and rotate
+when the device supplies heading. Garage pictures are contained in an explicit
+image box with a larger viewer. Type-only corrections keep art; appearance changes
+still clear obsolete art. The known Z125 mismatch is corrected only by user action.
+
+The API adds capability/key introspection, visual-route endpoints, owner-bound
+report cursors, operation polling, correlated problem responses and rate headers.
+See `/docs` and the updated `/openapi.yaml`; `/api/v1/` remains the compatibility
+path even though the additive contract identifies itself as 2.1.

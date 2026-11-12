@@ -275,3 +275,28 @@ provider status remained unavailable with no invented positions. Actual live
 traffic-marker coverage is therefore unverified from production. Unit tests cover
 valid, missing and stale source records. No physical aircraft, flight-control,
 certified ATC, live vehicle or physical-hardware sensor testing is claimed.
+
+
+## Long-form Docs, scopes and transparent vehicle markers
+
+74 JavaScript tests and 10 Python tests passed. New request-level checks cover scope
+denial, browser-session rejection of API keys, problem/header correlation, signed
+report pagination and tampering/cross-owner rejection, operation ownership,
+cross-kind idempotency, baseline rate headers, incompatible road/aircraft profiles,
+and constrained SVG rendering. Existing image tests also verify that an explicit
+type-only correction preserves art while a theme change clears it.
+
+Production browser checks passed the 11,000+ word handbook, text contrast above
+WCAG AA's normal-text threshold, visible Docs navigation, example copying, section
+search and phone layout. A synthetic raster display fixture verified that both top
+and bottom remain visible in the garage and that the full-image dialog works. An
+isolated Z125 profile was corrected by explicit button action; no real user's
+profile was changed and no replacement studio image was generated. A transparent
+motorcycle start marker appeared on the map. Synthetic GPS checks verified heading
+rotation plus all prior fullscreen/accuracy/off-route/hidden-page stop guards.
+
+Live scoped-key tests denied unauthorized writes, returned request/rate metadata,
+completed one OpenAI scene scan, retrieved its operation and owned report, listed
+reports through the new envelope, and replayed the original request with no second
+debit. Only the isolated fixture credit was used; no production user's balance
+changed. Fixture accounts, keys and encrypted reports were removed afterward.

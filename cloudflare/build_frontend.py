@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import markdown
 
 from bs4 import BeautifulSoup
 from jinja2 import Environment, StrictUndefined
@@ -81,6 +82,7 @@ def fragment(html: str):
 
 def account_navigation(active: str):
     nav=fragment('''<nav class="sidebar account-navigation" aria-label="Account navigation"><div class="navbar-brand">QRS</div><a href="/home" aria-label="Home"><i class="fas fa-globe" aria-hidden="true"></i><span>Home</span></a><a href="/dashboard" data-nav="dashboard" aria-label="Dashboard"><i class="fas fa-home" aria-hidden="true"></i><span>Dashboard</span></a><a href="/settings/user" data-nav="settings" aria-label="User Settings"><i class="fas fa-user-cog" aria-hidden="true"></i><span>User Settings</span></a><a href="/dashboard#locationMap" aria-label="Map and radar"><i class="fas fa-map-marked-alt" aria-hidden="true"></i><span>Map &amp; radar</span></a><form method="post" action="/auth/logout" class="qrs-logout-form" data-action="logout"><button type="submit" class="qrs-logout-button" aria-label="Logout"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button></form></nav>''').nav
+    nav.insert(2,fragment('<a href="/docs" aria-label="Docs"><i class="fas fa-book" aria-hidden="true"></i><span>Docs</span></a>').a)
     nav.insert(-1,fragment('<a href="/aircraft" data-nav="aircraft" aria-label="Aircraft briefing"><i class="fas fa-plane" aria-hidden="true"></i><span>Aircraft briefing</span></a>').a)
     if active == 'admin':
         link=fragment('<a href="/admin" data-nav="admin" data-admin-nav="">Admin console</a>').a
@@ -97,6 +99,12 @@ def save(page: str, soup: BeautifulSoup, module: str | None = None, extra_css: s
     if page in ('dashboard','settings','admin','aircraft'):
         soup.select_one('.sidebar').replace_with(account_navigation(page))
         soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/account-navigation.css'))
+    if page in ('dashboard','settings','aircraft'):
+        soup.head.append(soup.new_tag('link',rel='stylesheet',href='/pages/vehicle-marker.css'))
+    for nav in soup.select('nav .navbar-nav'):
+        if not nav.select_one('a[href="/docs"]'):
+            item=soup.new_tag('li',attrs={'class':'nav-item'})
+            link=soup.new_tag('a',href='/docs',attrs={'class':'nav-link'});link.string='Docs';item.append(link);nav.insert(1,item)
     for script in soup.find_all('script'): script.decompose()
     for element in soup.select('[onclick]'):
         action = element.get('onclick','')
@@ -220,10 +228,17 @@ save('blog',blog,'navigation.mjs')
 radar=BeautifulSoup(template('radar_page'),'html.parser')
 save('radar',radar,'radar.mjs')
 (PAGES/'radar.mjs').write_text("import './navigation.mjs';\n"+(ROOT/'static/js/radar.js').read_text())
-docs=parse('home');docs.title.string='Scan API - QRS'
-docs.select_one('main').clear()
-docs.select_one('main').append(fragment((ROOT/'cloudflare/frontend/docs-content.html').read_text()))
-save('docs',docs,'navigation.mjs')
+docs=BeautifulSoup((ROOT/'cloudflare/frontend/docs.html').read_text(),'html.parser')
+manual=markdown.Markdown(extensions=['fenced_code','tables','toc'],extension_configs={'toc':{'toc_depth':'2-3'}})
+rendered=fragment(manual.convert((ROOT/'cloudflare/frontend/docs-guide.md').read_text()))
+docs.select_one('#docsTOC').append(fragment(manual.toc))
+container=docs.select_one('#docsContent');section=None
+for child in list(rendered.contents):
+    if getattr(child,'name',None)=='h2':
+        section=docs.new_tag('section',attrs={'class':'doc-section','id':child.get('id')})
+        child.attrs.pop('id',None);container.append(section)
+    (section if section is not None else container).append(child)
+save('docs',docs,'docs.mjs',(ROOT/'cloudflare/frontend/docs.css').read_text())
 
 manifest={'name':'QRoadScan.com','short_name':'QRS','start_url':'/home','display':'standalone','theme_color':'#0b0f17','background_color':'#0b0f17','icons':[{'src':'/favicon.svg','sizes':'any','type':'image/svg+xml'}]}
 (PUBLIC/'site.webmanifest').write_text(json.dumps(manifest))

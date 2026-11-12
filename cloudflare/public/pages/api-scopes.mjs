@@ -1,0 +1,2 @@
+export const API_SCOPES=['account:read','scans:read','scans:write','routes:write','garage:read','garage:write','images:read','images:write','aviation:read','aviation:review','operations:read'];
+export const API_SCOPE_PRESETS={read_only:['account:read','scans:read','garage:read','images:read','aviation:read','operations:read'],planner:['account:read','scans:read','scans:write','routes:write','garage:read','aviation:read','operations:read'],full:API_SCOPES};

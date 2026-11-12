@@ -1,3 +1,4 @@
+import {validateScopes} from './api-contract.mjs';
 import {generateRegistrationOptions,verifyRegistrationResponse,generateAuthenticationOptions,verifyAuthenticationResponse} from '@simplewebauthn/server';
 import {hmac,sha256,passwordHash,sameSecret,randomToken,readJSON} from './security.mjs';
 const now=()=>Math.floor(Date.now()/1000),json=(v,s=200,h={})=>Response.json(v,{status:s,headers:{'Cache-Control':'no-store',...h}});
@@ -57,11 +58,11 @@ export async function securityRoutes(request,env,{principal,limit}){
   await requireElevated(env,p);await env.DB.batch([q(env,'DELETE FROM sessions WHERE user_id=? AND token_hash!=?',p.user_id,p.session_hash),audit(env,p,'session.revoked_others',p.user_id)]);return json({revoked:true});
  }
  if(path==='/api/security/activity'&&method==='GET')return json((await q(env,'SELECT action,created_at FROM security_audit WHERE actor_id=? ORDER BY created_at DESC LIMIT 30',p.user_id).all()).results);
- if(path==='/api/keys'&&method==='GET')return json((await q(env,"SELECT id,name,created_at,expires_at,last_used_at,revoked_at FROM api_keys WHERE user_id=? AND id NOT LIKE 'web:%' ORDER BY created_at DESC LIMIT 100",p.user_id).all()).results);
+ if(path==='/api/keys'&&method==='GET')return json((await q(env,"SELECT id,name,scopes,created_at,expires_at,last_used_at,revoked_at FROM api_keys WHERE user_id=? AND id NOT LIKE 'web:%' ORDER BY created_at DESC LIMIT 100",p.user_id).all()).results);
  if(path==='/api/keys'&&method==='POST'){
-  await requireElevated(env,p);const data=await readJSON(request,2048),name=label(data.name,'API key'),days=data.expires_in_days??90;if(!Number.isInteger(days)||days<1||days>365)fail('invalid_expiry',400);
+  await requireElevated(env,p);const data=await readJSON(request,2048),name=label(data.name,'API key'),scopes=validateScopes(data.scopes),days=data.expires_in_days??90;if(!Number.isInteger(days)||days<1||days>365)fail('invalid_expiry',400);
   if((await q(env,"SELECT COUNT(*) AS n FROM api_keys WHERE user_id=? AND id NOT LIKE 'web:%' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)",p.user_id,now()).first()).n>=20)fail('api_key_limit',409);
-  const token='qrs_live_'+randomToken().slice(0,10)+'_'+randomToken(),id=crypto.randomUUID();await env.DB.batch([q(env,'INSERT INTO api_keys(id,user_id,key_hash,created_at,name,expires_at) VALUES (?,?,?,?,?,?)',id,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,token),now(),name,now()+days*86400),audit(env,p,'api_key.created',id,{name,days})]);return json({id,key:token},201);
+  const token='qrs_live_'+randomToken().slice(0,10)+'_'+randomToken(),id=crypto.randomUUID();await env.DB.batch([q(env,'INSERT INTO api_keys(id,user_id,key_hash,created_at,name,expires_at,scopes) VALUES (?,?,?,?,?,?,?)',id,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,token),now(),name,now()+days*86400,JSON.stringify(scopes)),audit(env,p,'api_key.created',id,{name,days,scopes})]);return json({id,key:token,scopes,expires_at:now()+days*86400},201);
  }
  if(path.startsWith('/api/keys/')&&method==='DELETE'){
   await requireElevated(env,p);const id=path.slice('/api/keys/'.length);if(!await q(env,"SELECT id FROM api_keys WHERE id=? AND user_id=? AND id NOT LIKE 'web:%'",id,p.user_id).first())fail('key_not_found',404);await env.DB.batch([q(env,'UPDATE api_keys SET revoked_at=? WHERE id=? AND user_id=?',now(),id,p.user_id),audit(env,p,'api_key.revoked',id)]);return json({revoked:true});
@@ -69,7 +70,7 @@ export async function securityRoutes(request,env,{principal,limit}){
  if(path.startsWith('/api/admin/')){
   if(!await isAdmin(env,p.user_id))fail('admin_required',403);
   if(path==='/api/admin/overview'&&method==='GET'){
-   const metrics={};for(const [name,sql] of Object.entries({users:'SELECT COUNT(*) AS n FROM users',sessions:'SELECT COUNT(*) AS n FROM sessions WHERE expires_at>'+now(),security_keys:'SELECT COUNT(*) AS n FROM security_keys',completed_scans:"SELECT COUNT(*) AS n FROM api_requests WHERE status='completed' AND api_key_id NOT LIKE 'web:garage:%'",generated_images:"SELECT COUNT(*) AS n FROM api_requests WHERE status='completed' AND api_key_id LIKE 'web:garage:%'",active_keys:"SELECT COUNT(*) AS n FROM api_keys WHERE revoked_at IS NULL AND id NOT LIKE 'web:%' AND (expires_at IS NULL OR expires_at>"+now()+')'}))metrics[name]=(await q(env,sql).first()).n;
+   const metrics={};for(const [name,sql] of Object.entries({users:'SELECT COUNT(*) AS n FROM users',sessions:'SELECT COUNT(*) AS n FROM sessions WHERE expires_at>'+now(),security_keys:'SELECT COUNT(*) AS n FROM security_keys',completed_scans:"SELECT COUNT(*) AS n FROM api_requests WHERE status='completed' AND operation_kind!='image'",generated_images:"SELECT COUNT(*) AS n FROM api_requests WHERE status='completed' AND operation_kind='image'",active_keys:"SELECT COUNT(*) AS n FROM api_keys WHERE revoked_at IS NULL AND id NOT LIKE 'web:%' AND (expires_at IS NULL OR expires_at>"+now()+')'}))metrics[name]=(await q(env,sql).first()).n;
    return json({metrics,providers:{openai:!!env.OPENAI_API_KEY,grok:!!env.GROK_API_KEY,local:!!env.QRS_LLAMA_API_TOKEN},models:{route:env.ROUTE_MODEL,home:env.GROK_HOME_MODEL},payments_enabled:false,security:{csrf:'Signed cookie + request token + same-origin',csp:'Self-hosted scripts; no inline execution',passkeys:'WebAuthn · user verification required',reports:'AES-GCM encrypted'},admin_elevated:(await q(env,'SELECT elevated_until FROM sessions WHERE token_hash=?',p.session_hash).first()).elevated_until>now()});
   }
   await requireElevated(env,p);

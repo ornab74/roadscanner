@@ -1,3 +1,4 @@
+import {apiUtilities,requireScope} from './api-contract.mjs';
 import {garageRoutes,cleanupGarage} from './garage.mjs';
 import {aviationRoutes} from './aviation.mjs';
 import {vehicleFor,guidanceScope} from './vehicle-profile.mjs';
@@ -21,7 +22,7 @@ async function homeAssessment(request,env){
   if(!p.session_hash)fail('login_required',401);
   if(!env.OPENAI_API_KEY)fail('home_model_not_configured',503);
   const model=env.OPENAI_HOME_MODEL??'gpt-5.5';
-  const source=await query(env,"SELECT id,rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND api_key_id NOT LIKE 'web:garage:%' AND created_at>=? ORDER BY created_at DESC,rowid DESC LIMIT 1",p.user_id,now()-90*86400).first();
+  const source=await query(env,"SELECT id,rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND operation_kind!='image' AND created_at>=? ORDER BY created_at DESC,rowid DESC LIMIT 1",p.user_id,now()-90*86400).first();
   if(!source)fail('home_source_required',409);
   const existing=await query(env,'SELECT id,status,lease_expires_at FROM home_assessments WHERE user_id=? AND source_request_id=? AND model=?',p.user_id,source.id,model).first();
   if(existing?.status==='completed'){
@@ -64,14 +65,14 @@ async function limit(env,key,count=30,seconds=300){
   const window=Math.floor(now()/seconds);
   const row=await query(env,`INSERT INTO rate_limits(key,count,expires_at) VALUES (?,1,?)
     ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count`,`${key}:${window}`,now()+seconds).first();
-  if(row.count>count)fail('rate_limit_exceeded',429);
+  const rate={limit:count,remaining:Math.max(0,count-row.count),reset:(window+1)*seconds};if(row.count>count)throw Object.assign(new Error('rate_limit_exceeded'),{status:429,rate,retry_after:Math.max(1,rate.reset-now())});return rate;
 }
 async function principal(request,env,apiOnly=false){
   const authorization=request.headers.get('Authorization');
   if(authorization){
     const match=/^Bearer (qrs_live_[A-Za-z0-9_-]{10}_[A-Za-z0-9_-]{40,})$/i.exec(authorization);
     if(!match)fail('invalid_api_key',401);
-    const row=await query(env,`SELECT k.id AS key_id,k.user_id,u.email FROM api_keys k JOIN users u ON u.id=k.user_id
+    const row=await query(env,`SELECT k.id AS key_id,k.user_id,k.scopes AS key_scopes,k.expires_at AS key_expires_at,u.email FROM api_keys k JOIN users u ON u.id=k.user_id
       WHERE k.key_hash=? AND k.revoked_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>?)`,await hmac(env.QRS_API_KEY_PEPPER,match[1]),now()).first();
     if(!row)fail('invalid_api_key',401);await query(env,'UPDATE api_keys SET last_used_at=? WHERE id=?',now(),row.key_id).run();return row;
   }
@@ -105,15 +106,15 @@ async function runScan(request,env,p){
   if(scan.language!=='en')fail('language_unavailable',503);
   const keyID=p.key_id;
   await limit(env,'scan:'+keyID,20,60);
-  const existing=await query(env,'SELECT id,status FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
-  if(existing)return replay(env,p,existing);
+  const existing=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
+  if(existing){if(existing.operation_kind!=='scan')fail('idempotency_conflict',409);return replay(env,p,existing);}
   const id=crypto.randomUUID();let reservation;
   try{
     reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at)
       VALUES (?,?,?,?,'reserved',?,?,?) RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();
   }catch(e){
-    const race=await query(env,'SELECT id,status FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
-    if(race)return replay(env,p,race);
+    const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
+    if(race){if(race.operation_kind!=='scan')fail('idempotency_conflict',409);return replay(env,p,race);}
     if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);
     throw e;
   }
@@ -130,7 +131,7 @@ async function runScan(request,env,p){
       classified=await response.json();
     }
     if(!['Low','Medium','High'].includes(classified.label)||classified.schema!=='qrs-risk-v1')throw new Error('Invalid scanner response');
-    const payload={result:assessment?assessment.summary+'\n\n'+assessment.reasons.map(reason=>'• '+reason).join('\n'):`Modeled road-scene risk: ${classified.label}. Weather: ${scan.weather}. Traffic: ${scan.traffic}. Road type: ${scan.road_type}. Obstacles: ${scan.obstacles}. This classification uses supplied observations; obey physical signals and road conditions.`,
+    const payload={operation_id:id,result:assessment?assessment.summary+'\n\n'+assessment.reasons.map(reason=>'• '+reason).join('\n'):`Modeled road-scene risk: ${classified.label}. Weather: ${scan.weather}. Traffic: ${scan.traffic}. Road type: ${scan.road_type}. Obstacles: ${scan.obstacles}. This classification uses supplied observations; obey physical signals and road conditions.`,
       harm_level:classified.label,language:'en',model_used:scan.model,report_id:reservation.rowid,
       observations:scan,
       ...(assessment?{provider_assessment:assessment}:{}),
@@ -150,17 +151,17 @@ async function runVisualRoute(request,env,p){
   const idem=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idem??''))fail('invalid_idempotency_key',400);
   const input=validateVisualRequest(await readJSON(request,4000000));
   if(input.vehicle_id){input.vehicle=await vehicleFor(env,p.user_id,input.vehicle_id);if(!['car','motorcycle','truck'].includes(input.vehicle.kind))fail('vehicle_mode_incompatible',400);input.vehicle_scope=guidanceScope(input.vehicle);}
-  const keyID='web:'+p.user_id;
+  const keyID=p.key_id??'web:'+p.user_id;
   await query(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,'web-session-v1:'+p.user_id),now()).run();
-  const prior=await query(env,'SELECT id,status FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(prior){if(prior.status==='refunded')fail('route_analysis_failed',409);return replay(env,p,prior);}
+  const prior=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(prior){if(prior.operation_kind!=='route')fail('idempotency_conflict',409);if(prior.status==='refunded')fail('route_analysis_failed',409);return replay(env,p,prior);}
   await limit(env,'visual-route:'+p.user_id,6,3600);await limit(env,'visual-route-global',60,3600);
   const id=crypto.randomUUID();let reservation;
-  try{reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at) VALUES (?,?,?,?,'reserved',?,?,?) RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();}
-  catch(e){const race=await query(env,'SELECT id,status FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race)return replay(env,p,race);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
+  try{reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'route') RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();}
+  catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
   try{
     const assessment=await analyzeVisualRoute(env,input);
     const scores=assessment.segments.map(s=>s.risk_score).filter(Number.isFinite),peak=scores.length?Math.max(...scores):null;
-    const payload={...assessment,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode,vehicle:input.vehicle?{id:input.vehicle.id,name:input.vehicle.name,kind:input.vehicle.kind,specs:input.vehicle.specs}:null};
+    const payload={...assessment,operation_id:id,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode,vehicle:input.vehicle?{id:input.vehicle.id,name:input.vehicle.name,kind:input.vehicle.kind,specs:input.vehicle.specs}:null};
     if(assessment.status==='needs_context'){
       await query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();
       return json({...payload,report_id:null,scan_credit_refunded:true,credits_used:0});
@@ -169,14 +170,18 @@ async function runVisualRoute(request,env,p){
     const settled=await query(env,"UPDATE api_requests SET status='completed',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();if(settled.meta.changes!==1)throw new Error('Route settlement failed');return json(payload);
   }catch(e){await query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();console.error('visual_route_failed',id,/^Route model failed: HTTP [0-9]{3} \([A-Za-z0-9_.-]+\)$/.test(e.message??'')?e.message:'invalid_or_unavailable_analysis');fail('route_analysis_unavailable',503);}
 }
-async function routes(request,env){
+async function routes(request,env,context){
   const url=new URL(request.url), path=url.pathname;
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
   // Every cookie/browser mutation, including sign-in, requires a signed CSRF token.
   // Bearer-only v1 scans do not use ambient browser credentials.
   if(!['GET','HEAD','OPTIONS'].includes(request.method)&&!path.startsWith('/api/v1/'))await verifyBrowserCSRF(request,env);
   if(path==='/admin'&&request.method==='GET'){const p=await principal(request,env);if(!p.session_hash||!await isAdmin(env,p.user_id))fail('admin_required',403);}
-  const feature=await garageRoutes(request,env,{principal,limit,hmac})??await aviationRoutes(request,env,{principal,limit});if(feature)return feature;
+  const api=path.startsWith('/api/v1/');let apiPrincipal=null;
+  if(api||request.headers.has('Authorization')&&path.startsWith('/api/')){apiPrincipal=await principal(request,env,true);context.rate=await limit(env,'api:'+apiPrincipal.key_id,120,60);if(api){const utility=await apiUtilities(request,env,apiPrincipal,context);if(utility)return utility;}}
+  const authenticated=(r,e,apiOnly=false)=>r===request&&apiOnly&&apiPrincipal?Promise.resolve(apiPrincipal):principal(r,e,apiOnly);
+  const feature=await garageRoutes(request,env,{principal:authenticated,limit,hmac})??await aviationRoutes(request,env,{principal:authenticated,limit});if(feature)return feature;
+
   const security=await securityRoutes(request,env,{principal,limit});if(security)return security;
 
   if(request.method==='GET'&&(path==='/'||path==='/home/'))return Response.redirect(new URL('/home',request.url),301);
@@ -186,7 +191,7 @@ async function routes(request,env){
   if(request.method==='GET'&&pages[path]){
     const protectedPage=['/dashboard','/settings/user','/radar','/admin','/aircraft'].includes(path);
     if(protectedPage){
-      try{await principal(request,env);}catch(e){if(e.status===401)return Response.redirect(new URL('/login?next='+encodeURIComponent(path),request.url),302);throw e;}
+      try{const p=await principal(request,env);if(!p.session_hash)fail('login_required',401);}catch(e){if(e.status===401)return Response.redirect(new URL('/login?next='+encodeURIComponent(path),request.url),302);throw e;}
     }
     const assetURL=new URL('/pages/'+pages[path]+'.html',request.url);
     const response=await env.ASSETS.fetch(new Request(assetURL,request));
@@ -226,8 +231,8 @@ async function routes(request,env){
     return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
   }
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
-  if(path==='/api/v1/account'&&request.method==='GET')return json(await account(env,(await principal(request,env,true)).user_id));
-  if(path==='/api/v1/scans'&&request.method==='POST')return runScan(request,env,await principal(request,env,true));
+  if(path==='/api/v1/account'&&request.method==='GET'){requireScope(apiPrincipal,'account:read');return json(await account(env,apiPrincipal.user_id));}
+  if(path==='/api/v1/scans'&&request.method==='POST'){requireScope(apiPrincipal,'scans:write');return runScan(request,env,apiPrincipal);}
   if(path==='/api/session/scans'&&request.method==='POST'){
     browserOrigin(request);const p=await principal(request,env);
     if(!p.session_hash)fail('login_required',401);
@@ -235,15 +240,15 @@ async function routes(request,env){
     await query(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,'web-session-v1:'+p.user_id),now()).run();
     return runScan(request,env,{...p,key_id:keyID});
   }
-  if(request.method==='POST'&&['/api/route/geocode','/api/route/analyze','/api/route/atlas'].includes(path)){
-    const p=await principal(request,env);if(!p.session_hash)fail('login_required',401);await verifyBrowserCSRF(request,env);
-    if(path==='/api/route/atlas'){
+  if(request.method==='POST'&&['/api/route/geocode','/api/route/analyze','/api/route/atlas','/api/v1/route/geocode','/api/v1/route/analyze','/api/v1/route/atlas'].includes(path)){
+    const p=api?apiPrincipal:await principal(request,env);if(api)requireScope(p,'routes:write');else{if(!p.session_hash)fail('login_required',401);await verifyBrowserCSRF(request,env);}
+    if(path.endsWith('/route/atlas')){
       await limit(env,'route-atlas:'+p.user_id,6,3600);await limit(env,'route-atlas-global',30,3600);
       const data=await readJSON(request,1024);if(!data||Object.keys(data).sort().join(',')!=='destination,mode,start'||!['driving','walking'].includes(data.mode))fail('invalid_route_request',400);
       const batch=await captureRouteImagery({start:coordinate(data.start),destination:coordinate(data.destination),mode:data.mode});
       return json({imagery_manifest:batch.frames.map(({image,...meta})=>meta),imagery_warnings:batch.warnings});
     }
-    if(path==='/api/route/geocode'){await limit(env,'route-search:'+p.user_id,15,60);return geocode(request,env,p);}
+    if(path.endsWith('/route/geocode')){await limit(env,'route-search:'+p.user_id,15,60);return geocode(request,env,p);}
     return runVisualRoute(request,env,p);
   }
   if(path==='/api/route/models'&&request.method==='GET'){
@@ -256,10 +261,10 @@ async function routes(request,env){
     return json({requested:env.ROUTE_MODEL??'gpt-6-luna',available:ids.includes(env.ROUTE_MODEL??'gpt-6-luna'),models:ids.filter(id=>/^gpt-/.test(id)).sort()});
   }
   if(path==='/api/session'&&request.method==='GET'){
-    const p=await principal(request,env);return json({email:p.email,is_admin:await isAdmin(env,p.user_id),...await account(env,p.user_id)});
+    const p=await principal(request,env);if(!p.session_hash)fail('login_required',401);return json({email:p.email,is_admin:await isAdmin(env,p.user_id),...await account(env,p.user_id)});
   }
   if(path==='/auth/logout'&&request.method==='POST'){
-    browserOrigin(request);const p=await principal(request,env);
+    browserOrigin(request);const p=await principal(request,env);if(!p.session_hash)fail('login_required',401);
     await query(env,'DELETE FROM sessions WHERE token_hash=?',p.session_hash??'').run();
     return json({logged_out:true},200,{'Set-Cookie':'__Host-qrs_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
   }
@@ -279,10 +284,10 @@ async function routes(request,env){
     return json({password_changed:true},200,{'Set-Cookie':'__Host-qrs_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
   }
   if(path==='/api/reports'&&request.method==='GET'){
-    const p=await principal(request,env);const rows=await query(env,"SELECT rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND api_key_id NOT LIKE 'web:garage:%' AND created_at>=? ORDER BY created_at DESC LIMIT 100",p.user_id,now()-90*86400).all();return json(rows.results);
+    const p=await principal(request,env);requireScope(p,'scans:read');const rows=await query(env,"SELECT rowid AS report_id,created_at FROM api_requests WHERE user_id=? AND status='completed' AND operation_kind!='image' AND created_at>=? ORDER BY created_at DESC LIMIT 100",p.user_id,now()-90*86400).all();return json(rows.results);
   }
-  if(/^\/api\/reports\/\d+$/.test(path)&&request.method==='GET'){
-    const p=await principal(request,env);const row=await query(env,"SELECT id,created_at FROM api_requests WHERE rowid=? AND user_id=? AND status='completed' AND api_key_id NOT LIKE 'web:garage:%'",Number(path.split('/').pop()),p.user_id).first();
+  if(/^\/api\/(?:v1\/)?reports\/\d+$/.test(path)&&request.method==='GET'){
+    const p=api?apiPrincipal:await principal(request,env);requireScope(p,'scans:read');if(!Number.isSafeInteger(Number(path.split('/').pop()))||Number(path.split('/').pop())<1)fail('invalid_report_id',400);const row=await query(env,"SELECT id,created_at FROM api_requests WHERE rowid=? AND user_id=? AND status='completed' AND operation_kind!='image'",Number(path.split('/').pop()),p.user_id).first();
     if(!row)fail('report_not_found',404);if(row.created_at<now()-90*86400)fail('report_expired',410);
     const obj=await env.REPORTS.get(reportPath(p.user_id,row.id));if(!obj)fail('report_unavailable',503);
     return json(await decryptReport(env.QRS_REPORT_KEY,p.user_id,row.id,await obj.text()));
@@ -296,13 +301,15 @@ export default {
   async fetch(request,env){
     const canonicalURL=new URL(request.url);
     if(canonicalURL.protocol==='http:'){canonicalURL.protocol='https:';return Response.redirect(canonicalURL.toString(),308);}
-    let response;
-    try{response=await routes(request,env);}catch(e){
+    let response;const context={request_id:crypto.randomUUID(),rate:null};
+    try{response=await routes(request,env,context);}catch(e){
       const status=Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:(e.message?.includes('JSON')?400:500);
       if(status===500)console.error('request_failed',e.message);
-      response=json({error:status===500?'internal_error':e.message},status,status===429?{'Retry-After':'300'}:{});
+      const code=status===500?'internal_error':e.message;context.rate=e.rate??context.rate;
+      const errorHeaders=status===429?{'Retry-After':String(e.retry_after??300)}:{};
+      if(canonicalURL.pathname.startsWith('/api/v1/')){if(status===401)errorHeaders['WWW-Authenticate']='Bearer realm="QRoadScan", error="invalid_token"';if(e.required_scope)errorHeaders['WWW-Authenticate']='Bearer error="insufficient_scope", scope="'+e.required_scope+'"';response=json({type:'about:blank',title:code.replaceAll('_',' '),status,code,error:code,detail:code,request_id:context.request_id,...(e.required_scope?{required_scope:e.required_scope}:{})},status,{...errorHeaders,'Content-Type':'application/problem+json'});}else response=json({error:code},status,errorHeaders);
     }
-    const headers=new Headers(response.headers);
+    const headers=new Headers(response.headers);headers.set('X-Request-ID',context.request_id);if(context.rate){headers.set('RateLimit-Limit',String(context.rate.limit));headers.set('RateLimit-Remaining',String(context.rate.remaining));headers.set('RateLimit-Reset',String(context.rate.reset));}
     headers.set('Strict-Transport-Security','max-age=31536000');
     headers.set('Permissions-Policy','geolocation=(self), camera=(), microphone=()');
     headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');

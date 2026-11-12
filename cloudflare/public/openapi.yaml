@@ -1,25 +1,27 @@
 openapi: 3.1.0
 info:
   title: QRoadScan Multimodal API
-  version: 2.0.0
-  description: Metered road-scene classifications from supplied observations. Create API keys in the authenticated workspace. Payments are disabled for the initial launch.
+  version: 2.1.0
+  description: Private multimodal garage, scene scans, visual road proposals and advisory aircraft briefings.
+    Scoped Bearer keys, operation status, signed report pagination, request IDs and problem responses.
+    Aircraft is not ATC or collision avoidance.
 servers:
-  - url: https://ride.qroadscan.com
+- url: https://ride.qroadscan.com
 paths:
   /api/v1/scans:
     post:
       summary: Run and store one road-risk scan
       security:
-        - ApiKey: []
+      - ApiKey: []
       parameters:
-        - in: header
-          name: Idempotency-Key
-          required: true
-          schema:
-            type: string
-            minLength: 16
-            maxLength: 128
-            pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]+$'
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]+$
       requestBody:
         required: true
         content:
@@ -33,113 +35,816 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ScanResponse'
-        '400': {description: Invalid JSON or scan fields}
-        '401': {description: Missing or invalid API key}
-        '402': {description: No API credits remain}
-        '409': {description: The same request is still running or previously failed}
-        '413': {description: Request body exceeds 32 KiB}
-        '415': {description: Content-Type must be application/json}
-        '429': {description: API key rate limit exceeded}
-        '503': {description: Scan provider unavailable; a reserved credit is refunded}
+          headers:
+            X-Request-ID: &id001
+              description: Server-generated correlation ID
+              schema: &id008
+                type: string
+                format: uuid
+            RateLimit-Limit: &id002
+              description: Applicable request budget
+              schema:
+                type: integer
+            RateLimit-Remaining: &id003
+              description: Remaining requests in reported window
+              schema:
+                type: integer
+            RateLimit-Reset: &id004
+              description: Window reset epoch seconds
+              schema: &id009
+                type: integer
+                format: int64
+        '400':
+          description: Invalid JSON or scan fields
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '402':
+          description: No API credits remain
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '409':
+          description: The same request is still running or previously failed
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '413':
+          description: Request body exceeds 32 KiB
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '415':
+          description: Content-Type must be application/json
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '503':
+          description: Scan provider unavailable; a reserved credit is refunded
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: scans:write
   /api/v1/account:
     get:
       summary: Read the authenticated API account and credit balance
       security:
-        - ApiKey: []
+      - ApiKey: []
       responses:
-        '200': {description: Account summary}
-        '401': {description: Missing or invalid API key}
+        '200':
+          description: Account summary
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: account:read
   /api/v1/garage/vehicles:
     get:
       summary: List your private garage and active vehicle
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       responses:
-        '200': {description: Vehicle profiles and active_vehicle_id}
+        '200':
+          description: Vehicle profiles and active_vehicle_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GarageCollection'
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:read
     post:
       summary: Create an encrypted vehicle profile (maximum 20 active vehicles)
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/GarageVehicle'}
+            schema:
+              $ref: '#/components/schemas/GarageVehicle'
       responses:
-        '201': {description: Saved vehicle with id and optimistic version}
+        '201':
+          description: Saved vehicle with id and optimistic version
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:write
   /api/v1/garage/active:
     put:
       summary: Set active garage vehicle (null clears selection)
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [vehicle_id]
+              required:
+              - vehicle_id
               properties:
-                vehicle_id: {type: [string, 'null']}
+                vehicle_id:
+                  type:
+                  - string
+                  - 'null'
       responses:
-        '200': {description: Active selection saved}
+        '200':
+          description: Active selection saved
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:write
   /api/v1/garage/vehicles/{vehicle_id}:
     parameters:
-      - {in: path, name: vehicle_id, required: true, schema: {type: string, format: uuid}}
+    - in: path
+      name: vehicle_id
+      required: true
+      schema:
+        type: string
+        format: uuid
     get:
       summary: Read an owned vehicle
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       responses:
-        '200': {description: Vehicle profile and version}
-        '404': {description: Vehicle missing or not owned by this API key's account}
+        '200':
+          description: Vehicle profile and version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GarageVehicleResponse'
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '404':
+          description: Vehicle missing or not owned by this API key's account
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:read
     put:
       summary: Replace a vehicle using its current version; clears illustration when appearance changes
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               allOf:
-                - {$ref: '#/components/schemas/GarageVehicle'}
-                - {type: object, required: [version], properties: {version: {type: integer}}}
+              - $ref: '#/components/schemas/GarageVehicle'
+              - type: object
+                required:
+                - version
+                properties:
+                  version:
+                    type: integer
       responses:
-        '200': {description: Updated vehicle}
-        '409': {description: Version conflict; reload before saving}
+        '200':
+          description: Updated vehicle
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '409':
+          description: Version conflict; reload before saving
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:write
     delete:
       summary: Delete an owned vehicle and schedule its encrypted illustration for removal
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       responses:
-        '200': {description: Vehicle deleted}
+        '200':
+          description: Vehicle deleted
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:write
   /api/v1/garage/vehicles/{vehicle_id}/image:
     parameters:
-      - {in: path, name: vehicle_id, required: true, schema: {type: string, format: uuid}}
+    - in: path
+      name: vehicle_id
+      required: true
+      schema:
+        type: string
+        format: uuid
     get:
       summary: Retrieve owned private PNG illustration
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       responses:
-        '200': {description: Decrypted PNG with no-store cache policy, content: {image/png: {schema: {type: string, format: binary}}}}
-        '404': {description: No current unexpired illustration}
+        '200':
+          description: Decrypted PNG with no-store cache policy
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '404':
+          description: No current unexpired illustration
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: images:read
     post:
       summary: Generate GPT Image 2 illustration, gated by input/output PHF, costing one scan credit
-      description: At most 2 attempts/account/day and 10 attempts globally/day. Requests are idempotent. Failures refund the reserved credit. Images expire after 90 days. Browser equivalent requires recent verification and CSRF; API keys authenticate directly.
-      security: [{ApiKey: []}]
+      description: At most 2 attempts/account/day and 10 attempts globally/day. Requests are idempotent.
+        Failures refund the reserved credit. Images expire after 90 days. Browser equivalent requires
+        recent verification and CSRF; API keys authenticate directly.
+      security:
+      - ApiKey: []
       parameters:
-        - {in: header, name: Idempotency-Key, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{16,100}$'}}
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{16,100}$
       requestBody:
         required: true
         content:
           application/json:
-            schema: {type: object, maxProperties: 0}
+            schema:
+              type: object
+              maxProperties: 0
       responses:
-        '201': {description: Model metadata, PHF results and private browser image_url; use this v1 path with your key to download}
-        '200': {description: Idempotent replay without another generation or debit}
-        '402': {description: Insufficient existing scan credits}
-        '422': {description: PHF blocked request or output; credit refunded}
-        '503': {description: Filtering or generation unavailable; credit refunded}
+        '201':
+          description: Model metadata
+          PHF results and private browser image_url; use this v1 path with your key to download: null
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '200':
+          description: Idempotent replay without another generation or debit
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '402':
+          description: Insufficient existing scan credits
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '422':
+          description: PHF blocked request or output; credit refunded
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '503':
+          description: Filtering or generation unavailable; credit refunded
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: images:write
   /api/v1/garage/vehicles/{vehicle_id}/guidance:
     parameters:
-      - {in: path, name: vehicle_id, required: true, schema: {type: string, format: uuid}}
+    - in: path
+      name: vehicle_id
+      required: true
+      schema:
+        type: string
+        format: uuid
     post:
       summary: Read mode-specific advisory checklist and optional area weather
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       requestBody:
         content:
           application/json:
@@ -149,40 +854,930 @@ paths:
                 location:
                   type: object
                   properties:
-                    latitude: {type: number}
-                    longitude: {type: number}
+                    latitude:
+                      type: number
+                    longitude:
+                      type: number
       responses:
-        '200': {description: Vehicle scope, checklist and optional weather; no train movement authority}
+        '200':
+          description: Vehicle scope
+          checklist and optional weather; no train movement authority: null
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:read
   /api/v1/aviation/config:
     get:
       summary: Providers, quotas and advisory scope (no secrets)
-      security: [{ApiKey: []}]
+      security:
+      - ApiKey: []
       responses:
-        '200': {description: OpenSky OAuth status and weather/AI configuration}
+        '200':
+          description: OpenSky OAuth status and weather/AI configuration
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: aviation:read
   /api/v1/aviation/snapshot:
     post:
       summary: Aircraft briefing snapshot with OpenSky traffic, AWC METAR/TAF, winds aloft and fuel scenario
-      description: Briefing only, not ATC, TCAS, approved routing or a go/no-go decision. Codes and coordinates are user supplied. Coverage and timestamps must be checked. Maximum 40 requests/account/hour; anonymous OpenSky global budget is 240 upstream requests/day with short shared caching.
-      security: [{ApiKey: []}]
+      description: Briefing only, not ATC, TCAS, approved routing or a go/no-go decision. Codes and coordinates
+        are user supplied. Coverage and timestamps must be checked. Maximum 40 requests/account/hour;
+        anonymous OpenSky global budget is 240 upstream requests/day with short shared caching.
+      security:
+      - ApiKey: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/AircraftBriefingRequest'}
+            schema:
+              $ref: '#/components/schemas/AircraftBriefingRequest'
       responses:
-        '200': {description: Independent provider statuses, timestamped observations/forecasts, bounded traffic and fuel assumptions}
+        '200':
+          description: Independent provider statuses
+          timestamped observations/forecasts: null
+          bounded traffic and fuel assumptions: null
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: aviation:read
   /api/v1/aviation/briefing:
     post:
       summary: Refresh aircraft evidence and request a bounded GPT-6 Luna briefing review
-      description: Same inputs as snapshot. Up to 4 requests/account/day and 20 globally/day; no scan credit charged. Does not generate ATC clearances or maneuver instructions.
-      security: [{ApiKey: []}]
+      description: Same inputs as snapshot. Up to 4 requests/account/day and 20 globally/day; no scan
+        credit charged. Does not generate ATC clearances or maneuver instructions.
+      security:
+      - ApiKey: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/AircraftBriefingRequest'}
+            schema:
+              $ref: '#/components/schemas/AircraftBriefingRequest'
       responses:
-        '200': {description: Snapshot plus advisory evidence review}
+        '200':
+          description: Snapshot plus advisory evidence review
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: aviation:review
+  /api/v1/capabilities:
+    get:
+      summary: Discover supported features, quotas and scopes
+      security: &id005
+      - ApiKey: []
+      responses:
+        '200':
+          description: JSON result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+  /api/v1/key:
+    get:
+      summary: Inspect the current key without exposing its secret
+      security: *id005
+      responses:
+        '200':
+          description: JSON result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyInfo'
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+  /api/v1/reports:
+    get:
+      summary: List owned reports with signed cursor pagination
+      security: *id005
+      responses:
+        '200':
+          description: data array, pagination {limit,has_more,next_cursor}, meta {request_id}. Cursors
+            are owner-bound and expire after one hour.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportPage'
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: scans:read
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - in: query
+        name: cursor
+        schema:
+          type: string
+          maxLength: 600
+  /api/v1/reports/{report_id}:
+    parameters:
+    - in: path
+      name: report_id
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    get:
+      summary: Read an owned completed report within retention
+      security: *id005
+      responses:
+        '200':
+          description: JSON result
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: scans:read
+  /api/v1/operations/{operation_id}:
+    parameters:
+    - in: path
+      name: operation_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      summary: Inspect owned metered operation state
+      security: *id005
+      responses:
+        '200':
+          description: operation_id, kind, status (reserved/completed/refunded), credit state, optional
+            resource URL and polling delay. No model percentage or flight authority.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationStatus'
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: operations:read
+  /api/v1/garage/vehicles/{vehicle_id}/marker:
+    parameters:
+    - in: path
+      name: vehicle_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    get:
+      summary: Retrieve a free transparent type/color SVG map marker
+      security: *id005
+      responses:
+        '200':
+          description: Authenticated no-store image/svg+xml, not a generated studio portrait.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: garage:read
+  /api/v1/route/geocode:
+    post:
+      summary: Search candidates with precision and source metadata
+      security: *id005
+      responses:
+        '200':
+          description: JSON result
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: routes:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - query
+              properties:
+                query:
+                  type: string
+                  minLength: 3
+                  maxLength: 200
+  /api/v1/route/atlas:
+    post:
+      summary: Preview automatic endpoint/corridor imagery metadata without model credit
+      security: *id005
+      responses:
+        '200':
+          description: JSON result
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: routes:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - start
+              - destination
+              - mode
+              properties:
+                start: &id006
+                  $ref: '#/components/schemas/BriefingCoordinate'
+                destination: *id006
+                mode: &id007
+                  type: string
+                  enum:
+                  - driving
+                  - walking
+  /api/v1/route/analyze:
+    post:
+      summary: Analyze real georeferenced map imagery into an unverified road proposal
+      security: *id005
+      responses:
+        '200':
+          description: Proposal with operation_id/report_id, or needs_context with credit returned. Aircraft/train
+            rejected.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+        '401':
+          description: Missing/invalid/expired key. application/problem+json.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '403':
+          description: Insufficient scope; required_scope in problem response.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        '429':
+          description: Rate limit or feature budget; inspect Retry-After.
+          headers:
+            X-Request-ID: *id001
+            RateLimit-Limit: *id002
+            RateLimit-Remaining: *id003
+            RateLimit-Reset: *id004
+            Retry-After:
+              description: Seconds before retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+        default:
+          description: Structured problem response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ApiProblem'
+      x-required-scope: routes:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - start
+              - destination
+              - mode
+              - notes
+              - map
+              - context_images
+              properties:
+                start: *id006
+                destination: *id006
+                mode: *id007
+                vehicle_id:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
+                  maxLength: 1200
+                context_images:
+                  type: array
+                  maxItems: 2
+                  items:
+                    type: string
+                    maxLength: 1500000
+                map:
+                  type: object
+                  required:
+                  - image
+                  - width
+                  - height
+                  - bounds
+                  properties:
+                    image:
+                      type: string
+                      description: Real PNG/JPEG data URI; header/dimensions validated.
+                      maxLength: 1500000
+                    width:
+                      type: integer
+                      minimum: 200
+                      maximum: 1400
+                    height:
+                      type: integer
+                      minimum: 200
+                      maximum: 1400
+                    bounds:
+                      type: object
+                      required:
+                      - north
+                      - south
+                      - east
+                      - west
+                      properties:
+                        north:
+                          type: number
+                        south:
+                          type: number
+                        east:
+                          type: number
+                        west:
+                          type: number
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
 components:
   securitySchemes:
     ApiKey:
@@ -192,64 +1787,394 @@ components:
   schemas:
     GarageVehicle:
       type: object
-      required: [name, kind]
-      description: Typed mode-specific specs are validated server-side. Optional fields default to empty; unsupported fields are rejected. PUT also requires current version.
+      required:
+      - name
+      - kind
+      description: Typed mode-specific specs are validated server-side. Optional fields default to empty;
+        unsupported fields are rejected. PUT also requires current version.
       properties:
-        name: {type: string, minLength: 1, maxLength: 60}
-        kind: {type: string, enum: [car, motorcycle, truck, train, aircraft]}
-        make: {type: string, maxLength: 60}
-        model: {type: string, maxLength: 60}
-        year: {type: [integer, 'null'], minimum: 1880}
-        color: {type: string, maxLength: 40}
-        theme: {type: string, enum: [none, winter, halloween, autumn, festive, lunar_new_year]}
-        appearance_notes: {type: string, maxLength: 400}
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        kind:
+          type: string
+          enum:
+          - car
+          - motorcycle
+          - truck
+          - train
+          - aircraft
+        make:
+          type: string
+          maxLength: 60
+        model:
+          type: string
+          maxLength: 60
+        year:
+          type:
+          - integer
+          - 'null'
+          minimum: 1880
+        color:
+          type: string
+          maxLength: 40
+        theme:
+          type: string
+          enum:
+          - none
+          - winter
+          - halloween
+          - autumn
+          - festive
+          - lunar_new_year
+        appearance_notes:
+          type: string
+          maxLength: 400
         specs:
           type: object
-          description: 'car: mass_kg; motorcycle: engine_cc,mass_kg; truck: height_m,width_m,length_m,mass_kg,axles,hazmat; train: length_m,mass_kg,rail_gauge_mm,traction; aircraft: true_airspeed_kt,fuel_burn_per_hour,fuel_capacity,fuel_unit,reserve_minutes,icao24,type_designator. All numeric values must be finite and positive, except reserve_minutes may be zero. Fuel units: gal,l,kg. icao24 is six hex characters.'
+          description: 'car: mass_kg; motorcycle: engine_cc,mass_kg; truck: height_m,width_m,length_m,mass_kg,axles,hazmat;
+            train: length_m,mass_kg,rail_gauge_mm,traction; aircraft: true_airspeed_kt,fuel_burn_per_hour,fuel_capacity,fuel_unit,reserve_minutes,icao24,type_designator.
+            All numeric values must be finite and positive, except reserve_minutes may be zero. Fuel units:
+            gal,l,kg. icao24 is six hex characters.'
     AircraftBriefingRequest:
       type: object
       additionalProperties: false
-      required: [vehicle_id, start, destination, departure_airport, arrival_airport, altitude_ft, usable_fuel]
+      required:
+      - vehicle_id
+      - start
+      - destination
+      - departure_airport
+      - arrival_airport
+      - altitude_ft
+      - usable_fuel
       properties:
-        vehicle_id: {type: string, format: uuid}
-        start: {$ref: '#/components/schemas/BriefingCoordinate'}
-        destination: {$ref: '#/components/schemas/BriefingCoordinate'}
-        departure_airport: {type: string, pattern: '^[A-Z0-9]{3,4}$'}
-        arrival_airport: {type: string, pattern: '^[A-Z0-9]{3,4}$'}
-        altitude_ft: {type: number, minimum: 0, maximum: 45000}
-        usable_fuel: {type: [number, 'null'], minimum: 0, maximum: 1000000}
+        vehicle_id:
+          type: string
+          format: uuid
+        start:
+          $ref: '#/components/schemas/BriefingCoordinate'
+        destination:
+          $ref: '#/components/schemas/BriefingCoordinate'
+        departure_airport:
+          type: string
+          pattern: ^[A-Z0-9]{3,4}$
+        arrival_airport:
+          type: string
+          pattern: ^[A-Z0-9]{3,4}$
+        altitude_ft:
+          type: number
+          minimum: 0
+          maximum: 45000
+        usable_fuel:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+          maximum: 1000000
     BriefingCoordinate:
       type: object
       additionalProperties: false
-      required: [latitude, longitude]
+      required:
+      - latitude
+      - longitude
       properties:
-        latitude: {type: number, minimum: -85, maximum: 85}
-        longitude: {type: number, minimum: -180, maximum: 180}
+        latitude:
+          type: number
+          minimum: -85
+          maximum: 85
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
     ScanRequest:
       type: object
       additionalProperties: false
-      required: [latitude, longitude, vehicle_type, destination]
+      required:
+      - latitude
+      - longitude
+      - vehicle_type
+      - destination
       properties:
-        latitude: {type: number, minimum: -90, maximum: 90}
-        longitude: {type: number, minimum: -180, maximum: 180}
-        vehicle_type: {type: string, minLength: 1, maxLength: 64}
-        destination: {type: string, minLength: 1, maxLength: 256}
-        model: {type: string, enum: [llama_local, openai], default: llama_local}
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        vehicle_type:
+          type: string
+          minLength: 1
+          maxLength: 64
+        destination:
+          type: string
+          minLength: 1
+          maxLength: 256
+        model:
+          type: string
+          enum:
+          - llama_local
+          - openai
+          default: llama_local
         language:
           type: string
-          enum: [en]
+          enum:
+          - en
           default: en
-        road_type: {type: string, maxLength: 96}
-        weather: {type: string, maxLength: 96}
-        traffic: {type: string, maxLength: 96}
-        obstacles: {type: string, maxLength: 512}
-        sensor_notes: {type: string, maxLength: 1000}
+        road_type:
+          type: string
+          maxLength: 96
+        weather:
+          type: string
+          maxLength: 96
+        traffic:
+          type: string
+          maxLength: 96
+        obstacles:
+          type: string
+          maxLength: 512
+        sensor_notes:
+          type: string
+          maxLength: 1000
     ScanResponse:
       type: object
-      required: [result, harm_level, model_used, report_id]
+      required:
+      - result
+      - harm_level
+      - model_used
+      - report_id
       properties:
-        result: {type: string}
-        harm_level: {type: string}
-        language: {type: string}
-        model_used: {type: string}
-        report_id: {type: integer}
+        result:
+          type: string
+        harm_level:
+          type: string
+        language:
+          type: string
+        model_used:
+          type: string
+        report_id:
+          type: integer
+    ApiProblem:
+      type: object
+      required:
+      - type
+      - title
+      - status
+      - code
+      - request_id
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        error:
+          type: string
+        detail:
+          type: string
+        request_id:
+          type: string
+          format: uuid
+        required_scope:
+          type: string
+    KeyInfo:
+      type: object
+      required:
+      - id
+      - scopes
+      - expires_at
+      - request_id
+      properties:
+        id: *id008
+        scopes:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        request_id: *id008
+    Capabilities:
+      type: object
+      required:
+      - api_version
+      - authentication
+      - key_scopes
+      - features
+      - quotas
+      - request_id
+      properties:
+        api_version:
+          type: string
+          example: '2.1'
+        authentication:
+          type: string
+          enum:
+          - Bearer
+        key_scopes:
+          type: array
+          items:
+            type: string
+        features:
+          type: array
+          items:
+            type: string
+        quotas:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        openapi_url:
+          type: string
+        docs_url:
+          type: string
+        scope:
+          type: string
+        request_id: *id008
+    ReportSummary:
+      type: object
+      required:
+      - report_id
+      - created_at
+      - operation_kind
+      - url
+      properties:
+        report_id:
+          type: integer
+          minimum: 1
+        created_at: *id009
+        operation_kind:
+          type: string
+          enum:
+          - scan
+          - route
+        url:
+          type: string
+          format: uri-reference
+    ReportPage:
+      type: object
+      required:
+      - data
+      - pagination
+      - meta
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportSummary'
+        pagination:
+          type: object
+          required:
+          - limit
+          - has_more
+          - next_cursor
+          properties:
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 100
+            has_more:
+              type: boolean
+            next_cursor:
+              type: &id010
+              - string
+              - 'null'
+              maxLength: 600
+        meta:
+          type: object
+          required:
+          - request_id
+          properties:
+            request_id: *id008
+    OperationStatus:
+      type: object
+      required:
+      - operation_id
+      - status
+      - kind
+      - created_at
+      - updated_at
+      - credits_reserved_or_used
+      - resource
+      - poll_after_seconds
+      - request_id
+      properties:
+        operation_id: *id008
+        status:
+          type: string
+          enum:
+          - reserved
+          - completed
+          - refunded
+        kind:
+          type: string
+          enum:
+          - scan
+          - route
+          - image
+        created_at: *id009
+        updated_at: *id009
+        credits_reserved_or_used:
+          type: integer
+          enum:
+          - 0
+          - 1
+        resource:
+          oneOf:
+          - type: 'null'
+          - type: object
+            required:
+            - url
+            properties:
+              url:
+                type: string
+                format: uri-reference
+        poll_after_seconds:
+          type:
+          - integer
+          - 'null'
+        request_id: *id008
+    GarageVehicleResponse:
+      allOf:
+      - $ref: '#/components/schemas/GarageVehicle'
+      - type: object
+        required:
+        - id
+        - version
+        - image_url
+        - created_at
+        - updated_at
+        properties:
+          id: *id008
+          version:
+            type: integer
+            minimum: 1
+          image_url: &id011
+            type: *id010
+          created_at: *id009
+          updated_at: *id009
+    GarageCollection:
+      type: object
+      required:
+      - vehicles
+      - active_vehicle_id
+      properties:
+        vehicles:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/GarageVehicleResponse'
+        active_vehicle_id: *id011
+x-response-headers:
+  X-Request-ID: Server-generated request UUID
+  RateLimit-Limit: Applicable request budget
+  RateLimit-Remaining: Remaining count in the reported window
+  RateLimit-Reset: Reset epoch seconds
+  Retry-After: Seconds to wait when rate-limited

@@ -1,78 +1,951 @@
-
 <!DOCTYPE html>
 
-<html data-page="docs" dir="ltr" lang="en">
-<head>
-<meta charset="utf-8"/>
-<title>Scan API - QRS</title>
-<meta content="width=device-width, initial-scale=1" name="viewport"/>
-<meta content="Road-scene assessments from supplied observations, with weather radar and saved reports." name="description"/>
-<meta content="road scanner, road observations, weather radar" name="keywords"/>
-<meta content="QRoadScan.com" name="author"/>
-<meta content="QRoadScan.com" name="application-name"/>
-<meta content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" name="robots"/>
-<meta content="#0b0f17" name="theme-color"/>
-<link href="https://ride.qroadscan.com/home" rel="canonical"/>
-<link href="https://ride.qroadscan.com/home" hreflang="en" rel="alternate"/>
-<link href="https://ride.qroadscan.com/home" hreflang="x-default" rel="alternate"/>
-<link href="/feed.xml" rel="alternate" title="QRoadScan Blog RSS" type="application/rss+xml"/>
-<link href="/sitemap.xml" rel="sitemap" type="application/xml"/>
-<link href="/site.webmanifest" rel="manifest"/>
-<link href="/favicon.svg" rel="icon" sizes="any" type="image/svg+xml"/>
-<link href="/favicon.svg" rel="icon" sizes="any"/>
-<meta content="website" property="og:type"/>
-<meta content="QRoadScan.com" property="og:site_name"/>
-<meta content="QRoadScan.com | Live Traffic Risk &amp; Road Hazard Intelligence" property="og:title"/>
-<meta content="Road-scene assessments from supplied observations, with weather radar and saved reports." property="og:description"/>
-<meta content="https://ride.qroadscan.com/home" property="og:url"/>
-<meta content="en_US" property="og:locale"/>
-<meta content="https://ride.qroadscan.com/favicon.svg" property="og:image"/>
-<meta content="https://ride.qroadscan.com/favicon.svg" property="og:image:secure_url"/>
-<meta content="image/svg+xml" property="og:image:type"/>
-<meta content="64" property="og:image:width"/>
-<meta content="64" property="og:image:height"/>
-<meta content="QRoadScan" property="og:image:alt"/>
-<meta content="summary_large_image" name="twitter:card"/>
-<meta content="QRoadScan.com | Live Traffic Risk &amp; Road Hazard Intelligence" name="twitter:title"/>
-<meta content="See risk instantly with the QRoadScan Colorwheel. Safer decisions, calmer driving." name="twitter:description"/>
-<meta content="https://ride.qroadscan.com/favicon.svg" name="twitter:image"/>
-<meta content="QRoadScan" name="twitter:image:alt"/>
-<link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/>
-<link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/>
-<link crossorigin="anonymous" href="/static/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" rel="stylesheet"/>
-<link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-87rbmOath6y3BwrzZzLnQEhyOtXalOB+AqktxxeXiNi6egrQD1RQB9jOa88RRf1S" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-+gXIOLQvydBwy5aIk76nuO7U1Jgh90EXC77pd556RkelYqOY+n2TLhRM8jgwl9L4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-RIeVoEepWTh0S22ticnMtZCnXzWElPGS+E5E2wFSO15ae4Beylto3ZqGABpDhNBB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head>
-<body>
-<div aria-hidden="true" class="nebula"></div>
-<nav class="navbar navbar-expand-lg navbar-dark">
-<a class="navbar-brand" href="/home">QRoadScan.com</a>
-<button class="navbar-toggler" data-target="#nav" data-toggle="collapse" type="button"><span class="navbar-toggler-icon"></span></button>
-<div class="collapse navbar-collapse justify-content-end" id="nav">
-<ul class="navbar-nav">
-<li class="nav-item"><a class="nav-link" href="/home">Home</a></li>
-<li class="nav-item"><a class="nav-link" href="/blog">Blog</a></li>
-<li class="nav-item"><a class="nav-link" href="/login">Login</a></li>
-<li class="nav-item"><a class="nav-link" href="/register">Register</a></li>
+<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-F95iScvq2n1Aeg16obllHbOdEnMfJm/9RK3Cle6RQed/HmO5eYSRfGCaBnuwqQkB" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-+gXIOLQvydBwy5aIk76nuO7U1Jgh90EXC77pd556RkelYqOY+n2TLhRM8jgwl9L4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-RIeVoEepWTh0S22ticnMtZCnXzWElPGS+E5E2wFSO15ae4Beylto3ZqGABpDhNBB" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-It0fwZRu1/2/Zcp1qen0+6U1vPDzQE2mfEeVuf3PfOKe4gsHJdkCfPurNd1fIdGR" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>The QRoadScan handbook.</h1><p>From your first vehicle profile to a complete server integration. Understand the data, the requests, and the limits behind every result.</p><div class="docs-hero-links"><a href="#quick-start-in-the-app">Start in the app</a><a href="#api-quick-start">Make your first API call</a><a href="/openapi.yaml">Download OpenAPI</a></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search this handbook</label><input autocomplete="off" id="docsSearch" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><details id="docsNav" open=""><summary>On this page</summary><div id="docsTOC"><div class="toc">
+<ul>
+<li><a href="#quick-start-in-the-app">Quick start in the app</a></li>
+<li><a href="#what-the-different-outputs-mean">What the different outputs mean</a></li>
+<li><a href="#account-credits-and-privacy-basics">Account, credits, and privacy basics</a></li>
+<li><a href="#garage-profiles-and-vehicle-types">Garage profiles and vehicle types</a></li>
+<li><a href="#vehicle-illustrations-phf-and-holiday-themes">Vehicle illustrations, PHF, and holiday themes</a></li>
+<li><a href="#transparent-map-markers-and-gps-position">Transparent map markers and GPS position</a></li>
+<li><a href="#car-route-workflow">Car route workflow</a><ul>
+<li><a href="#road-color-and-severity-interpretation">Road color and severity interpretation</a></li>
+</ul>
+</li>
+<li><a href="#motorcycle-guidance">Motorcycle guidance</a></li>
+<li><a href="#trucks-18-wheelers-and-commercial-loads">Trucks, 18-wheelers, and commercial loads</a></li>
+<li><a href="#train-and-rail-advisory">Train and rail advisory</a></li>
+<li><a href="#aircraft-briefing-workflow">Aircraft briefing workflow</a></li>
+<li><a href="#airport-weather-metar-and-taf">Airport weather: METAR and TAF</a></li>
+<li><a href="#winds-aloft-jet-stream-context-and-units">Winds aloft, jet-stream context, and units</a></li>
+<li><a href="#fuel-and-wind-scenario-arithmetic">Fuel and wind scenario arithmetic</a></li>
+<li><a href="#opensky-traffic-coverage-and-failures">OpenSky traffic, coverage, and failures</a></li>
+<li><a href="#rainviewer-controls-and-basemap-troubleshooting">RainViewer controls and basemap troubleshooting</a></li>
+<li><a href="#api-quick-start">API quick start</a></li>
+<li><a href="#authentication-permissions-and-key-lifecycle">Authentication, permissions, and key lifecycle</a></li>
+<li><a href="#endpoint-reference-and-response-shapes">Endpoint reference and response shapes</a></li>
+<li><a href="#create-and-update-vehicles-through-the-api">Create and update vehicles through the API</a></li>
+<li><a href="#activate-a-vehicle-retrieve-a-marker-and-request-advice">Activate a vehicle, retrieve a marker, and request advice</a></li>
+<li><a href="#generate-and-retrieve-a-private-vehicle-illustration">Generate and retrieve a private vehicle illustration</a></li>
+<li><a href="#submit-a-scene-scan">Submit a scene scan</a></li>
+<li><a href="#visual-road-route-api">Visual road-route API</a><ul>
+<li><a href="#find-an-endpoint">Find an endpoint</a></li>
+<li><a href="#preview-the-automatic-atlas">Preview the automatic atlas</a></li>
+<li><a href="#submit-an-analysis-with-a-real-capture">Submit an analysis with a real capture</a></li>
+</ul>
+</li>
+<li><a href="#reports-and-signed-pagination">Reports and signed pagination</a></li>
+<li><a href="#operation-status-and-idempotent-recovery">Operation status and idempotent recovery</a></li>
+<li><a href="#aircraft-api-end-to-end-example">Aircraft API end-to-end example</a></li>
+<li><a href="#javascript-server-client-example">JavaScript server client example</a></li>
+<li><a href="#python-server-client-example">Python server client example</a></li>
+<li><a href="#errors-request-ids-and-retries">Errors, request IDs, and retries</a></li>
+<li><a href="#rate-limits-quotas-and-cost-controls">Rate limits, quotas, and cost controls</a></li>
+<li><a href="#browser-sessions-csrf-and-security-keys">Browser sessions, CSRF, and security keys</a></li>
+<li><a href="#administrator-console-and-support-operations">Administrator console and support operations</a></li>
+<li><a href="#integration-architecture-and-operational-checklist">Integration architecture and operational checklist</a></li>
+<li><a href="#troubleshooting-and-frequently-asked-questions">Troubleshooting and frequently asked questions</a><ul>
+<li><a href="#why-is-the-garage-picture-cut-off">Why is the garage picture cut off?</a></li>
+<li><a href="#why-does-my-motorcycle-show-a-car-icon">Why does my motorcycle show a car icon?</a></li>
+<li><a href="#does-the-tiny-icon-cost-another-credit">Does the tiny icon cost another credit?</a></li>
+<li><a href="#why-do-i-have-a-key-but-still-get-403">Why do I have a key but still get 403?</a></li>
+<li><a href="#why-did-a-successful-http-response-return-no-route">Why did a successful HTTP response return no route?</a></li>
+<li><a href="#why-is-aircraft-traffic-unavailable-while-weather-works">Why is aircraft traffic unavailable while weather works?</a></li>
+<li><a href="#why-is-the-fuel-number-incomplete">Why is the fuel number incomplete?</a></li>
+<li><a href="#can-i-use-aircraft-mode-as-atc-or-a-navigation-instrument">Can I use aircraft mode as ATC or a navigation instrument?</a></li>
+<li><a href="#why-does-a-private-image-url-fail-on-my-external-site">Why does a private image URL fail on my external site?</a></li>
+<li><a href="#what-should-i-include-in-a-useful-bug-report">What should I include in a useful bug report?</a></li>
+</ul>
+</li>
+<li><a href="#provider-attribution-and-implementation-limits">Provider attribution and implementation limits</a></li>
 </ul>
 </div>
-</nav>
-<main class="container py-5"><section class="card-g p-4 p-md-5"><h2>Scan API</h2><p>Authenticate with <code>Authorization: Bearer YOUR_API_KEY</code>. Scans require an <code>Idempotency-Key</code> of 16–128 characters. A successful scan costs one credit; failed inference refunds the reservation.</p><pre>GET /api/v1/account
-POST /api/v1/scans
-Content-Type: application/json
-Idempotency-Key: a-unique-request-identifier
+</div></details><a class="docs-top-link" href="#">Back to top ↑</a></aside><main class="docs-content" id="docsContent" tabindex="-1"><p>This handbook describes the deployed QRoadScan application and its versioned HTTP API. It covers the browser workspace, private vehicle garage, road proposals, aircraft briefings, account security, and server integration. Examples use illustrative vehicles and public airport coordinates. Example performance values are not manufacturer recommendations, flight-planning standards, or observations about your vehicle.</p>
+<p>The visible interface and the machine-readable <a href="/openapi.yaml">OpenAPI specification</a> serve different purposes. This handbook explains the workflows, assumptions, failure cases, and integration decisions. The specification lists request fields and endpoint contracts. Use both when building an integration. Keep your API key on your own server, and begin with the smallest permissions needed for the job.</p>
+<section class="doc-section" id="quick-start-in-the-app"><h2>Quick start in the app</h2>
+<p>Start at <a href="/home">Home</a>, create an account if registration is open, and sign in. Your account can have a garage, private API keys, security keys, signed-in sessions, and saved scan reports. Creating an account does not purchase credits or automatically grant administrator access. Purchases are currently disabled. If your account has no scan credits, you can still manage its settings and inspect the available briefing tools; metered analyses and generated illustrations require an existing credit balance.</p>
+<p>Open <a href="/settings/user#garage">Settings → Garage</a> and add a vehicle. Choose its actual vehicle type explicitly. A motorcycle should be saved as <code>motorcycle</code>, an articulated truck as <code>truck</code>, and an airplane as <code>aircraft</code>. The make or model text does not silently override the type. This matters because the type selects the appropriate workspace, advisory language, specifications, and transparent map icon. The garage highlights the known Kawasaki Z125/type mismatch and offers a correction that you must choose yourself.</p>
+<p>For a road journey, select your garage vehicle in <a href="/dashboard">Dashboard</a>, choose a start and destination, and inspect the map. You may type coordinates, search for an address, or choose points on the map. Confirm the returned address precision before continuing. Select Streets for labeled road context. Satellite imagery can help inspect an entrance, but it does not establish that a private road, loading bay, doorway, or apartment corridor is legally accessible.</p>
+<p>Run a route analysis only after confirming both endpoints. The application captures an overview and a bounded atlas of endpoint and corridor images, requests a model proposal, and tries to align that proposal to imported mapped road shapes. A completed route proposal normally uses one credit. A request for more context returns the reserved credit. Read the limitations and review the proposed street sections before using fullscreen GPS preview.</p>
+<p>For an aircraft, use <a href="/aircraft">Aircraft briefing</a>. Select a saved aircraft profile, provide the airport codes and coordinates, enter the scenario altitude and usable fuel, then refresh the evidence. Airport codes and map coordinates are separate user inputs; the application does not verify that they refer to the same airport. Review traffic availability, airport observations and forecasts, pressure-level winds, and the explicit fuel assumptions. An optional AI review explains the supplied evidence; it does not authorize a flight.</p>
+</section><section class="doc-section" id="what-the-different-outputs-mean"><h2>What the different outputs mean</h2>
+<p>QRoadScan has several distinct surfaces. They should not be treated as interchangeable measurements. The homepage’s Grok guess-mode colorwheel creates a fictional road scene and a modeled score. It is not a live sensor reading, a location-specific accident probability, or proof that a road is safe. Refreshing that simulation calls the configured provider rather than reusing a stored simulated reading.</p>
+<p>A scene scan assesses observations supplied by the user or API client. If you submit “rain,” “heavy traffic,” or “construction,” the model considers those statements as inputs. It does not independently prove them. The returned report identifies the supplied observations and provider provenance so an integration can preserve that distinction.</p>
+<p>A visual road proposal uses map images, selected endpoints, available weather estimates, and a model-generated corridor. Imported road geometry improves how a ribbon follows mapped streets. It does not validate every turn restriction, bridge capacity, property boundary, road closure, lane, or legal maneuver. Weather caution scores are modeled severity indices, not calibrated accident probabilities.</p>
+<p>A garage illustration is artwork. It can reflect a make, model, color, year, and holiday theme, but it is not a verified photograph or a record of a vehicle’s mechanical configuration. Never derive aircraft performance, truck clearance, tire condition, braking capability, or manufacturer specifications from that artwork. The tiny map marker is a separate transparent vector representation based on the saved type and color; it does not require another image-generation credit.</p>
+<p>An aircraft briefing combines independently timestamped external sources with user-supplied assumptions. OpenSky positions can be incomplete or delayed. METARs describe airport observations. TAFs describe airport forecasts. Winds aloft are model samples at pressure levels. Fuel figures are deterministic scenario arithmetic. AI commentary is interpretation of that evidence, not certified ATC, separation, collision avoidance, dispatch authority, or a go/no-go decision.</p>
+</section><section class="doc-section" id="account-credits-and-privacy-basics"><h2>Account, credits, and privacy basics</h2>
+<p>Account resources are private to their owner. A garage profile, private illustration, saved report, or active vehicle selection cannot be read merely by guessing its identifier. API keys inherit the owning account’s resource boundary, and the server enforces permissions on every relevant endpoint. An administrator’s browser role does not turn an ordinary API key into an administrator credential.</p>
+<p>Credit reservations occur before a metered provider operation. A successful scene scan, completed road proposal, or delivered garage illustration uses one credit. Provider failures and blocked illustration checks refund the reservation. A route response with <code>needs_context</code> also refunds it. A network timeout on your client is different from an explicit failure: the server may still be processing. Keep the same idempotency key when checking the same logical operation so you do not unintentionally create another charge.</p>
+<p>The browser uses Secure, HttpOnly, host-only session cookies. State-changing browser requests require a signed CSRF token and the correct origin. API requests under <code>/api/v1/</code> use an explicit Bearer key and do not fall back to a browser session. Do not copy the browser’s session cookie into a server integration, and do not put a server API key in a public JavaScript bundle or a query string.</p>
+<p>Vehicle profiles and stored reports are encrypted at rest. Generated image blobs are encrypted with an owner/vehicle/image binding. Private image responses use <code>no-store</code> and require authentication. The application does not publish a public bucket URL for your illustration. Provider services necessarily receive the bounded input needed to fulfill an explicit model request; their own processing terms and retention policies also apply.</p>
+<p>Do not include a VIN, home address, license plate, account password, provider key, or other unnecessary personal information in a vehicle’s appearance notes. A descriptive phrase such as “olive camouflage panels with a black seat” is useful. A registration document or secret key is not. Appearance fields are descriptive data, not a place to instruct the application to change its security policy.</p>
+</section><section class="doc-section" id="garage-profiles-and-vehicle-types"><h2>Garage profiles and vehicle types</h2>
+<p>The garage supports up to twenty active vehicles per account. Each vehicle has a display name, kind, optional make and model, optional year, color description, holiday theme, appearance notes, and a type-specific specifications object. The display name is for your organization; it is not an authentication identifier. The server assigns a UUID and an optimistic <code>version</code> to each saved profile.</p>
+<p>Choose a vehicle type before saving a new profile. A model name can be ambiguous, and several manufacturers sell cars, motorcycles, boats, industrial equipment, or multiple aircraft categories. QRoadScan does not silently turn a manufacturer name into an operating classification. If a profile was saved under the wrong type, correct it explicitly. A type-only correction retains existing artwork when the descriptive appearance fields remain unchanged; the map marker updates from the corrected type.</p>
+<p>A car profile can carry a mass assumption. A motorcycle profile can carry engine displacement and mass. A truck profile can carry height, width, length, gross mass, axle count, and a hazmat flag. A train profile can carry length, mass, rail gauge, and traction type. An aircraft profile can carry true airspeed, cruise fuel burn, usable capacity, fuel unit, scenario reserve, ICAO type designator, and optional OpenSky ICAO24 identifier.</p>
+<p>These fields are user-supplied. The application validates their type and broad bounds, but that is not a verification against a manufacturer database. A plausible-looking number can still be wrong. Use the appropriate manual, operator records, or other authoritative vehicle documentation. Do not guess a truck’s loaded mass or an aircraft’s usable fuel capacity from its model name.</p>
+<p>Editing a profile requires its current <code>version</code>. If another tab or client updates it first, a stale replacement returns <code>409 vehicle_changed</code>. Reload the current profile, reconcile your edits, and submit a new replacement with the new version. Do not blindly resubmit a stale body, because that could overwrite a legitimate change made elsewhere.</p>
+<p>Appearance changes clear an obsolete illustration so the garage does not display old artwork as if it represented the new description. Changing the display name or performance assumptions does not require regenerating the art. Deleting a vehicle clears its active selection, makes its private resources unavailable, clears the encrypted profile contents, and schedules retained image objects for cleanup.</p>
+</section><section class="doc-section" id="vehicle-illustrations-phf-and-holiday-themes"><h2>Vehicle illustrations, PHF, and holiday themes</h2>
+<p>The garage’s Generate image action uses the configured GPT Image 2 model. It is explicit: saving a vehicle, selecting a theme, viewing a card, or opening the map does not generate an illustration. A successful delivered image costs one existing scan credit. Generation attempts have daily account and global limits, including failed attempts; this bounds provider spending and discourages repeated filter probes.</p>
+<p>PHF means Probabilistic Harm Filtering in this project. The Cloudflare image workflow uses bounded local instruction checks plus structured provider moderation. The description must pass before generation, and the generated image must pass before delivery. A missing, malformed, flagged, or unavailable filter result is not treated as approval. The reserved scan credit is refunded when filtering or image generation fails.</p>
+<p>The generation prompt asks for the entire vehicle, realistic model proportions, and empty space around outer extremities. The garage card fits the full image inside its display box rather than allowing the image’s intrinsic dimensions to stretch and crop it. Select the illustration to open a larger view. The card is a display of artwork, not a measurement of vehicle dimensions.</p>
+<p>Themes include Original, Winter, Halloween, Autumn, Festive lights, and Lunar New Year. Themes are visual: they should not imply that decorations are safe to install on a real vehicle. The prompt requests that decorations avoid obstructing lights, windows, wheels, propellers, intakes, rails, and controls. Actual installations remain a separate real-world engineering and operating decision.</p>
+<p>If the image seems to describe a different kind of vehicle, first inspect the saved vehicle type and model. A Z125 entered as a car is a profile mismatch even if a model recognizes the motorcycle name and draws a motorcycle. Correct the type so guidance and markers agree with the actual vehicle. You do not need to spend another image credit merely to fix how an already-generated picture is framed in the card.</p>
+<p>Generated images remain private and expire after ninety days. A successful response includes a browser <code>image_url</code> for the app, but a server API client should download through the corresponding <code>/api/v1/garage/vehicles/{id}/image</code> endpoint with its Bearer key. Do not remove authentication simply to make a third-party image tag load. Instead, fetch the image on your trusted server and apply your own authorized delivery policy.</p>
+</section><section class="doc-section" id="transparent-map-markers-and-gps-position"><h2>Transparent map markers and GPS position</h2>
+<p>The small vehicle marker is designed for legibility over a map. It has a transparent background, a type-specific top-down shape, a color selected from the garage profile, and limited holiday accents. Cars, motorcycles, trucks, trains, and aircraft have distinct silhouettes. Camouflage descriptions receive an illustrative camouflage palette. The marker is not a tiny crop of the garage’s full-size studio image, which would retain a background and become unreadable at navigation scale.</p>
+<p>A marker with an <code>A</code> badge identifies the selected start point. It is a preview of where you chose to begin, not proof that your device or vehicle is physically there. Actual road GPS position uses the device’s geolocation updates during fullscreen guidance. When the device reports a valid heading, the vehicle icon can rotate with that heading. If heading is missing, the drawing’s default orientation should not be interpreted as a compass measurement.</p>
+<p>GPS guidance is available only for supported mapped road proposals and only in fullscreen mode. It displays distance to the next proposed section, time at current speed, remaining proposed distance, speed, and reported accuracy. It stops when fullscreen closes, the page is hidden, the user stops it, or the route context changes. An old queued geolocation callback must not restart a stopped session.</p>
+<p>Poor reported accuracy and off-route positions pause turn cues. The app does not use a pretend GPS position when a desktop cannot provide location. You can still choose endpoints, inspect a route proposal, or view weather evidence without a live position. Do not interpret the selected start marker as a substitute for a valid GPS fix.</p>
+<p>The aircraft page’s surveillance positions come from OpenSky when that feed is available, not from the decorative garage icon or the road GPS watch. Reported aircraft positions are a different data source with different latency, coverage, altitude references, and limitations. No aircraft maneuvering or separation instructions are generated by moving a marker.</p>
+</section><section class="doc-section" id="car-route-workflow"><h2>Car route workflow</h2>
+<p>For a car journey, start with a correctly typed car profile or the generic road profile. Select both endpoints and verify that the map includes them. If an address search returns a street or area rather than a mapped house number, adjust the point manually and inspect the intended entrance. An apartment or suite identifier may be removed for address matching; that does not locate the unit inside a building.</p>
+<p>The road workspace combines a labeled overview with automatic endpoint street and satellite views and overlapping corridor panels. The image manifest identifies the role, bounds, dimensions, and provider of each automatic view. The model is instructed to reconcile those views rather than relying solely on a zoomed-out overview or remembered street knowledge.</p>
+<p>Imported map geometry supplies the road coordinates used for a solid ribbon when a supported connection is found. The model reviews the candidate and annotates its sections. The alignment process is conditioned on the visual corridor; it is not an independent legal routing engine. A road shape in a map can still be closed, private, incorrectly connected, grade-separated, or subject to a restriction not represented in the imported data.</p>
+<p>Read each proposed maneuver and its evidence. “Turn left” in a proposal is not proof that the turn is currently permitted. Follow actual signs, signals, closures, road markings, and applicable rules. The application does not certify lane selection, right of way, speed choice, or access to a private driveway. Use the proposal as reviewable context, not an authority that overrides the road.</p>
+<p>When the system returns <code>needs_context</code>, it should identify missing evidence or an unsupported connection. The reserved credit is returned, and no completed route report is saved for that failed proposal. Improve the endpoint placement, use a shorter corridor, or provide a readable site plan or directory. Do not fabricate a connection through a building or across a barrier to force a colored ribbon.</p>
+<h3 id="road-color-and-severity-interpretation">Road color and severity interpretation</h3>
+<p>Chromographic ribbons distinguish lower, moderate, elevated, and unknown modeled caution. A gray or unknown section is not a safe section; it means the supplied evidence does not support a score. Scores must not be read as a measured probability of a crash. A weather estimate near a street is an area forecast, not a measurement of grip on that exact lane.</p>
+<p>The optional NAZA-inspired state layer is a labeled two-qubit simulation. It changes a decorative fringe or pulse and has a baseline off switch. It does not change mapped coordinates, reported weather, risk scores, or vehicle performance. A reproducibility receipt identifies a simulation state; it is not a signature proving real-world safety or evidence of a physical quantum sensor.</p>
+</section><section class="doc-section" id="motorcycle-guidance"><h2>Motorcycle guidance</h2>
+<p>Save a motorcycle as <code>motorcycle</code> so the garage icon and route context reflect two-wheel exposure. Engine displacement and mass are descriptive assumptions, not a complete handling or braking model. A motorcycle’s real behavior also depends on tires, loading, suspension, road surface, rider skill, maintenance, and conditions that the application does not measure.</p>
+<p>The model’s motorcycle context emphasizes wind exposure, precipitation, visibility, temperature, and uncertainty about surface grip. A weather forecast does not establish that a particular corner is dry, wet, icy, contaminated, or free of gravel. A low weather caution score is therefore not permission to select a particular lean angle, entry speed, following distance, or braking technique.</p>
+<p>Use the satellite and street context to inspect a proposed entrance or intersection, but remember that imagery may be old. Small obstacles can be invisible, and a route image does not show whether a driver has yielded. If the model cannot support a street connection, the correct result is a request for more context, not a confident motorcycle shortcut.</p>
+<p>For the Kawasaki Z125 example, distinguish the model description from the saved type. The garage can highlight that specific mismatch and offer a type correction. The user chooses whether to apply it; the application does not silently rewrite every manufacturer/model entry. After changing operating specifications, re-analyze a route when you need guidance to reflect the new profile.</p>
+</section><section class="doc-section" id="trucks-18-wheelers-and-commercial-loads"><h2>Trucks, 18-wheelers, and commercial loads</h2>
+<p>Use <code>truck</code> for an 18-wheeler or other heavy road vehicle. Enter the actual operating height, width, length, loaded mass, axle count, and hazmat status when known. A tractor’s brochure mass is not the same as the gross loaded combination mass. A nominal trailer length does not fully describe articulation or turning envelope.</p>
+<p>The supplied dimensions become model context. They do not turn the imported road graph into a verified truck-restriction database. Bridge capacity, overhead clearance, seasonal load limits, axle restrictions, hazmat permissions, loading-zone rules, and turning clearance remain unknown unless independently verified from appropriate current sources.</p>
+<p>The app should not certify clearance because a road looks wide in satellite imagery. Shadows, canopy, perspective, image age, and unmapped infrastructure can all make such an inference unreliable. A mapped road connection can be unsuitable for an articulated vehicle even when a car could use it. Treat a proposal’s restriction checks as items to verify with official signs, a truck-appropriate routing source, or the operator.</p>
+<p>Hazmat is a profile flag, not a complete dangerous-goods classification. The application does not receive a full manifest, regulated class, tunnel category, jurisdictional permit, or emergency-response plan through that boolean. Do not infer that a route is authorized for a particular cargo merely because <code>hazmat</code> was set to <code>true</code> and an analysis completed.</p>
+</section><section class="doc-section" id="train-and-rail-advisory"><h2>Train and rail advisory</h2>
+<p>Use <code>train</code> for a rail vehicle or consist. Length, mass, rail gauge, and traction type help organize the advisory context. They do not establish the actual track gauge, axle-load limit, loading gauge, electrical compatibility, or braking rules along a railway.</p>
+<p>Rail mode provides an advisory checklist rather than road turn-by-turn navigation. Dispatcher authority, signals, switches, track possession, electrification, and railway operating procedures require official information and qualified operating decisions. A road map or aerial image cannot issue movement authority or prove that a switch is aligned for a train.</p>
+<p>Electric traction requires appropriate verification of supply, clearance, and operating procedures. Diesel, steam, and hybrid traction have their own operator requirements. The app does not choose a braking curve, authorize passing a signal, or infer that track is unoccupied from an image or an absent public feed. The rail advisory API returns the vehicle’s scope and checklist so an integration can present those limits with the data.</p>
+</section><section class="doc-section" id="aircraft-briefing-workflow"><h2>Aircraft briefing workflow</h2>
+<p>Create a correctly typed aircraft profile before opening the aircraft workspace. Enter only performance assumptions you can substantiate for your scenario. The application deliberately does not invent cruise TAS, burn, usable fuel capacity, or reserve from a model name. A registration or ICAO type label is not a performance table.</p>
+<p>Provide departure and arrival airport codes and coordinates separately. Codes are syntax-checked, but code-to-coordinate matching is not verified. Confirm that both inputs represent your intended locations. The map’s dashed line is a direct geographic corridor. It is not a filed flight plan, an airway clearance, a terrain-clear route, a recommended altitude, or an approved track through controlled airspace.</p>
+<p>Choose a scenario altitude and enter usable fuel in the unit saved with the aircraft. Refresh weather and traffic, then inspect the individual provider statuses. A successful HTTP response can contain an unavailable traffic feed and available weather feeds. Do not replace those independent status fields with one green “everything is safe” badge.</p>
+<p>The optional AI review receives the same snapshot and explicit assumptions. It can summarize airport weather, wind samples, surveillance gaps, fuel arithmetic, and questions to verify with the pilot, dispatcher, or official briefing. It must not issue takeoff/landing clearances, separation instructions, movement commands, regulatory fuel approval, or a go/no-go decision. No connection to an autopilot, flight-control system, radio transmitter, or certified avionics is provided.</p>
+<p>Monitoring is a user-started refresh at two-minute intervals. It stops when inputs change, the page is hidden, or the user stops it. It is not a real-time traffic service. The UI removes stale surveillance positions and clears previous scenario figures when you change the inputs, so old calculations are not silently presented as current results for a new aircraft or corridor.</p>
+</section><section class="doc-section" id="airport-weather-metar-and-taf"><h2>Airport weather: METAR and TAF</h2>
+<p>Airport weather is requested from NOAA Aviation Weather Center. A METAR is an airport observation with an observation time. A TAF is an airport forecast with an issue time and validity interval. The interface preserves the raw report text so a qualified reader can compare the AI interpretation with the source.</p>
+<p>A station’s weather does not establish conditions at every point between airports. Terrain, local precipitation, cloud, wind, and visibility can vary substantially away from the reporting station. The application does not treat a clear airport report as proof that a mountain corridor or an entire flight path is clear.</p>
+<p>Check issue and validity times. A record can be present but stale, outside its validity interval, or missing a trustworthy timestamp. Missing stations are reported explicitly. If only one product or one station is current, the overall airport weather can be partial. Do not silently substitute a prior successful result and label it fresh.</p>
+<p>The current briefing does not supply a complete official aviation weather package. NOTAMs, approved charts, terrain, airspace restrictions, icing analysis, turbulence analysis, and convective-avoidance products are not established by these METAR/TAF and pressure-wind calls. Obtain the appropriate current official briefing and operational information separately.</p>
+</section><section class="doc-section" id="winds-aloft-jet-stream-context-and-units"><h2>Winds aloft, jet-stream context, and units</h2>
+<p>Open-Meteo provides forecast winds at pressure levels near the requested scenario altitude. The application samples the start, midpoint, and destination corridor locations. Coordinates are rounded for weather queries; the output states the sample point, forecast time, pressure level, and approximate standard pressure altitude.</p>
+<p>A pressure level is not the same as an exact geometric height above terrain. Atmospheric conditions and local elevation affect that relationship. A value shown near the requested altitude should therefore be read as a model sample at a named pressure level, not a measured wind at the aircraft’s exact flight level or height above the ground.</p>
+<p>Wind direction is reported as the direction the wind comes from. This matters when interpreting headwind and crosswind components. Winds from opposite directions must not be compared as if both were directions of travel. The deterministic scenario calculation uses vector components and the corridor’s true course; it does not issue a magnetic heading command.</p>
+<p>The 250 hPa samples provide upper-air context relevant to discussions of strong upper-level flow. They do not map the complete jet axis, diagnose turbulence, predict clear-air turbulence along a flight, or establish a safe passage around weather. A strong wind sample is evidence of a model wind value at that pressure and time, not a complete aviation hazard product.</p>
+<p>Units are explicit: scenario altitude is feet; aircraft TAS and modeled wind speeds are knots; geographic distance is nautical miles; time is hours or minutes as labeled. Provider wind units are validated before arithmetic. An integration should retain units in its own UI and storage rather than inferring them from a numeric field name alone.</p>
+</section><section class="doc-section" id="fuel-and-wind-scenario-arithmetic"><h2>Fuel and wind scenario arithmetic</h2>
+<p>The fuel scenario is deterministic arithmetic, separate from the model’s commentary. It uses user-supplied TAS, cruise burn, usable fuel, declared usable capacity, fuel unit, and scenario reserve. The direct corridor is split into two geographic legs, and the endpoint wind components are averaged for each leg. An unsolvable wind triangle or unsuitable groundspeed produces an incomplete result rather than an invented travel time.</p>
+<p>The calculation uses constant TAS and burn. It does not add taxi, takeoff, climb, descent, approach, alternates, holding, terrain routing, airspace detours, performance changes with weight, or other operating allowances. The weather samples refer to the current forecast hour, not a time-marched forecast at every expected point of passage. These assumptions can materially change a real trip’s fuel requirement.</p>
+<p>Fuel quantities remain in the saved unit: <code>gal</code>, <code>l</code>, or <code>kg</code>. Burn per hour must use that same unit. The application does not silently convert gallons to kilograms or invent a fuel density. If you change the unit in the profile, verify every associated quantity yourself. The data validation ensures consistent types and bounds, not that you have converted a real aircraft’s figures correctly.</p>
+<p>The reserve entered by the user is a scenario assumption, not a regulatory minimum or approval. A positive scenario margin does not certify legal or adequate fuel. A negative margin indicates that the stated simple scenario falls below the entered reserve; it is an item to verify, not an automated flight command. Missing required inputs, fuel above declared capacity, or a corridor too short for useful trip estimates leaves fuel figures incomplete.</p>
+</section><section class="doc-section" id="opensky-traffic-coverage-and-failures"><h2>OpenSky traffic, coverage, and failures</h2>
+<p>OpenSky Network supplies crowdsourced aircraft state vectors when its API is reachable. The application requests a limited geographic box around the start/monitoring point rather than a worldwide feed. The response includes the box bounds and source snapshot time. It is not a corridor-wide surveillance guarantee.</p>
+<p>The normalized output can include ICAO24, callsign, position, reported barometric and geometric altitude, groundspeed, track, vertical rate, position time, and last contact. These references are not interchangeable. Barometric altitude should not be casually substituted for geometric height, and track is not necessarily the aircraft’s heading. The UI labels reported values instead of treating them as certified onboard measurements.</p>
+<p>Old or invalid positions are filtered. Stale cached snapshots are withheld, and the browser removes positions that age beyond its display threshold. An empty array means no supported positions were available in that response; it does not mean the airspace is clear. Coverage can be limited by receivers, geography, transmitter behavior, filtering, provider delays, and outages.</p>
+<p>Anonymous OpenSky access has limited upstream capacity. The deployment applies a daily global budget and a short shared cache. Optional OAuth client credentials can be configured securely by the operator. OAuth may change authentication and quotas; it does not guarantee network reachability or service availability. During testing, the endpoint timed out from Cloudflare even when a workspace request succeeded, so the production UI correctly reported traffic unavailable.</p>
+<p>An aircraft integration must preserve <code>status</code>, snapshot time, coverage text, and failure information. Do not animate invented aircraft during an outage to make the map appear populated. Do not infer that a highlighted aircraft is your physical ownship unless you have independently established its identifier. QRoadScan provides no TCAS substitute, ADS-B In certification, conflict detection, separation service, or ATC authority.</p>
+</section><section class="doc-section" id="rainviewer-controls-and-basemap-troubleshooting"><h2>RainViewer controls and basemap troubleshooting</h2>
+<p>RainViewer is a precipitation overlay, independent of the basemap and the aircraft traffic feed. Use Play to cycle through the available recent frames. Stop holds the current frame. Moving the frame slider stops playback so your selection stays put. Turning off radar or hiding/leaving the page also stops the animation.</p>
+<p>A transparent radar tile can mean no detected precipitation in that tile, incomplete coverage, or another source limitation. It does not establish an absence of all weather hazards. Precipitation imagery does not provide aircraft icing clearance, turbulence avoidance, road grip, or a safety forecast for a particular street.</p>
+<p>The basemap uses hosted OpenStreetMap tiles with attribution. Those servers require a legitimate application referrer and compliance with their usage policy. The aircraft and road maps set a map-specific cross-origin referrer policy so the provider receives the site origin without a private page path. The application does not disguise itself as another site or proxy around a provider block.</p>
+<p>If you see a tile reading “403 Access blocked,” refresh the page so the latest map code is loaded, then check the actual map request and referrer in your browser’s developer tools. A network or provider block can also occur independently of radar. Keep required attribution visible. Do not bulk-download or prefetch tile regions, and use an appropriate hosted or licensed service when application scale exceeds a public provider’s intended use.</p>
+</section><section class="doc-section" id="api-quick-start"><h2>API quick start</h2>
+<p>The versioned API uses the production base URL below. The URL path remains <code>/api/v1/</code> for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.</p>
+<pre><code class="language-text">https://ride.qroadscan.com/api/v1
+</code></pre>
+<p>Create a named, expiring API key in <a href="/settings/user#apiAccess">Settings → API access</a>. Choose Read-only, Road planner, or Full user API according to your integration’s needs. Copy the key once and put it in your trusted server’s secret store. The app does not show the raw key again. Changing a password ends browser sessions; it does not automatically replace every integration key, so revoke keys explicitly when required.</p>
+<p>For a local server-side experiment, set the environment variable without committing it to a repository. The value below is a placeholder, not a usable key. Shell history, logs, shared terminals, build output, and crash reports can expose credentials, so use your normal secret-management practices.</p>
+<pre><code class="language-bash">export QRS_API_KEY='YOUR_PRIVATE_QRS_API_KEY'
+export QRS_BASE='https://ride.qroadscan.com'
 
-{"latitude":40.758,"longitude":-73.9855,
- "vehicle_type":"car","destination":"Midtown",
- "model":"llama_local","language":"en",
- "weather":"rain","traffic":"slow",
- "road_type":"city street","obstacles":"none observed",
- "sensor_notes":"user observations"}</pre><p>This deployment supports <code>openai</code> (GPT-5.5, when configured) and <code>llama_local</code>, in English. OpenAI calls use the configured OpenAI account directly. Other providers and translations return an unavailable response before charging. Reports are encrypted in private storage. New accounts start with no credits; purchases are disabled during the initial launch.</p></section><section class="card p-4 mt-4" id="garage-api"><h2>Garage &amp; aircraft API</h2><p>Use the same private Bearer key with <code>/api/v1/garage/vehicles</code> and <code>/api/v1/aviation/snapshot</code>. See the <a href="/openapi.yaml">OpenAPI specification</a> for schemas, quotas and all endpoints. Browser equivalents omit <code>/v1</code> and require a session plus CSRF for mutations.</p><pre>POST /api/v1/garage/vehicles
-{"name":"My aircraft","kind":"aircraft","make":"Example","model":"Trainer",
- "theme":"winter","specs":{"true_airspeed_kt":110,"fuel_burn_per_hour":9,
- "fuel_capacity":45,"fuel_unit":"gal","reserve_minutes":45}}
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/account" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p>A successful account response includes the current plan, account status, and available scan credits. Reading an account does not reserve a credit. If this first request fails, solve authentication or scope issues before submitting a scan, image, or route request. Do not debug authentication by repeatedly making paid model calls.</p>
+<p>Next, inspect capabilities and the permissions on your current key:</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/capabilities" \
+  -H "Authorization: Bearer $QRS_API_KEY"
 
-POST /api/v1/aviation/snapshot
-{"vehicle_id":"YOUR_VEHICLE_UUID","start":{"latitude":34.8956,"longitude":-82.2189},
- "destination":{"latitude":35.4362,"longitude":-82.5418},"departure_airport":"KGSP",
- "arrival_airport":"KAVL","altitude_ft":5000,"usable_fuel":35}</pre><p>Specs and fuel reserve are user-supplied scenario inputs, not recommended operating values or legal minimums. Aircraft briefings are advisory only: no clearances, conflict avoidance, approved flight plan, terrain/airspace validation or go/no-go decision. Check independent provider status and timestamp fields. Traffic absence does not prove clear airspace.</p><p>Generate a private illustration with <code>POST /api/v1/garage/vehicles/{id}/image</code>, body <code>{}</code>, and a unique <code>Idempotency-Key</code>. GPT Image 2 uses one existing scan credit on success, and PHF must pass before and after generation. Failures refund the reserved credit. Images remain encrypted and owner-restricted. Holiday themes are visual illustrations only.</p><p>OpenSky traffic is limited-area crowdsourced surveillance. OpenSky OAuth credentials can be configured server-side for higher quotas. Sources: <a href="https://opensky-network.org/">OpenSky Network</a>, <a href="https://aviationweather.gov/">NOAA Aviation Weather Center</a>, <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0), and <a href="https://www.rainviewer.com/">RainViewer</a>. Provider usage/licensing limits apply.</p></section></main>
-<script crossorigin="anonymous" defer="True" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" src="/static/js/jquery.min.js"></script><script crossorigin="anonymous" defer="True" integrity="sha384-LtrjvnR4Twt/qOuYxE721u19sVFLVSA4hf/rRt6PrZTmiPltdZcI7q7PXQBYTKyf" src="/static/js/bootstrap.bundle.min.js"></script><script crossorigin="anonymous" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" src="/pages/navigation.mjs" type="module"></script></body>
-</html>
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/key" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p>Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.</p>
+</section><section class="doc-section" id="authentication-permissions-and-key-lifecycle"><h2>Authentication, permissions, and key lifecycle</h2>
+<p>Every versioned request sends <code>Authorization: Bearer …</code>. A browser session cookie is not a substitute. The server hashes API-key material for lookup and checks revocation and expiry. A missing, malformed, revoked, or expired token returns <code>401</code>. An authenticated key that lacks a required permission returns <code>403 insufficient_scope</code> and identifies the missing scope.</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>account:read</code></td>
+<td>Read account plan, status, and credits.</td>
+</tr>
+<tr>
+<td><code>scans:read</code></td>
+<td>List and retrieve owned scene or visual-route reports.</td>
+</tr>
+<tr>
+<td><code>scans:write</code></td>
+<td>Submit metered scene scans.</td>
+</tr>
+<tr>
+<td><code>routes:write</code></td>
+<td>Search route endpoints, preview automatic imagery, and submit visual road analyses.</td>
+</tr>
+<tr>
+<td><code>garage:read</code></td>
+<td>Read garage profiles, marker SVGs, and mode advisory checklists.</td>
+</tr>
+<tr>
+<td><code>garage:write</code></td>
+<td>Create, replace, delete, or activate owned vehicle profiles.</td>
+</tr>
+<tr>
+<td><code>images:read</code></td>
+<td>Retrieve owned generated PNG illustrations.</td>
+</tr>
+<tr>
+<td><code>images:write</code></td>
+<td>Request a metered, PHF-gated illustration.</td>
+</tr>
+<tr>
+<td><code>aviation:read</code></td>
+<td>Read aviation configuration and request advisory evidence snapshots.</td>
+</tr>
+<tr>
+<td><code>aviation:review</code></td>
+<td>Request an AI review of a refreshed aviation snapshot.</td>
+</tr>
+<tr>
+<td><code>operations:read</code></td>
+<td>Inspect owned metered-operation status and resource links.</td>
+</tr>
+</tbody>
+</table>
+<p>Read-only keys are suitable for dashboards that retrieve existing resources and advisory snapshots without changing garage profiles or generating art. Road planner keys include road analysis permissions while avoiding image generation and aircraft AI review. Full user API keys include the currently supported user API scopes. None of these presets grants browser administrator privileges.</p>
+<p>Existing keys retain their former user-level capabilities when scopes are introduced. For backward compatibility, omitting scopes in the authenticated key-creation request retains the full user scope set. The Settings interface sends an explicit preset; new integrations should do the same through that managed UI. Review and rotate legacy broad keys when you can narrow their permissions.</p>
+<p>Use a separate key for each integration or environment. Give it a meaningful name, an appropriate expiry, and only the required permissions. A development script that reads reports does not need permission to spend image credits. Revoke a compromised key immediately. Recreating a key is safer than trying to recover a secret that may have entered logs or a public bundle.</p>
+</section><section class="doc-section" id="endpoint-reference-and-response-shapes"><h2>Endpoint reference and response shapes</h2>
+<p>All paths in this table are relative to the production origin. Unless noted otherwise, requests with a body use <code>Content-Type: application/json</code>. Resource ownership is enforced independently of scopes: a key with <code>garage:read</code> cannot read another account’s vehicle by guessing its UUID.</p>
+<table>
+<thead>
+<tr>
+<th>Method and path</th>
+<th>Required scope</th>
+<th>Main result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/v1/capabilities</code></td>
+<td>Valid key</td>
+<td>Feature and quota discovery.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/key</code></td>
+<td>Valid key</td>
+<td>Current key metadata and scopes.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/account</code></td>
+<td><code>account:read</code></td>
+<td>Plan, status, available credits.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/scans</code></td>
+<td><code>scans:write</code></td>
+<td>Metered scene report and operation ID.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/route/geocode</code></td>
+<td><code>routes:write</code></td>
+<td>Candidate places with precision/source labels.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/route/atlas</code></td>
+<td><code>routes:write</code></td>
+<td>Automatic imagery manifest and warnings, without a route-model analysis.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/route/analyze</code></td>
+<td><code>routes:write</code></td>
+<td>Metered visual proposal or refunded context request.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/reports</code></td>
+<td><code>scans:read</code></td>
+<td>Paginated owned report metadata.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/reports/{id}</code></td>
+<td><code>scans:read</code></td>
+<td>An owned, unexpired encrypted-at-rest report.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/operations/{id}</code></td>
+<td><code>operations:read</code></td>
+<td>Reserved/completed/refunded state and resource link.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/garage/vehicles</code></td>
+<td><code>garage:read</code></td>
+<td>Owned vehicles and active vehicle ID.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/garage/vehicles</code></td>
+<td><code>garage:write</code></td>
+<td>A new owned vehicle profile.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/garage/vehicles/{id}</code></td>
+<td><code>garage:read</code></td>
+<td>Current profile and version.</td>
+</tr>
+<tr>
+<td><code>PUT /api/v1/garage/vehicles/{id}</code></td>
+<td><code>garage:write</code></td>
+<td>Version-checked profile replacement.</td>
+</tr>
+<tr>
+<td><code>DELETE /api/v1/garage/vehicles/{id}</code></td>
+<td><code>garage:write</code></td>
+<td>Logical deletion and cleanup scheduling.</td>
+</tr>
+<tr>
+<td><code>PUT /api/v1/garage/active</code></td>
+<td><code>garage:write</code></td>
+<td>Active vehicle selection or clearing.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/garage/vehicles/{id}/marker</code></td>
+<td><code>garage:read</code></td>
+<td>Transparent type/color SVG; no model credit.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/garage/vehicles/{id}/image</code></td>
+<td><code>images:read</code></td>
+<td>Current private generated PNG.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/garage/vehicles/{id}/image</code></td>
+<td><code>images:write</code></td>
+<td>PHF-gated GPT Image 2 result; one credit on success.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/garage/vehicles/{id}/guidance</code></td>
+<td><code>garage:read</code></td>
+<td>Mode-specific checklist and optional area weather.</td>
+</tr>
+<tr>
+<td><code>GET /api/v1/aviation/config</code></td>
+<td><code>aviation:read</code></td>
+<td>Provider and advisory configuration.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/aviation/snapshot</code></td>
+<td><code>aviation:read</code></td>
+<td>Traffic/weather/wind/fuel evidence snapshot.</td>
+</tr>
+<tr>
+<td><code>POST /api/v1/aviation/briefing</code></td>
+<td><code>aviation:review</code></td>
+<td>Refreshed snapshot plus bounded AI review.</td>
+</tr>
+</tbody>
+</table>
+<p>The garage list retains its established <code>{vehicles, active_vehicle_id}</code> response. A single profile is a profile object, not a generic list envelope. The new reports collection uses <code>{data, pagination, meta}</code> because it can grow over time. Binary image and marker endpoints return image bodies rather than JSON. Check response status and content type before deciding how to parse a response.</p>
+</section><section class="doc-section" id="create-and-update-vehicles-through-the-api"><h2>Create and update vehicles through the API</h2>
+<p>Use a Full user API key or another key with <code>garage:write</code> for the write examples in this section. A Read-only key is intentionally denied. The following request creates an illustrative car profile. Replace the example values with your own verified information. <code>name</code> and <code>kind</code> are required; optional text fields can be omitted. Unsupported specification fields for the chosen kind are rejected instead of silently stored.</p>
+<pre><code class="language-bash">cat &gt; vehicle.json &lt;&lt;'JSON'
+{
+  "name": "City car",
+  "kind": "car",
+  "make": "Example",
+  "model": "Compact",
+  "year": 2025,
+  "color": "blue",
+  "theme": "none",
+  "appearance_notes": "Plain body panels and black wheels",
+  "specs": {"mass_kg": 1300}
+}
+JSON
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data-binary @vehicle.json
+</code></pre>
+<p>Save the returned <code>id</code> and <code>version</code> in your own application. The UUID is not a secret credential, but it still identifies a private resource. An integration must not infer authorization from knowing that ID; it should always use the correct account’s key.</p>
+<p>For a motorcycle, use <code>kind: motorcycle</code> and the motorcycle fields. Do not label a motorcycle as a car merely because a car was the first option in an older form.</p>
+<pre><code class="language-json">{
+  "name": "Small motorcycle",
+  "kind": "motorcycle",
+  "make": "Kawasaki",
+  "model": "Z125 Pro",
+  "year": 2025,
+  "color": "olive camouflage",
+  "theme": "none",
+  "specs": {"engine_cc": 125}
+}
+</code></pre>
+<p>For a truck or rail vehicle, keep operating quantities explicit. The following snippets are examples of request shape, not validated operating data:</p>
+<pre><code class="language-json">{
+  "name": "Illustrative articulated truck",
+  "kind": "truck",
+  "specs": {
+    "height_m": 4.0,
+    "width_m": 2.6,
+    "length_m": 22,
+    "mass_kg": 36000,
+    "axles": 5,
+    "hazmat": false
+  }
+}
+</code></pre>
+<pre><code class="language-json">{
+  "name": "Illustrative rail consist",
+  "kind": "train",
+  "specs": {
+    "length_m": 500,
+    "mass_kg": 200000,
+    "rail_gauge_mm": 1435,
+    "traction": "diesel"
+  }
+}
+</code></pre>
+<p>To update a vehicle, fetch the latest object, construct a replacement containing supported profile fields, and include the current <code>version</code>. Do not send server-generated fields such as <code>id</code>, <code>image_url</code>, or timestamps back as if they were editable profile properties. The server rejects unknown fields.</p>
+<pre><code class="language-bash">export VEHICLE_ID='YOUR_VEHICLE_UUID'
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles/$VEHICLE_ID" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+
+# Put the editable fields and current version in vehicle-update.json.
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles/$VEHICLE_ID" \
+  -X PUT \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data-binary @vehicle-update.json
+</code></pre>
+<p>A holiday change is an ordinary versioned profile replacement. It does not automatically spend an image credit. The current PNG endpoint refers to the profile’s current illustration, not an immutable historical art archive. Deleting a vehicle or changing its appearance can make a previously observed image link unavailable.</p>
+</section><section class="doc-section" id="activate-a-vehicle-retrieve-a-marker-and-request-advice"><h2>Activate a vehicle, retrieve a marker, and request advice</h2>
+<p>Active selection helps the browser choose a profile when opening the road workspace. It does not teleport a GPS position, start monitoring, generate an image, or authorize a route. A profile must belong to the same account as the key.</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/active" \
+  -X PUT \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data "{\"vehicle_id\":\"$VEHICLE_ID\"}"
+</code></pre>
+<p>Send <code>{"vehicle_id":null}</code> to clear the active selection. A deleted profile cannot be activated by retaining its UUID. The server checks current ownership and deletion state before changing the preference.</p>
+<p>The marker endpoint returns a small, transparent vector illustration without a model call or image credit. Store or serve it only according to your own authenticated account policy; the production endpoint remains private.</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles/$VEHICLE_ID/marker" \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  --output vehicle-marker.svg
+</code></pre>
+<p>For a mode-specific advisory checklist, submit an empty JSON object or a supported optional location. The location is used for a coarse area-weather estimate when available. A train advisory does not become movement authority because a weather estimate was returned.</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles/$VEHICLE_ID/guidance" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data '{"location":{"latitude":34.85,"longitude":-82.60}}'
+</code></pre>
+</section><section class="doc-section" id="generate-and-retrieve-a-private-vehicle-illustration"><h2>Generate and retrieve a private vehicle illustration</h2>
+<p>Image generation requires <code>images:write</code>, an owned vehicle, an existing credit, and an idempotency key. The body is the empty object <code>{}</code>. The application constructs the image description from the saved profile; a request cannot replace the server’s prompt, choose arbitrary provider URLs, disable PHF, or supply a different provider credential.</p>
+<pre><code class="language-bash">export IMAGE_IDEMPOTENCY_KEY="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles/$VEHICLE_ID/image" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $IMAGE_IDEMPOTENCY_KEY" \
+  --data '{}'
+</code></pre>
+<p>Keep the same key if your client loses the response and needs to retry that same logical generation. A completed replay should not invoke the provider or debit another credit. Generate a new key only for a genuinely new request, such as a new illustration after editing the theme. Do not turn a failed attempt into a retry loop that manufactures fresh keys to evade limits.</p>
+<p>A successful JSON response identifies the operation, vehicle, model, PHF results, and credit use. The server-side download endpoint requires <code>images:read</code>:</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles/$VEHICLE_ID/image" \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  --output vehicle.png
+</code></pre>
+<p>Check <code>Content-Type: image/png</code> if your client handles multiple response types. A JSON error must not be saved as if it were a PNG and subsequently treated as a corrupted image. A missing or expired illustration returns a resource error; it should not cause your UI to show another user’s cached picture as a fallback.</p>
+<p>A browser user performs the same generation through the signed-in settings flow with recent identity verification and CSRF. API keys authenticate explicitly instead; they do not submit the browser’s password or a CSRF cookie with every call. Protect an image-generation key because its permission can spend the owning account’s available image credits within the published limits.</p>
+</section><section class="doc-section" id="submit-a-scene-scan"><h2>Submit a scene scan</h2>
+<p>A scene scan accepts observations, coordinates, model selection, and language. It is not the visual map-atlas workflow. The application supports the configured OpenAI scene model and local Llama service when available. Unsupported provider/model selections are rejected before charging. English is the supported scan language for this deployment.</p>
+<pre><code class="language-bash">cat &gt; scene.json &lt;&lt;'JSON'
+{
+  "latitude": 40.758,
+  "longitude": -73.9855,
+  "vehicle_type": "car",
+  "destination": "Selected public destination",
+  "model": "openai",
+  "language": "en",
+  "weather": "Light rain reported by the user",
+  "traffic": "Slow traffic reported by the user",
+  "road_type": "Urban street",
+  "obstacles": "None reported; not independently verified",
+  "sensor_notes": "Illustrative input, not a live sensor feed"
+}
+JSON
+
+export SCAN_IDEMPOTENCY_KEY="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/scans" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $SCAN_IDEMPOTENCY_KEY" \
+  --data-binary @scene.json
+</code></pre>
+<p>The response includes the modeled classification, observations, provider provenance, report identifier, and operation identifier for a newly completed operation. Preserve the observations and limitations beside the result in your own interface. A <code>High</code> classification should not be relabeled as a measured chance of a crash, and a <code>Low</code> classification should not be presented as clearance to drive.</p>
+<p>Local Llama can have a cold start because it runs in a container. Provider availability and latency differ from OpenAI. A returned failure with refund is different from a client timing out while the server is still working. Use operation status when you have an operation ID, or retry the same logical request with the same idempotency key rather than creating duplicate paid work.</p>
+</section><section class="doc-section" id="visual-road-route-api"><h2>Visual road-route API</h2>
+<p>The visual-route endpoints are intended for clients that can provide an actual, correctly georeferenced map capture. They are not a text-only shortcut around missing map evidence. Use <code>routes:write</code>, supply owned vehicle IDs when needed, and preserve the map bounds and image dimensions associated with the pixels you captured.</p>
+<h3 id="find-an-endpoint">Find an endpoint</h3>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/route/geocode" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data '{"query":"Easley City Hall, Easley SC"}'
+</code></pre>
+<p>The result is a list of candidates with coordinates, labels, source, precision, and an accuracy description. A street-only match is not a resolved house entrance. A Census match can be interpolated. Unit removal means an apartment or suite suffix was removed for address lookup, not that the unit was found inside a complex. Your client should show the precision label and ask the user to confirm the actual endpoint.</p>
+<h3 id="preview-the-automatic-atlas">Preview the automatic atlas</h3>
+<pre><code class="language-bash">cat &gt; atlas.json &lt;&lt;'JSON'
+{
+  "start": {"latitude":34.8298,"longitude":-82.6015},
+  "destination": {"latitude":34.8526,"longitude":-82.3940},
+  "mode": "driving"
+}
+JSON
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/route/atlas" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data-binary @atlas.json
+</code></pre>
+<p>The atlas response contains role/bounds/dimension metadata and warnings, not a completed route and not the raw image bytes. It does not charge a route-model scan credit, but it is still quota-limited and uses upstream mapping services. Do not call it in a tight loop to harvest imagery or bypass a provider’s use restrictions.</p>
+<h3 id="submit-an-analysis-with-a-real-capture">Submit an analysis with a real capture</h3>
+<p>The request below illustrates the shape. Replace the placeholder with a real PNG or JPEG data URI and use bounds/dimensions that match that exact capture. The server validates media signatures and dimensions, requires both endpoints inside the capture, bounds image sizes and context-image count, and rejects unsupported fields. Do not use a garage illustration as a map capture.</p>
+<pre><code class="language-json">{
+  "start": {"latitude":34.8298,"longitude":-82.6015},
+  "destination": {"latitude":34.8526,"longitude":-82.3940},
+  "mode": "driving",
+  "vehicle_id": "YOUR_OWNED_ROAD_VEHICLE_UUID",
+  "notes": "Review the visible main-road corridor; verify legal turns separately.",
+  "map": {
+    "image": "data:image/jpeg;base64,REPLACE_WITH_REAL_IMAGE_BYTES",
+    "width": 1000,
+    "height": 750,
+    "bounds": {"north":35.0,"south":34.7,"east":-82.2,"west":-82.8}
+  },
+  "context_images": []
+}
+</code></pre>
+<pre><code class="language-bash">export ROUTE_IDEMPOTENCY_KEY="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/route/analyze" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $ROUTE_IDEMPOTENCY_KEY" \
+  --data-binary @route-with-real-capture.json
+</code></pre>
+<p>A completed proposal includes sections, imported/modeled provenance, geometry alignment metadata, image-manifest metadata, weather samples, limitations, and a stored report identifier. A <code>needs_context</code> response can be HTTP 200 while indicating that no supported proposal was completed and the credit was refunded. Inspect the semantic <code>status</code>; HTTP success alone does not establish a usable route.</p>
+<p>Road analysis currently accepts driving and walking contexts. Aircraft and train profiles are rejected by this road handler. Do not describe an aircraft as a car to force a road ribbon into an aviation UI. For long or unsupported corridors, refine the region or provide better evidence; do not invent a continuous line and label it a verified road trace.</p>
+</section><section class="doc-section" id="reports-and-signed-pagination"><h2>Reports and signed pagination</h2>
+<p>Use <code>scans:read</code> to list the owning account’s completed, unexpired scene and visual-route reports. Generated garage images are deliberately excluded from scan history, so selecting a saved scan does not lead to a nonexistent image-as-report resource.</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/reports?limit=20" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p>The reports collection returns <code>data</code>, <code>pagination</code>, and <code>meta</code>. <code>data</code> contains report metadata and per-report URLs, not decrypted contents for every report at once. <code>pagination.next_cursor</code> is either a signed opaque cursor or null. Keep it exactly as returned; do not parse it to implement authorization or build your own cursor from another account’s values.</p>
+<p>Cursors are bound to the owning account and report collection, and expire. They order reports by creation time and report ID, which avoids ordinary page-offset drift when newer reports arrive. They are not permanent bookmarks. If a cursor expires, restart the listing from the first page and deduplicate reports by their identifiers in your own application.</p>
+<pre><code class="language-bash"># Save the actual next_cursor from the prior response; do not invent one.
+export REPORT_CURSOR='CURSOR_FROM_RESPONSE'
+curl --fail-with-body --silent --show-error --get \
+  "$QRS_BASE/api/v1/reports" \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  --data-urlencode 'limit=20' \
+  --data-urlencode "cursor=$REPORT_CURSOR"
+</code></pre>
+<p>Retrieve one report through its owned resource URL:</p>
+<pre><code class="language-bash">export REPORT_ID='REPORT_ID_FROM_RESPONSE'
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/reports/$REPORT_ID" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p>Report access checks ownership, completion state, and retention. A guessed identifier does not grant access. Reports older than the supported retention period can become unavailable. Preserve the distinction between your own cached copy and a fresh server retrieval, and apply your own privacy and retention policy if you store copies externally.</p>
+</section><section class="doc-section" id="operation-status-and-idempotent-recovery"><h2>Operation status and idempotent recovery</h2>
+<p>New metered responses include an <code>operation_id</code>. Use <code>operations:read</code> to inspect the status when that identifier is available. Operation status is metadata about the work and credit state; it is not another model call.</p>
+<pre><code class="language-bash">export OPERATION_ID='OPERATION_UUID_FROM_RESPONSE'
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/operations/$OPERATION_ID" \
+  -H "Authorization: Bearer $QRS_API_KEY"
+</code></pre>
+<p><code>reserved</code> means the operation has reserved a credit and has not reached a settled terminal state. It does not mean the model is at a specific percentage. Respect <code>poll_after_seconds</code> rather than polling continuously. <code>completed</code> means settlement finished; the response can include a result resource link. <code>refunded</code> means the reservation was returned, which can result from a provider failure or an unsupported route requiring more context.</p>
+<p>A status resource does not reveal another user’s operation. The server checks the owning account. A result link also does not bypass the scope required to retrieve the actual report or PNG. A key with operation-status permission alone does not automatically gain all report or image contents.</p>
+<p>Use a fresh idempotency key for every genuinely new metered operation. Store the key together with the original request body before sending it. When retrying a transport failure, reuse the exact original body and key. Do not reuse a key across different operation kinds or different intended jobs. The key is an operation identity, not permission to swap the inputs after submission.</p>
+<p>A request can finish after a client disconnects. If you lost the entire response and do not have an operation ID, retry the same request identity rather than inventing another job. A completed replay should not reserve or debit again. A conflicting or still-processing reservation can return 409. Read the original error and operation state before deciding whether the next action is to wait, correct an input, or create a new logical request.</p>
+</section><section class="doc-section" id="aircraft-api-end-to-end-example"><h2>Aircraft API end-to-end example</h2>
+<p>First create an aircraft profile with <code>garage:write</code>. These numbers demonstrate field shape only. They are not recommended values for a real aircraft, a legal fuel reserve, or a substitute for the appropriate performance manual.</p>
+<pre><code class="language-bash">cat &gt; aircraft.json &lt;&lt;'JSON'
+{
+  "name": "Illustrative trainer",
+  "kind": "aircraft",
+  "make": "Example",
+  "model": "Trainer",
+  "theme": "none",
+  "specs": {
+    "type_designator": "C172",
+    "true_airspeed_kt": 110,
+    "fuel_burn_per_hour": 9,
+    "fuel_capacity": 45,
+    "fuel_unit": "gal",
+    "reserve_minutes": 45
+  }
+}
+JSON
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/garage/vehicles" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data-binary @aircraft.json
+</code></pre>
+<p>Next use the actual returned vehicle UUID in a snapshot request. This example uses public airport coordinates. You must verify that the airport codes and coordinates match your own intended locations before relying on a scenario.</p>
+<pre><code class="language-bash">cat &gt; briefing.json &lt;&lt;'JSON'
+{
+  "vehicle_id": "YOUR_AIRCRAFT_UUID",
+  "start": {"latitude":34.8956,"longitude":-82.2189},
+  "destination": {"latitude":35.4362,"longitude":-82.5418},
+  "departure_airport": "KGSP",
+  "arrival_airport": "KAVL",
+  "altitude_ft": 5000,
+  "usable_fuel": 35
+}
+JSON
+
+curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/aviation/snapshot" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data-binary @briefing.json
+</code></pre>
+<p>Inspect <code>quality</code>, individual source statuses, raw airport records, wind timestamps, and <code>fuel_scenario</code>. Preserve missing, partial, stale, and unavailable distinctions. A fuel scenario can be incomplete even if a weather response exists. A valid airport forecast does not validate the aircraft’s entered burn or capacity.</p>
+<p>Requesting an AI review requires <code>aviation:review</code>, uses the same request shape, and refreshes the evidence before asking the configured route model to review it. It is separately quota-limited and currently does not charge a scan credit.</p>
+<pre><code class="language-bash">curl --fail-with-body --silent --show-error \
+  "$QRS_BASE/api/v1/aviation/briefing" \
+  -X POST \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  --data-binary @briefing.json
+</code></pre>
+<p>The result contains <code>snapshot</code> and <code>briefing</code>. The briefing separates weather review, traffic review, fuel review, and items to verify before flight. Do not transform those advisory text arrays into a stream of automated cockpit commands. Keep the snapshot time and the limitations beside the commentary, especially when a provider is unavailable.</p>
+</section><section class="doc-section" id="javascript-server-client-example"><h2>JavaScript server client example</h2>
+<p>The following example is intended for Node.js on your trusted server. It reads the API key from an environment variable. Do not paste the key into a browser script or publish it in a static frontend build. The helper checks content type, preserves the server request ID, and distinguishes a JSON problem response from a successful payload.</p>
+<pre><code class="language-javascript">const origin = process.env.QRS_BASE || 'https://ride.qroadscan.com';
+const key = process.env.QRS_API_KEY;
+if (!key) throw new Error('QRS_API_KEY is required on the server');
+
+async function qrs(path, {method = 'GET', body, idempotencyKey} = {}) {
+  const response = await fetch(origin + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${key}`,
+      ...(body !== undefined ? {'Content-Type': 'application/json'} : {}),
+      ...(idempotencyKey ? {'Idempotency-Key': idempotencyKey} : {})
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    redirect: 'error',
+    signal: AbortSignal.timeout(360_000)
+  });
+  const requestId = response.headers.get('x-request-id');
+  const contentType = response.headers.get('content-type') || '';
+  const value = contentType.includes('json') ? await response.json() : null;
+  if (!response.ok) {
+    const error = new Error(value?.detail || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = value?.code || value?.error;
+    error.requestId = requestId;
+    error.retryAfter = response.headers.get('retry-after');
+    throw error;
+  }
+  return {value, requestId, headers: response.headers};
+}
+
+const capabilities = await qrs('/api/v1/capabilities');
+console.log(capabilities.value.api_version);
+
+let cursor = null;
+const seen = new Set();
+do {
+  const query = new URLSearchParams({limit: '20'});
+  if (cursor) query.set('cursor', cursor);
+  const page = await qrs('/api/v1/reports?' + query);
+  for (const report of page.value.data) {
+    if (!seen.has(report.report_id)) {
+      seen.add(report.report_id);
+      // Process authorized metadata; fetch contents only when needed.
+      console.log(report.report_id, report.operation_kind);
+    }
+  }
+  cursor = page.value.pagination.next_cursor;
+} while (cursor);
+</code></pre>
+<p>A timeout in this helper is a local timeout, not a guarantee that a metered operation was canceled. Persist the idempotency key and original body outside a transient function scope when you submit paid work. Avoid printing complete request bodies, images, credentials, or sensitive route details into application logs. Log request IDs and safe error codes instead.</p>
+</section><section class="doc-section" id="python-server-client-example"><h2>Python server client example</h2>
+<p>This example uses Python’s standard library. It illustrates authentication, JSON requests, and problem handling without requiring a particular HTTP SDK. A production service may use its own connection pooling, secret store, structured logging, and retry framework, but it should preserve the same authorization and idempotency rules.</p>
+<pre><code class="language-python">import json
+import os
+import urllib.error
+import urllib.request
+
+BASE = os.environ.get('QRS_BASE', 'https://ride.qroadscan.com')
+KEY = os.environ['QRS_API_KEY']
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect())
+
+
+def qrs(path, method='GET', body=None, idempotency_key=None):
+    headers = {'Authorization': 'Bearer ' + KEY}
+    payload = None
+    if body is not None:
+        headers['Content-Type'] = 'application/json'
+        payload = json.dumps(body).encode('utf-8')
+    if idempotency_key:
+        headers['Idempotency-Key'] = idempotency_key
+    request = urllib.request.Request(
+        BASE + path, data=payload, headers=headers, method=method
+    )
+    try:
+        with OPENER.open(request, timeout=360) as response:
+            return json.load(response), response.headers.get('X-Request-ID')
+    except urllib.error.HTTPError as error:
+        try:
+            problem = json.load(error)
+        except (ValueError, TypeError):
+            problem = {'error': 'non_json_error'}
+        # Do not log KEY or an entire private request body.
+        raise RuntimeError({
+            'status': error.code,
+            'code': problem.get('code', problem.get('error')),
+            'request_id': error.headers.get('X-Request-ID'),
+            'retry_after': error.headers.get('Retry-After')
+        }) from None
+
+
+account, request_id = qrs('/api/v1/account')
+print('Available credits:', account['api_credits'])
+</code></pre>
+<p>Binary endpoints need a separate download path in your client. Check the HTTP status and <code>Content-Type</code>, then write authorized bytes to your chosen private storage. Do not run a JSON parser over a PNG or SVG. Conversely, do not write an error problem document into a <code>.png</code> file and later diagnose it as an image-generation defect.</p>
+</section><section class="doc-section" id="errors-request-ids-and-retries"><h2>Errors, request IDs, and retries</h2>
+<p>Versioned errors use a problem-style JSON response while retaining the established <code>error</code> code for compatibility. The document includes status, code, detail, and a request ID. Responses also carry <code>X-Request-ID</code>. Give that identifier and the safe error code when reporting a problem; do not paste a key, session cookie, provider credential, or an entire private image body.</p>
+<pre><code class="language-json">{
+  "type": "about:blank",
+  "title": "insufficient scope",
+  "status": 403,
+  "code": "insufficient_scope",
+  "error": "insufficient_scope",
+  "detail": "insufficient_scope",
+  "request_id": "SERVER_GENERATED_REQUEST_UUID",
+  "required_scope": "garage:write"
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Typical meaning</th>
+<th>Appropriate next step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>400</code></td>
+<td>Invalid JSON, unsupported field, invalid coordinates, bad cursor, or invalid specs.</td>
+<td>Correct the request; do not repeat it unchanged.</td>
+</tr>
+<tr>
+<td><code>401</code></td>
+<td>Missing, malformed, expired, or revoked Bearer key.</td>
+<td>Check the secret and expiry; do not fall back to a browser cookie.</td>
+</tr>
+<tr>
+<td><code>403</code></td>
+<td>Missing scope or a browser security check failed.</td>
+<td>Use the required permission or correct browser session/CSRF flow.</td>
+</tr>
+<tr>
+<td><code>402</code></td>
+<td>No available credit for a metered operation.</td>
+<td>Inspect account credits; no purchase flow is currently enabled.</td>
+</tr>
+<tr>
+<td><code>404</code></td>
+<td>Resource absent, deleted, expired, or not owned by the account.</td>
+<td>Check the owned identifier and retention; do not enumerate other IDs.</td>
+</tr>
+<tr>
+<td><code>409</code></td>
+<td>Version, idempotency, or processing conflict.</td>
+<td>Reload current state or wait for the same operation; do not blindly overwrite.</td>
+</tr>
+<tr>
+<td><code>413</code></td>
+<td>Request or image body exceeds a bound.</td>
+<td>Reduce the payload within the documented capture limits.</td>
+</tr>
+<tr>
+<td><code>415</code></td>
+<td>Body does not use the required JSON content type.</td>
+<td>Send <code>application/json</code> for JSON endpoints.</td>
+</tr>
+<tr>
+<td><code>422</code></td>
+<td>A PHF check rejected the image request or output.</td>
+<td>Revise the descriptive content; do not attempt to bypass the gate.</td>
+</tr>
+<tr>
+<td><code>429</code></td>
+<td>A baseline or feature-specific quota is exhausted.</td>
+<td>Respect <code>Retry-After</code> and the applicable reset window.</td>
+</tr>
+<tr>
+<td><code>503</code></td>
+<td>A model or upstream service cannot fulfill the operation.</td>
+<td>Preserve request identity and inspect operation/refund state before retrying.</td>
+</tr>
+</tbody>
+</table>
+<p>Not every unavailable provider produces an HTTP error for an aircraft snapshot. The endpoint can return a successful evidence envelope with a specific provider marked unavailable. This is intentional: partial weather information may still be useful as long as the missing traffic or wind source remains visible. Your client must inspect semantic statuses as well as HTTP status.</p>
+<p>Avoid automatic retry loops for validation failures, PHF rejections, insufficient credits, missing permissions, or stale profile versions. A retry cannot fix those by itself. For transient transport failures, use bounded exponential backoff with jitter and the same idempotency key/body for the same metered operation. Never assume that dropping your HTTP connection canceled a provider task already running on the server.</p>
+</section><section class="doc-section" id="rate-limits-quotas-and-cost-controls"><h2>Rate limits, quotas, and cost controls</h2>
+<p>The API applies a baseline budget of 120 requests per API key per minute. Individual features have additional account, key, global, or daily limits. These are separate controls. Passing the baseline limit does not imply permission to generate 120 images or run 120 route analyses in that minute.</p>
+<p>Responses with a known API budget include <code>RateLimit-Limit</code>, <code>RateLimit-Remaining</code>, and <code>RateLimit-Reset</code>. The reset is an epoch timestamp. A 429 also carries <code>Retry-After</code> in seconds. When a feature-specific limit is the one that rejects the request, the rate information can describe that limiting feature rather than the baseline minute bucket. Inspect the response instead of hardcoding a universal five-second retry.</p>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Current account/key budget</th>
+<th>Additional considerations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API baseline</td>
+<td>120 requests/key/minute</td>
+<td>Applies to discovery and ordinary API calls too.</td>
+</tr>
+<tr>
+<td>Scene scans</td>
+<td>20 attempts/key/minute</td>
+<td>Successful metered work uses a credit.</td>
+</tr>
+<tr>
+<td>Visual route analysis</td>
+<td>6 attempts/account/hour</td>
+<td>A separate global route budget also applies.</td>
+</tr>
+<tr>
+<td>Atlas preview</td>
+<td>6 requests/account/hour</td>
+<td>No route-model credit, but mapping-provider limits still apply.</td>
+</tr>
+<tr>
+<td>Route search</td>
+<td>15 requests/account/minute</td>
+<td>Upstream geocoder pacing and availability also apply.</td>
+</tr>
+<tr>
+<td>Vehicle art</td>
+<td>2 attempts/account/UTC day</td>
+<td>Ten global attempts/day; one credit on success.</td>
+</tr>
+<tr>
+<td>Aircraft evidence</td>
+<td>40 requests/account/hour</td>
+<td>Monitoring and manual refresh share this budget.</td>
+</tr>
+<tr>
+<td>Aircraft AI review</td>
+<td>4 requests/account/UTC day</td>
+<td>Twenty global requests/day; currently no scan credit.</td>
+</tr>
+</tbody>
+</table>
+<p>Daily application windows use UTC boundaries, which may not be local midnight for your browser. Do not promise a user that a quota resets at their local midnight unless you have explicitly converted the actual server reset time. Provider quotas can be independent of application budgets and can still cause unavailable responses.</p>
+<p>Short shared provider caches reduce repeated upstream requests for nearby traffic, airport weather, and wind samples. They do not turn old source timestamps into current ones. The homepage’s fictional Grok refresh is a different workflow and does not reuse a cached simulated scene. Treat each surface according to its own source and freshness semantics.</p>
+</section><section class="doc-section" id="browser-sessions-csrf-and-security-keys"><h2>Browser sessions, CSRF, and security keys</h2>
+<p>The signed-in browser app uses its own session flow. Login, registration, logout, password changes, garage mutations, route tools, and administrator actions require the relevant same-origin and CSRF checks. The application’s own API helper obtains a signed token and sends <code>X-CSRF-Token</code>. A valid token refresh preserves the browser cookie so another tab is not unnecessarily invalidated.</p>
+<p>The public homepage uses a limited signed preview cookie for its own token flow. That cookie does not grant account access or administrator rights. Likewise, possessing a CSRF token is not authentication. The server still checks the session, ownership, scope, and any recent-verification requirement appropriate to the endpoint.</p>
+<p>Passkeys and FIDO2 security keys can be enrolled in Settings after recent identity verification. Registration and sign-in require user verification on a supported authenticator. Challenges are short-lived, bound to the browser/session, consumed once, and checked against the expected origin and relying party. The server stores public credentials, not the authenticator’s private key.</p>
+<p>API-key creation/revocation and other sensitive account actions require recent server-side verification in the browser. A normal password login does not automatically unlock all sensitive changes indefinitely. Verified passkey sign-in has its own short elevation window. Removing a security key does not make an existing API key vanish; manage each credential type explicitly.</p>
+<p>Static scripts, styles, and module preloads carry Subresource Integrity hashes. The browser should reject altered bytes that do not match the page’s expected digest. CSP restricts script execution and framing. These controls complement authorization; they do not make a leaked API key harmless or prove that a model’s output is correct.</p>
+</section><section class="doc-section" id="administrator-console-and-support-operations"><h2>Administrator console and support operations</h2>
+<p>The administrator console is a separate browser surface available only to operator-provisioned administrator accounts. A signup email, API-key permission, garage type, or client-provided role field cannot grant that role. Server-side role checks apply to each administrator route. API Bearer keys do not act as administrator sessions.</p>
+<p>The console can show bounded account search, service configuration status, security posture, and an audit trail. Sensitive user operations require recent verification. Support-credit grants are positive, bounded, idempotent ledger entries with a reason. Session and API-key revocations are audited. Provider status is reported as configuration metadata rather than revealing secret values.</p>
+<p>An administrator should identify the correct account before applying an action. A support reason should be meaningful without including a password or provider key. Replaying the same support reference should not duplicate a grant. A revocation action is different from deleting private reports or modifying an aircraft’s entered operating assumptions.</p>
+<p>The console does not provide a general tool for reading other users’ decrypted garage profiles, images, or private reports. Cloud infrastructure operators and application administrator sessions are different trust boundaries. Review deployment documentation and your own operational policy before changing secret bindings, database roles, or encryption keys.</p>
+</section><section class="doc-section" id="integration-architecture-and-operational-checklist"><h2>Integration architecture and operational checklist</h2>
+<p>Use a trusted backend between your public frontend and the Bearer API. Store one key per integration, set explicit permissions, and avoid sharing a broad production key among unrelated jobs. Your backend can authenticate its own users and decide which account-owned resources each of them should see. QRoadScan’s account boundary does not automatically implement your own organization’s multi-user authorization rules.</p>
+<p>Persist metered request identity before sending work. Store the idempotency key, operation type, a reference to the exact request body, submission time, and eventual server operation/report ID. Keep images and route captures in appropriately private storage. Redact credentials from logs and avoid logging full payloads merely because they are helpful during development.</p>
+<p>Separate source data from interpretation in your UI. Display provider timestamps, coverage, missing values, scope, and assumptions beside a score or AI summary. If a feed becomes stale, remove or clearly mark the outdated positions. If a profile changes, do not continue presenting old fuel figures or model context as if they were recomputed for the new profile.</p>
+<p>Build bounded retry and polling behavior. Use the server’s operation state and retry headers. Do not create fresh paid work whenever a browser tab rerenders. Stop monitoring when a user leaves the relevant view. Cache only data you are permitted to cache, retain its original source timestamps, and follow provider access and licensing terms before scaling or commercial use.</p>
+<p>Before deploying an integration, exercise wrong-key, expired-key, insufficient-scope, bad-body, version-conflict, provider-unavailable, stale-traffic, and client-timeout paths. Test that another account’s resource ID does not work with your key. Verify that a failed illustration does not debit twice and that a successful replay does not call the generator again. An integration that works only on the happy path is not ready for sensitive account data or metered model work.</p>
+</section><section class="doc-section" id="troubleshooting-and-frequently-asked-questions"><h2>Troubleshooting and frequently asked questions</h2>
+<h3 id="why-is-the-garage-picture-cut-off">Why is the garage picture cut off?</h3>
+<p>The image may be fine while the card’s layout is using the PNG’s intrinsic size. The current card explicitly contains and centers the full picture, and the larger viewer lets you inspect it without a narrow card crop. Refresh the page to load the latest styling. You do not need to regenerate and spend a credit just to repair the display box.</p>
+<h3 id="why-does-my-motorcycle-show-a-car-icon">Why does my motorcycle show a car icon?</h3>
+<p>Check the saved <code>kind</code>, not just the make/model text. The marker is based on the type you saved. Correct the profile to motorcycle, verify its specifications, and select it in the road workspace. The known Z125 mismatch has an explicit correction action. Type correction is a user choice and does not silently edit all existing profiles.</p>
+<h3 id="does-the-tiny-icon-cost-another-credit">Does the tiny icon cost another credit?</h3>
+<p>No. The transparent type/color marker is a vector rendering. The large studio illustration is the metered GPT Image 2 resource. They serve different purposes and have separate rendering paths. Downloading a marker does not trigger PHF or image generation because it is built from constrained local shapes and colors.</p>
+<h3 id="why-do-i-have-a-key-but-still-get-403">Why do I have a key but still get 403?</h3>
+<p>A valid key can lack a required scope. Inspect the problem response’s <code>required_scope</code> and use <code>/api/v1/key</code> to inspect your permissions. A Read-only key should be denied when it tries to create a profile or spend an image credit. Do not attempt to solve that by sending an administrator email in the request body.</p>
+<h3 id="why-did-a-successful-http-response-return-no-route">Why did a successful HTTP response return no route?</h3>
+<p>The semantic route status can be <code>needs_context</code>. The request was processed, but the evidence did not support a completed proposal. The credit is returned. Read the targeted requests for better endpoints or imagery. HTTP 200 is not a claim of route feasibility.</p>
+<h3 id="why-is-aircraft-traffic-unavailable-while-weather-works">Why is aircraft traffic unavailable while weather works?</h3>
+<p>Traffic and weather come from independent services and can fail independently. OpenSky may be unreachable, rate-limited, require different access, or return stale data. The current deployment has experienced Cloudflare-to-OpenSky timeouts. The app must not turn an unavailable feed into an invented empty-but-clear traffic picture.</p>
+<h3 id="why-is-the-fuel-number-incomplete">Why is the fuel number incomplete?</h3>
+<p>Check TAS, fuel burn, capacity, unit, reserve, usable fuel, corridor distance, and wind availability. The calculation avoids inventing missing inputs or converting unrelated units. A simple scenario cannot represent every flight allowance, and an entered reserve is not regulatory approval.</p>
+<h3 id="can-i-use-aircraft-mode-as-atc-or-a-navigation-instrument">Can I use aircraft mode as ATC or a navigation instrument?</h3>
+<p>No. The surface is an advisory briefing reader and scenario tool. It provides no clearance, certified surveillance, separation, collision avoidance, flight-control interface, or approved route. Keep official sources and qualified operating decisions in their proper roles. AI commentary does not override them.</p>
+<h3 id="why-does-a-private-image-url-fail-on-my-external-site">Why does a private image URL fail on my external site?</h3>
+<p>The image is private. A browser-oriented app URL expects the correct session, and a versioned download expects a key with the proper scope. Do not make the bucket public. Fetch authorized bytes on your trusted server and implement an appropriate user access policy there.</p>
+<h3 id="what-should-i-include-in-a-useful-bug-report">What should I include in a useful bug report?</h3>
+<p>Include the page or endpoint, safe error code, request ID, approximate time with timezone, browser/client version, and the steps that reproduced the problem. Mention whether a source was marked stale or unavailable. Exclude raw keys, cookies, passwords, VINs, personal home addresses, and full private images unless you intentionally choose a secure support channel for them.</p>
+</section><section class="doc-section" id="provider-attribution-and-implementation-limits"><h2>Provider attribution and implementation limits</h2>
+<p>Mapping uses OpenStreetMap data and hosted tiles with attribution; imported road geometry uses OpenFreeMap/OpenMapTiles sources where applicable. Endpoint and corridor imagery can use Esri services with their visible attribution. RainViewer supplies precipitation imagery. NOAA Aviation Weather Center supplies airport weather products. MET Norway and Open-Meteo provide area weather/model forecasts. OpenSky Network supplies public aircraft state vectors when reachable. OpenAI and xAI provide configured model services.</p>
+<p>Each provider has its own access, licensing, availability, privacy, and usage terms. A working development request does not establish permission for unlimited production or commercial use. Review the relevant terms and obtain appropriate agreements or paid access before scaling. Keep source attributions visible and preserve provenance rather than relabeling external data as an in-house measurement.</p>
+<p>The project’s security tests and browser checks exercise specific implemented controls. They are not a certification of road safety, aviation suitability, cryptographic perfection, or every possible threat. The app has no live vehicle or aircraft hardware validation. Synthetic GPS fixtures and simulated quantum states are explicitly test/simulation data, not evidence that a real route or flight is safe.</p>
+<p>For maintainers, the repository includes deployment instructions, implemented security controls, validation records, and the OpenAPI artifact. Build the frontend before deployment so page assets and SRI hashes stay synchronized. Apply required database migrations before publishing a Worker that expects the new columns. Never commit local environment files, provider credentials, private test-account files, or generated customer images to the repository.</p></section></main></div><footer class="docs-footer">QRoadScan · Evidence and uncertainty stay visible. <a href="/dashboard">Open workspace</a> · <a href="/settings/user#garage">Your garage</a> · <a href="/aircraft">Aircraft briefing</a></footer><p aria-live="polite" class="docs-copy-status" id="docsCopyStatus" role="status"></p><script crossorigin="anonymous" defer="True" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" src="/static/js/jquery.min.js"></script><script crossorigin="anonymous" defer="True" integrity="sha384-LtrjvnR4Twt/qOuYxE721u19sVFLVSA4hf/rRt6PrZTmiPltdZcI7q7PXQBYTKyf" src="/static/js/bootstrap.bundle.min.js"></script><script crossorigin="anonymous" integrity="sha384-It0fwZRu1/2/Zcp1qen0+6U1vPDzQE2mfEeVuf3PfOKe4gsHJdkCfPurNd1fIdGR" src="/pages/docs.mjs" type="module"></script></body></html>

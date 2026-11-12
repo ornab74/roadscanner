@@ -2744,3 +2744,11 @@ See [deployment and provider setup](cloudflare/DEPLOYMENT.md),
 [implemented controls](cloudflare/SECURITY-CONTROLS.md),
 [validation and limitations](cloudflare/VALIDATION.md), and
 [the multimodal API specification](cloudflare/public/openapi.yaml).
+
+
+The [long-form handbook](cloudflare/frontend/docs-guide.md) covers browser workflows,
+vehicle modes, aircraft evidence, scoped API permissions and complete curl/Node/Python
+examples. The public Docs link is available in the top navigation. The API 2.1
+contract adds operation status, signed report pagination, route analysis, correlated
+problem responses and rate headers while retaining the `/api/v1/` path. Free
+transparent type/color map icons are separate from metered studio illustrations.

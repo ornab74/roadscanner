@@ -119,3 +119,33 @@ This causes a known console CSP message without preventing app execution.
   No synthetic vehicle image is used as aircraft-performance or weather evidence.
 
 Garage image reservations are excluded from scan-report history, report retrieval, homepage scene sources and scan statistics. Admin metrics count generated images separately. Deletion clears encrypted profile contents immediately, schedules private image deletion and later purges the tombstone.
+
+
+## Scoped API and marker rendering
+
+API scope names are a fixed allowlist. New keys store only validated scopes, and
+all relevant versioned handlers enforce them before reading owned resources or
+starting provider work. Legacy Bearer report reads also enforce scopes and consume
+the baseline key budget; browser session/account endpoints reject API keys. Role
+checks remain separate and session-only. Key creation audit includes the granted
+scopes, never the raw token.
+
+Report cursors use HMAC with an owner/collection-specific domain prefix and an
+expiry. Request limits, cursor values, report IDs and resource ownership are checked
+server-side. Operation status returns bounded metadata and owned resource links;
+the resource still requires its own read scope. Cross-kind idempotency reuse is
+rejected. Request IDs are server-generated, and problem documents omit internal
+exceptions and provider secrets. Rate-limit metadata is request-local, not stored
+in mutable shared environment state.
+
+Transparent SVG markers select from fixed geometry and constrained color values.
+Vehicle names and arbitrary strings are not inserted into SVG markup. GPS tooltips
+use DOM text nodes. No user-supplied SVG upload, external href, embedded script or
+provider image fetch is used to create a free icon. Decorative orientation without
+reported heading is not a physical heading measurement.
+
+The handbook is compiled from trusted repository Markdown, not user content. Its
+code examples are escaped, and copying examples does not execute API operations.
+SRI/CSP remain enabled; public navigation and responsive Docs styles are generated
+as local assets. New example clients reject redirects and read credentials from
+server environment settings instead of embedding them into the documentation.
