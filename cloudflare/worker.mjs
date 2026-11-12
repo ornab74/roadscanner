@@ -318,6 +318,9 @@ export default {
     if(canonicalURL.protocol==='http:'){canonicalURL.protocol='https:';return Response.redirect(canonicalURL.toString(),308);}
     let response;const context={request_id:crypto.randomUUID(),rate:null};
     try{response=await routes(request,env,context);}catch(e){
+      // Database quota triggers close races after the user-facing prechecks.
+      const quota=['garage_full','api_key_limit','security_key_limit'].find(code=>String(e.message).includes(code));
+      if(quota)e=Object.assign(new Error(quota),{status:409});
       const status=Number.isInteger(e.status)&&e.status>=400&&e.status<=599?e.status:(e.message?.includes('JSON')?400:500);
       if(status===500)console.error('request_failed',e.message);
       const code=status===500?'internal_error':e.message;context.rate=e.rate??context.rate;
