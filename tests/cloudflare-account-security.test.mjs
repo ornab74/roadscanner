@@ -3,6 +3,25 @@ import assert from 'node:assert/strict';
 import worker from '../cloudflare/worker.mjs';
 import {fixture} from './fixtures/account-worker.mjs';
 const origin='https://example.test';
+test('a concurrent credential replacement prevents session issuance, elevation and stale password overwrites',async()=>{
+ for(const mode of ['login','reauth','change']){
+  const f=await fixture();try{
+   const c=await client(f);const originalPrepare=f.DB.prepare.bind(f.DB),originalBatch=f.DB.batch.bind(f.DB);let injected=false;
+   const replace=async()=>{injected=true;await originalPrepare("UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id='owner'").bind('ab'.repeat(32),'22'.repeat(16)).run();};
+   f.DB.prepare=sql=>{
+    const s=originalPrepare(sql),originalRun=s.run;
+    if((mode==='login'&&sql.startsWith('INSERT INTO sessions('))||(mode==='reauth'&&sql.startsWith('UPDATE sessions SET elevated_until='))){s.run=async function(){if(!injected)await replace();return originalRun.call(this);};}
+    return s;
+   };
+   f.DB.batch=async statements=>{if(mode==='change'&&!injected&&statements.some(s=>s.sql.startsWith('UPDATE user_credentials SET password_hash=')))await replace();return originalBatch(statements);};
+   const path=mode==='login'?'/auth/login':mode==='reauth'?'/api/security/reauth':'/auth/password';
+   const body=mode==='login'?{email:'owner@example.test',password:'test-password-1234'}:mode==='reauth'?{password:'test-password-1234'}:{current_password:'test-password-1234',new_password:'replacement-password-1234'};
+   const r=await c.request(path,'POST',body);assert.equal(injected,true);assert.equal(r.status,401);assert.equal(r.headers.get('Set-Cookie'),null);
+   assert.equal((await originalPrepare("SELECT password_hash FROM user_credentials WHERE user_id='owner'").first()).password_hash,'ab'.repeat(32));
+   assert.equal((await originalPrepare("SELECT COUNT(*) AS n FROM sessions WHERE user_id='owner' AND elevated_until>0").first()).n,0);
+  }finally{f.close();}
+ }
+});
 test('legacy login upgrades only a verified password and remains usable for reauthentication and password changes',async()=>{
  const f=await fixture();try{
   const before=await f.DB.prepare("SELECT password_hash FROM user_credentials WHERE user_id='owner'").first();assert.match(before.password_hash,/^[a-f0-9]{64}$/);

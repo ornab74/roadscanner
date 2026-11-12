@@ -27,7 +27,8 @@ export async function securityRoutes(request,env,{principal,limit}){
   if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
   try{hash=await verifyPassword(data.password,c.password_salt,c.password_hash,env.QRS_PASSWORD_PEPPER);}catch{fail('invalid_credentials',401);}
   if(!hash)fail('invalid_credentials',401);
-  await env.DB.batch([q(env,'UPDATE sessions SET elevated_until=? WHERE token_hash=?',now()+300,p.session_hash),audit(env,p,'session.reauthenticated',p.user_id)]);return json({elevated_until:now()+300});
+  const elevated=await q(env,'UPDATE sessions SET elevated_until=? WHERE token_hash=? AND user_id=? AND expires_at>? AND EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?)',now()+300,p.session_hash,p.user_id,now(),p.user_id,c.password_hash,c.password_salt).run();if(elevated.meta.changes!==1)fail('invalid_credentials',401);
+  await audit(env,p,'session.reauthenticated',p.user_id).run();return json({elevated_until:now()+300});
  }
  if(path==='/api/security/keys'&&method==='GET')return json((await q(env,'SELECT id,name,created_at,last_used_at,backed_up FROM security_keys WHERE user_id=? ORDER BY created_at DESC',p.user_id).all()).results);
  if(path==='/api/security/keys/options'&&method==='POST'){

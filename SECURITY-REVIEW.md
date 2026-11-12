@@ -4,6 +4,8 @@ This targeted review covers the deployed Cloudflare Worker architecture. It is n
 
 ## Changes applied
 
+- Credential lifecycle races are guarded at the database write boundary. Login session insertion and password reauthentication require the exact hash/salt snapshot that was verified. Password changes compare-and-swap that snapshot and revoke sessions in the same D1 batch. A concurrent credential replacement cannot be overwritten by a stale password-change request or followed by a stale password login issuing a new session. Regression tests inject credential replacement immediately before each affected write and verify rejection, no cookie issuance/elevation, and preservation of the replacement hash.
+
 - Login previously limited attempts only by connecting IP. Distributed clients could target one password without sharing that limit. Login now additionally permits at most 30 attempts per normalized email per five-minute fixed window. Email rate keys use HMAC rather than plaintext. This applies equally to existing and nonexistent accounts. Existing per-IP protection remains. An attacker can temporarily exhaust this account limit; passkey login remains separate.
 - Enabled execution of Cloudflare's free managed WAF ruleset for `ride.qroadscan.com` only. Existing custom and rate-limit rules were preserved. No paid product was enabled.
 

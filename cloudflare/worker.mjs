@@ -235,8 +235,10 @@ async function routes(request,env,context){
       const salt=randomToken().slice(0,32),hash=await passwordHash(data.password,salt,env.QRS_PASSWORD_PEPPER);
       const updated=await query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=? AND password_hash=? AND password_salt=?',hash,salt,user.id,user.password_hash,user.password_salt).run();
       if(updated.meta.changes!==1)fail('invalid_credentials',401);
+      user.password_hash=hash;user.password_salt=salt;
     }
-    const token=randomToken();await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)',await sha256(token),user.id,now()+86400,now()).run();
+    const token=randomToken();const issued=await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?)',await sha256(token),user.id,now()+86400,now(),user.id,user.password_hash,user.password_salt).run();
+    if(issued.meta.changes!==1)fail('invalid_credentials',401);
     return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
   }
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
@@ -287,10 +289,11 @@ async function routes(request,env,context){
     let valid,next;const salt=randomToken().slice(0,32);
     try{valid=await verifyPassword(data.current_password,credentials.password_salt,credentials.password_hash,env.QRS_PASSWORD_PEPPER);next=await passwordHash(data.new_password,salt,env.QRS_PASSWORD_PEPPER);}catch(e){fail(e.message,400);}
     if(!valid)fail('invalid_credentials',401);
-    await env.DB.batch([
-      query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=?',next,salt,p.user_id),
-      query(env,'DELETE FROM sessions WHERE user_id=?',p.user_id),
+    const changed=await env.DB.batch([
+      query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=? AND password_hash=? AND password_salt=?',next,salt,p.user_id,credentials.password_hash,credentials.password_salt),
+      query(env,'DELETE FROM sessions WHERE user_id=? AND EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?)',p.user_id,p.user_id,next,salt),
     ]);
+    if(changed[0].meta.changes!==1)fail('invalid_credentials',401);
     return json({password_changed:true},200,{'Set-Cookie':'__Host-qrs_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
   }
   if(path==='/api/reports'&&request.method==='GET'){
