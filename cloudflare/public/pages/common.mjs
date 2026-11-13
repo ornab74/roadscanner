@@ -22,7 +22,7 @@ export const friendly={
  scan_unavailable:'The scanner is busy or unavailable. Your reserved credit was refunded. Please try again.',
  home_model_not_configured:'The main-page model is not configured yet.',
  home_model_unavailable:'The homepage model is currently unavailable. Please try again shortly.',
- route_analysis_unavailable:'The visual route model could not complete a valid proposal. Your scan credit was refunded. Try clearer imagery or a smaller area.',
+ route_analysis_unavailable:'Route analysis could not finish. Your scan credit was refunded. Please try again.',
  insufficient_api_credits:'No scan credits remain. Purchases are currently unavailable.',
  endpoints_outside_map:'Fit both endpoints into the visible map before analyzing.',
  route_model_not_configured:'The route model is not configured.',
@@ -40,7 +40,7 @@ export async function api(path,options={}){
  }
  const response=await fetch(path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}});
  const value=await response.json().catch(()=>({error:'Unable to read the response. Please try again.'}));
- if(!response.ok)throw Object.assign(new Error(friendly[value.error]??value.error??'Request failed. Please try again.'),{status:response.status,code:value.error});
+ if(!response.ok){const reasons={output_limit:'The route model reached its response limit.',model_incomplete:'The route model returned an incomplete response.',timeout:'The route analysis timed out.',invalid_output:'The route model returned a response that failed validation.',provider_http_error:'The route model provider is temporarily unavailable.',report_size_limit:'The route report exceeded its storage limit.',imagery_unavailable:'The automatic map imagery could not be captured.'};const detail=value.error==='route_analysis_unavailable'&&reasons[value.failure?.reason];const reference=value.error==='route_analysis_unavailable'&&/^[a-f0-9-]{36}$/.test(value.failure?.operation_id??'')?' Reference: '+value.failure.operation_id:'';throw Object.assign(new Error((detail?detail+' Your scan credit was refunded. Please try again.':friendly[value.error]??value.error??'Request failed. Please try again.')+reference),{status:response.status,code:value.error,failure:value.failure});}
  return value;
 }
 export async function session(){

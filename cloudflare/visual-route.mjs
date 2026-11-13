@@ -2,8 +2,7 @@ import {importRoads,alignToRoads} from './road-geometry.mjs';
 import {annotateMappedRoute} from './mapped-directions.mjs';
 import {constrainImage} from './image-constraints.mjs';
 import {captureRouteImagery} from './route-imagery.mjs';
-import {strictJSON} from './security.mjs';
-import {boundedBody} from './internal-auth.mjs';
+import {routeModelJSON} from './route-model.mjs';
 import {currentWeather,weatherLocation} from './weather.mjs';
 import {vehicleNavigationContext} from './public/pages/vehicle-guidance.mjs';
 const fail=message=>{throw Object.assign(new Error(message),{status:400});};
@@ -39,6 +38,7 @@ export function validateVisualResult(r,request){
  return {...r,segments};
 }
 export async function analyzeVisualRoute(env,request,fetcher=fetch){
+ let stage='imagery';try{
  const locations=[request.start,{latitude:(request.start.latitude+request.destination.latitude)/2,longitude:(request.start.longitude+request.destination.longitude)/2},request.destination],weather=[];
  for(const p of locations){const rounded=weatherLocation(p);if(weather.some(w=>w.latitude===rounded.latitude&&w.longitude===rounded.longitude))continue;try{weather.push({...rounded,estimate:await currentWeather(rounded,fetcher)});}catch{weather.push({...rounded,estimate:null});}}
  const imagery=await captureRouteImagery(request,fetcher);
@@ -49,14 +49,13 @@ export async function analyzeVisualRoute(env,request,fetcher=fetch){
  facts.vehicle_navigation=vehicleNavigationContext(request.vehicle);
  const vehicleInstructions=' Apply vehicle_navigation.focus as a section-by-section review checklist, not as evidence that a hazard exists. Report missing_profile_fields as unknown and request the relevant details; never fill them from a make/model name. For an articulated truck, total combination dimensions and axle count are not assumed from the term 18-wheeler. Keep maneuvers concise, prioritize junction/entrance geometry, and reserve lane-specific claims for supplied evidence. Describe how supplied weather affects this vehicle rather than repeating a generic weather paragraph. Maintain the supplied instruction_style and geometry_policy.';
  const content=[{type:'input_text',text:JSON.stringify(facts)},{type:'input_image',image_url:request.map.image},...imagery.frames.map(f=>({type:'input_image',image_url:f.image})),...request.context_images.map(image_url=>({type:'input_image',image_url}))];
- const response=await fetcher('https://api.openai.com/v1/responses',{method:'POST',redirect:'manual',headers:{Authorization:'Bearer '+env.OPENAI_API_KEY,'Content-Type':'application/json'},signal:AbortSignal.timeout(120000),body:JSON.stringify({model,store:false,max_output_tokens:8192,reasoning:{effort:'low'},instructions:instructions+vehicleInstructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name:'qrs_visual_route',strict:true,schema}}})});
- if(!response.ok){let code='unknown';try{const e=JSON.parse(new TextDecoder().decode(await boundedBody(response.body,16384))).error;if(typeof e?.code==='string'&&/^[A-Za-z0-9_.-]{1,80}$/.test(e.code))code=e.code;}catch{}throw new Error('Route model failed: HTTP '+response.status+' ('+code+')');}
- const body=strictJSON(new TextDecoder('utf-8',{fatal:true}).decode(await boundedBody(response.body,262144)));if(body.status!=='completed')throw new Error('Route model did not complete');
- const text=(body.output??[]).flatMap(o=>o.content??[]).filter(c=>c.type==='output_text').map(c=>c.text).join(''),result=validateVisualResult(strictJSON(text),request);
+ stage='visual_model';
+ const {result,model:usedModel}=await routeModelJSON(env,{model,store:false,max_output_tokens:8192,reasoning:{effort:'low'},instructions:instructions+vehicleInstructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name:'qrs_visual_route',strict:true,schema}}},fetcher,{maxBytes:262144,incompleteMessage:'Route model did not complete',httpMessage:'Route model failed: HTTP ',validate:r=>validateVisualResult(r,request)});
  let final=result;
  if(result.status==='proposal'&&env.ROUTE_ROAD_TRACE==='true'){
-  try{const source=await importRoads(request,fetcher);final=alignToRoads(result,request,source);}catch{final={...result,status:'needs_context',segments:[],summary:'The visual corridor could not be aligned to a connected mapped road trace. Refine the endpoints or use a shorter section; no solid road ribbon or GPS route was generated.',limitations:[...result.limitations,'Mapped road data or a supported road connection was unavailable.']};}
-  if(final.status==='proposal')final=await annotateMappedRoute(env,final,weather,request.notes,fetcher,facts.vehicle_navigation);
+  stage='road_alignment';try{const source=await importRoads(request,fetcher);final=alignToRoads(result,request,source);}catch{final={...result,status:'needs_context',segments:[],summary:'The visual corridor could not be aligned to a connected mapped road trace. Refine the endpoints or use a shorter section; no solid road ribbon or GPS route was generated.',limitations:[...result.limitations,'Mapped road data or a supported road connection was unavailable.']};}
+  if(final.status==='proposal'){stage='mapped_review';final=await annotateMappedRoute(env,final,weather,request.notes,fetcher,facts.vehicle_navigation);}
  } else if(result.status==='proposal'){final={...result,geometry_alignment:{status:'unmatched',provenance:'DERIVED'}};}
- return {...final,navigation_profile:facts.vehicle_navigation,imagery_manifest:imagery.frames.map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:body.model??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
+ return {...final,navigation_profile:facts.vehicle_navigation,imagery_manifest:imagery.frames.map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:usedModel??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
+ }catch(e){throw Object.assign(e instanceof Error?e:new Error('Route analysis failed'),{route_stage:stage});}
 }

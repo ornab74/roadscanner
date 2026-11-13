@@ -1,3 +1,4 @@
+import {routeFailure} from './route-failure.mjs';
 import {apiUtilities,requireScope} from './api-contract.mjs';
 import {garageRoutes,cleanupGarage} from './garage.mjs';
 import {aviationRoutes} from './aviation.mjs';
@@ -171,7 +172,7 @@ async function runVisualRoute(request,env,p){
     }
     await env.REPORTS.put(reportPath(p.user_id,id),await encryptReport(env.QRS_REPORT_KEY,p.user_id,id,payload),{httpMetadata:{contentType:'application/json'}});
     const settled=await query(env,"UPDATE api_requests SET status='completed',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();if(settled.meta.changes!==1)throw new Error('Route settlement failed');return json(payload);
-  }catch(e){await query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();console.error('visual_route_failed',id,/^Route model failed: HTTP [0-9]{3} \([A-Za-z0-9_.-]+\)$/.test(e.message??'')?e.message:'invalid_or_unavailable_analysis');fail('route_analysis_unavailable',503);}
+  }catch(e){const failure=routeFailure(e,id);await query(env,"UPDATE api_requests SET status='refunded',response_json=?,updated_at=? WHERE id=? AND status='reserved'",JSON.stringify({error:'route_analysis_unavailable',failure}),now(),id).run();console.error('visual_route_failed',failure);throw Object.assign(new Error('route_analysis_unavailable'),{status:503,route_failure:failure});}
 }
 async function routes(request,env,context){
   const url=new URL(request.url), path=url.pathname;
@@ -331,7 +332,7 @@ export default {
       if(status===500)console.error('request_failed',context.request_id);
       const code=status===500?'internal_error':e.message;context.rate=e.rate??context.rate;
       const errorHeaders=status===429?{'Retry-After':String(e.retry_after??300)}:{};
-      if(canonicalURL.pathname.startsWith('/api/v1/')){if(status===401)errorHeaders['WWW-Authenticate']='Bearer realm="QRoadScan", error="invalid_token"';if(e.required_scope)errorHeaders['WWW-Authenticate']='Bearer error="insufficient_scope", scope="'+e.required_scope+'"';response=json({type:'about:blank',title:code.replaceAll('_',' '),status,code,error:code,detail:code,request_id:context.request_id,...(e.required_scope?{required_scope:e.required_scope}:{})},status,{...errorHeaders,'Content-Type':'application/problem+json'});}else response=json({error:code},status,errorHeaders);
+      if(canonicalURL.pathname.startsWith('/api/v1/')){if(status===401)errorHeaders['WWW-Authenticate']='Bearer realm="QRoadScan", error="invalid_token"';if(e.required_scope)errorHeaders['WWW-Authenticate']='Bearer error="insufficient_scope", scope="'+e.required_scope+'"';response=json({type:'about:blank',title:code.replaceAll('_',' '),status,code,error:code,detail:code,request_id:context.request_id,...(e.route_failure?{failure:e.route_failure}:{}),...(e.required_scope?{required_scope:e.required_scope}:{})},status,{...errorHeaders,'Content-Type':'application/problem+json'});}else response=json({error:code,...(e.route_failure?{failure:e.route_failure}:{})},status,errorHeaders);
     }
     const headers=new Headers(response.headers);headers.set('X-Request-ID',context.request_id);if(context.rate){headers.set('RateLimit-Limit',String(context.rate.limit));headers.set('RateLimit-Remaining',String(context.rate.remaining));headers.set('RateLimit-Reset',String(context.rate.reset));}
     headers.set('Strict-Transport-Security','max-age=31536000');
