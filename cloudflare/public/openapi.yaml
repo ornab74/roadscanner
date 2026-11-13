@@ -1763,6 +1763,11 @@ paths:
                 vehicle_id:
                   type: string
                   format: uuid
+                objective:
+                  type: string
+                  enum: [balanced, fastest, simplest, caution, fuel]
+                  default: balanced
+                  description: Proposal objective; scoring remains independent. Each completed proposal uses one scan credit.
                 notes:
                   type: string
                   maxLength: 1200
@@ -1871,12 +1876,12 @@ components:
           maxLength: 400
         specs:
           type: object
-          description: 'car: mass_kg,height_m,width_m,length_m,towing,trailer_length_m;
-            motorcycle: engine_cc,mass_kg,abs; truck: configuration,height_m,width_m,length_m,trailer_length_m,mass_kg,axles,hazmat;
+          description: 'car: mass_kg,height_m,width_m,length_m,towing,trailer_length_m,fuel_economy_mpg;
+            motorcycle: engine_cc,mass_kg,abs,fuel_economy_mpg; truck: configuration,height_m,width_m,length_m,trailer_length_m,mass_kg,axles,hazmat,fuel_economy_mpg,wheelbase_m,kingpin_to_axle_m,fifth_wheel_offset_m,turn_radius_m;
             train: length_m,mass_kg,rail_gauge_mm,traction; aircraft: airframe,rotor_diameter_m,true_airspeed_kt,fuel_burn_per_hour,fuel_capacity,fuel_unit,reserve_minutes,icao24,type_designator.
             configuration is rigid or articulated; airframe is fixed_wing or helicopter.
             towing,abs,hazmat are booleans; omitted values remain unknown. Total truck length and mass describe the loaded combination.
-            All numeric values must be finite and positive, except reserve_minutes may be zero. Fuel units:
+            All numeric values must be finite and positive, except reserve_minutes may be zero and fifth_wheel_offset_m is signed and may be zero. fuel_economy_mpg uses US gallons. turn_radius_m is a user-supplied circular scenario front-axle-center radius, not a measured road turn radius. Fuel units:
             gal,l,kg. icao24 is six hex characters.'
     VehicleNavigationProfile:
       type: object

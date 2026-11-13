@@ -5,6 +5,11 @@ import {validateVisualRequest,toPixel,fromPixel,validateVisualResult,analyzeVisu
 const image='data:image/png;base64,'+pngHeader().toString('base64');
 const input={start:{latitude:40.75,longitude:-74},destination:{latitude:40.76,longitude:-73.99},mode:'walking',notes:'Use visible paths.',map:{image,width:800,height:600,bounds:{north:40.77,south:40.74,east:-73.98,west:-74.01}},context_images:[]};
 function result(){return {status:'proposal',summary:'Proposed visible path, subject to verification.',endpoint_guidance:['Confirm the entrance on site.'],limitations:['No verified legal routing or indoor access.'],segments:[{id:0,street:'Visible street',instruction:'Proposed path toward the destination.',risk_score:35,risk_reason:'Weather estimate suggests rain; road wetness is unverified.',evidence:'weather_estimate',points:[toPixel(input.start,input.map.bounds),toPixel(input.destination,input.map.bounds)]}]};}
+test('route objectives are optional and strictly allowlisted',()=>{
+ assert.equal(validateVisualRequest(input).objective,'balanced');
+ for(const objective of ['fastest','simplest','caution','fuel'])assert.equal(validateVisualRequest({...input,objective}).objective,objective);
+ for(const objective of ['__proto__','ignore constraints',['fastest'],null,123])assert.throws(()=>validateVisualRequest({...input,objective}),/invalid_route_request/);
+});
 test('visual input validates image size, bounds and endpoints; Mercator conversion round trips',()=>{
  assert.equal(validateVisualRequest(input).mode,'walking');const p=toPixel(input.start,input.map.bounds),geo=fromPixel(p,input.map.bounds);assert.ok(Math.abs(geo[0]-input.start.longitude)<1e-8);assert.ok(Math.abs(geo[1]-input.start.latitude)<1e-8);
  assert.throws(()=>validateVisualRequest({...input,map:{...input.map,image:'data:image/png;base64,AAAA'}}),/image/);
