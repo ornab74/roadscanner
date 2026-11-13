@@ -1662,8 +1662,36 @@ paths:
       security: *id005
       responses:
         '200':
-          description: Proposal with operation_id/report_id, or needs_context with credit returned. Aircraft/train
-            rejected.
+          description: Proposal with operation_id/report_id, or needs_context with credit returned. New approved mapped proposals include numeric NAZA-inspired modeled section indices with explicit score_basis. Aircraft/train rejected.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  risk_scoring:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                        example: naza-inspired-llm-v1
+                      probability:
+                        type: boolean
+                        const: false
+                  segments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        risk_score:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                        score_basis:
+                          type: string
+                          enum: [weather_estimate, map_context, illustrative_baseline]
+                        name_provenance:
+                          type: string
+                          enum: [IMPORTED, DERIVED_FROM_MAPPED_LABEL, UNKNOWN]
           headers:
             X-Request-ID: *id001
             RateLimit-Limit: *id002

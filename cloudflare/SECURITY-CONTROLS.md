@@ -20,7 +20,10 @@ independent security audit or certification of route accuracy.
 - Images, labels and notes are untrusted model inputs. Structured output is
   validated for shape, bounded text, finite scores, connected geometry and
   endpoint alignment. Returned text is inserted as text, never executed as HTML.
-  Uncertain section evidence cannot produce a numeric confidence color.
+  Section indices carry an explicit basis: weather estimate, map context, or
+  illustrative baseline. Missing conditions can receive a labeled illustrative
+  index; that number is not measured confidence or accident probability. The
+  simulated quantum fringe does not supply empirical hazard evidence.
 - Raw image bytes are not retained in reports. Saved route results and geocoder
   caches are encrypted. Automatic public map-image preview links can expire.
   OpenAI requests use `store: false`; provider data policies remain applicable.

@@ -17,3 +17,4 @@
 @media(prefers-reduced-motion:reduce){.quantum-fringe{animation:none!important}}
 
 .radar-playback{display:flex;gap:7px;margin:7px 0}.radar-playback button{font-size:.72rem;padding:5px 12px;min-height:32px}.planner-content:is(:fullscreen,.app-fullscreen) .quantum-card{bottom:190px}@media(max-width:850px){.planner-content:is(:fullscreen,.app-fullscreen) .quantum-card{bottom:145px}.radar-playback button{font-size:.65rem;padding:4px 10px}}
+.section-risk-score{display:inline-flex;padding:4px 10px;margin:0 0 8px;border:1px solid currentColor;border-radius:999px;color:var(--section-color);font-size:.95rem;font-variant-numeric:tabular-nums}
