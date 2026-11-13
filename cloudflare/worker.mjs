@@ -168,7 +168,8 @@ async function runVisualRoute(request,env,p){
     const scores=assessment.segments.map(s=>s.risk_score).filter(Number.isFinite),peak=scores.length?Math.max(...scores):null;
     const payload={...assessment,operation_id:id,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode,vehicle:input.vehicle?{id:input.vehicle.id,name:input.vehicle.name,kind:input.vehicle.kind,specs:input.vehicle.specs}:null};
     if(assessment.status==='needs_context'){
-      await query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE id=? AND status='reserved'",now(),id).run();
+      const failure=assessment.alignment_failure?{operation_id:id,stage:'road_alignment',reason:assessment.alignment_failure.code}:null;
+      await query(env,"UPDATE api_requests SET status='refunded',response_json=?,updated_at=? WHERE id=? AND status='reserved'",failure?JSON.stringify({error:'route_alignment_failed',failure}):null,now(),id).run();if(failure)console.warn('route_alignment_failed',failure);
       return json({...payload,report_id:null,scan_credit_refunded:true,credits_used:0});
     }
     await env.REPORTS.put(reportPath(p.user_id,id),await encryptReport(env.QRS_REPORT_KEY,p.user_id,id,payload),{httpMetadata:{contentType:'application/json'}});

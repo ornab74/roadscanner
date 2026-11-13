@@ -8,7 +8,7 @@ import {pngHeader} from './fixtures/image-headers.mjs';
 const scene={latitude:40.7,longitude:-74,vehicle_type:'car',destination:'Example',model:'llama_local',language:'en'};
 const call=(f,path,method='GET',body,headers={})=>f.request(path,{method,headers:{Authorization:'Bearer '+f.key,'Content-Type':'application/json',...headers},...(body!==undefined?{body:JSON.stringify(body)}:{})});
 test('rotating API keys cannot bypass the account scan limit and stored replays remain available',async()=>{
- const f=await fixture();try{
+ const f=await fixture(),originalNow=Date.now,fixedNow=Date.now();Date.now=()=>fixedNow;try{
   const headers={'Idempotency-Key':'account-budget-original-1'};
   const first=await call(f,'/api/v1/scans','POST',scene,headers);assert.equal(first.status,200);
   const now=Math.floor(Date.now()/1000),bucket='scan-user:owner:'+Math.floor(now/60);
@@ -23,7 +23,7 @@ test('rotating API keys cannot bypass the account scan limit and stored replays 
   const replay=await call(f,'/api/v1/scans','POST',scene,headers);assert.equal(replay.status,200);assert.equal(replay.headers.get('Idempotent-Replay'),'true');
   assert.equal(f.calls(),1);assert.equal((await f.DB.prepare("SELECT credits FROM accounts WHERE user_id='owner'").first()).credits,1);
   assert.equal((await f.DB.prepare('SELECT COUNT(*) AS n FROM api_requests').first()).n,1);
- }finally{f.close();}
+ }finally{Date.now=originalNow;f.close();}
 });
 test('an account-only key cannot reach protected feature scopes or browser administration',async()=>{
  const f=await fixture();try{

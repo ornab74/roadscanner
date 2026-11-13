@@ -22,6 +22,12 @@ test('visual route rejects wrong endpoints, disconnected geometry and fabricated
  const unknown=result();unknown.segments[0].evidence='uncertain';assert.equal(validateVisualResult(unknown,input).segments[0].risk_score,null);
  const incomplete=result();incomplete.status='needs_context';assert.throws(()=>validateVisualResult(incomplete,input),/Incomplete/);
 });
+test('road source outages get one retry, preserve a precise diagnostic and never request mapped directions',async()=>{
+ let sourceCalls=0,modelCalls=0;
+ const fetcher=async(url)=>{if(imageryResponse(url))return imageryResponse(url);if(url.startsWith('https://api.met.no/'))return new Response('',{status:503});if(url==='https://tiles.openfreemap.org/planet'){sourceCalls++;return new Response('',{status:503});}modelCalls++;return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(result())}]}]});};
+ const r=await analyzeVisualRoute({OPENAI_API_KEY:'fixture',ROUTE_ROAD_TRACE:'true'},input,fetcher);
+ assert.equal(sourceCalls,2);assert.equal(modelCalls,1);assert.equal(r.status,'needs_context');assert.deepEqual(r.segments,[]);assert.equal(r.alignment_failure.code,'source_unavailable');assert.equal(r.geometry_alignment.failure_code,'source_unavailable');assert.ok(!r.summary.includes('Refine the endpoints'));
+});
 test('GPT-6 Luna receives images and weather, uses no route engine, and rejects incomplete output',async()=>{
  let providerCalls=0;
  const fetcher=async(url,options)=>{if(imageryResponse(url))return imageryResponse(url);if(url.startsWith('https://api.met.no/'))return new Response('',{status:503});providerCalls++;assert.equal(options.redirect,'manual');assert.equal(url,'https://api.openai.com/v1/responses');const b=JSON.parse(options.body);assert.equal(b.model,'gpt-6-luna');assert.equal(b.store,false);assert.ok(b.input[0].content.some(c=>c.type==='input_image'));assert.match(b.instructions,/There is no routing engine/);assert.match(b.instructions,/Map Excellence/);assert.ok(JSON.parse(b.input[0].content[0].text).image_manifest);return Response.json({status:'completed',model:'gpt-6-luna',output:[{content:[{type:'output_text',text:JSON.stringify(result())}]}]});};
