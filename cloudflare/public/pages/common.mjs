@@ -32,13 +32,33 @@ export const friendly={
  home_source_required:'Run a dashboard scan first so OpenAI has a saved scene to assess.',
  request_too_large:'The request is too large. Shorten the notes and try again.',
 };
-export async function api(path,options={}){
- if(!['GET','HEAD','OPTIONS'].includes((options.method??'GET').toUpperCase())){
-  const tokenResponse=await fetch('/api/home/csrf',{credentials:'same-origin',cache:'no-store'});
-  if(!tokenResponse.ok)throw new Error('Unable to obtain a security token. Please reload.');
-  options={...options,headers:{...options.headers,'X-CSRF-Token':(await tokenResponse.json()).csrf_token}};
+let csrfValue=null,csrfUntil=0,csrfPending=null;
+export async function csrfToken(force=false){
+ if(force){csrfValue=null;csrfUntil=0;}
+ if(csrfValue&&Date.now()<csrfUntil)return csrfValue;
+ if(csrfPending)return csrfPending;
+ csrfPending=(async()=>{
+  const response=await fetch('/api/home/csrf',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw new Error('Unable to obtain a security token. Please reload.');
+  const value=await response.json();if(typeof value.csrf_token!=='string'||!value.csrf_token||value.csrf_token.length>512)throw new Error('Invalid security token response. Please reload.');
+  csrfValue=value.csrf_token;csrfUntil=Date.now()+(Number.isFinite(value.expires_at)?Math.max(0,Math.min(300000,value.expires_at*1000-Date.now()-60000)):60000);
+  return csrfValue;
+ })();
+ try{return await csrfPending;}finally{csrfPending=null;}
+}
+// Retry only a CSRF rejection: the Worker verifies it before any mutation.
+export async function csrfFetch(path,options={}){
+ const mutation=!['GET','HEAD','OPTIONS'].includes((options.method??'GET').toUpperCase());
+ if(!mutation)return fetch(path,{credentials:'same-origin',...options});
+ for(let attempt=0;attempt<2;attempt++){
+  const headers=new Headers(options.headers);headers.set('X-CSRF-Token',await csrfToken(attempt>0));
+  const response=await fetch(path,{credentials:'same-origin',...options,headers});
+  if(response.status!==403||attempt)return response;
+  const error=await response.clone().json().catch(()=>null);if(error?.error!=='invalid_csrf')return response;
  }
- const response=await fetch(path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}});
+}
+export async function api(path,options={}){
+ const response=await csrfFetch(path,{...options,headers:{'Content-Type':'application/json',...options.headers}});
  const value=await response.json().catch(()=>({error:'Unable to read the response. Please try again.'}));
  if(!response.ok){const reasons={output_limit:'The route model reached its response limit.',model_incomplete:'The route model returned an incomplete response.',timeout:'The route analysis timed out.',invalid_output:'The route model returned a response that failed validation.',provider_http_error:'The route model provider is temporarily unavailable.',report_size_limit:'The route report exceeded its storage limit.',imagery_unavailable:'The automatic map imagery could not be captured.'};const detail=value.error==='route_analysis_unavailable'&&reasons[value.failure?.reason];const reference=value.error==='route_analysis_unavailable'&&/^[a-f0-9-]{36}$/.test(value.failure?.operation_id??'')?' Reference: '+value.failure.operation_id:'';throw Object.assign(new Error((detail?detail+' Your scan credit was refunded. Please try again.':friendly[value.error]??value.error??'Request failed. Please try again.')+reference),{status:response.status,code:value.error,failure:value.failure});}
  return value;

@@ -20,10 +20,10 @@ async function rate(env,request){
 export async function publicHomeCSRF(request,env){
  sameOrigin(request);await rate(env,request);
  const existing=/\b__Host-qrs_preview=([a-f0-9]{64}\.\d{10}\.[a-f0-9]{64})(?:;|$)/.exec(request.headers.get('Cookie')??'')?.[1];
- if(existing){const [nonce,expires,signature]=existing.split('.');if(Number(expires)>now()+60&&Number(expires)<=now()+3600&&await sameSecret(signature,await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+nonce+'.'+expires)))return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+existing)});}
- const value=randomToken()+'.'+(now()+3600);
+ if(existing){const [nonce,expires,signature]=existing.split('.');if(Number(expires)>now()+60&&Number(expires)<=now()+3600&&await sameSecret(signature,await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+nonce+'.'+expires)))return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+existing),expires_at:Number(expires)});}
+ const expiresAt=now()+3600,value=randomToken()+'.'+expiresAt;
  const cookie=value+'.'+await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+value);
- return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+cookie)},200,{'Set-Cookie':'__Host-qrs_preview='+cookie+'; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600'});
+ return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+cookie),expires_at:expiresAt},200,{'Set-Cookie':'__Host-qrs_preview='+cookie+'; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600'});
 }
 export async function verifyBrowserCSRF(request,env){
  sameOrigin(request);

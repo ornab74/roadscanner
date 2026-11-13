@@ -1,4 +1,4 @@
-import {api} from './common.mjs';
+import {api,csrfFetch} from './common.mjs';
 
 const previewText='Hello. I’m Atlas, your AI-generated route voice. When you’re ready, we’ll look at the journey ahead… one clear step at a time.';
 export function navigationVoice({isActive,isFullscreen,onSettingsChange}){
@@ -15,9 +15,9 @@ export function navigationVoice({isActive,isFullscreen,onSettingsChange}){
   if(cue.cue!=='preview'&&!Number.isSafeInteger(route?.report_id)){status(device(cue.text)?'Device fallback · saved route needed for GPT':'Load a saved route for GPT voice.');return;}
   controller=new AbortController();status('Preparing Atlas audio…');el('gpsVoiceMute').disabled=false;
   try{
-   const csrf=await api('/api/home/csrf');if(!valid())return;
+   if(!valid())return;
    const body={cue:cue.cue,preset:el('gpsVoicePreset').value,...(cue.cue==='preview'?{}:{report_id:route.report_id}),...(cue.cue==='turn'?{section_index:cue.section_index,distance_m:cue.distance_m}:cue.cue==='approach'?{distance_m:cue.distance_m}:{})};
-   const response=await fetch('/api/route/voice',{method:'POST',credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf.csrf_token},body:JSON.stringify(body)});
+   const response=await csrfFetch('/api/route/voice',{method:'POST',credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
    if(!response.ok)throw Error(response.status===429?'quota':'unavailable');
    if(!(response.headers.get('Content-Type')??'').startsWith('audio/'))throw Error('unavailable');
    const blob=await response.blob();if(!valid())return;if(!preview&&Date.now()-issued>(cue.max_age_ms??8000)){stop();status('Late voice cue skipped · follow the live display');return;}
