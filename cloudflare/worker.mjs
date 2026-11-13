@@ -121,7 +121,7 @@ async function runScan(request,env,p){
   }catch(e){
     const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
     if(race){if(race.operation_kind!=='scan')fail('idempotency_conflict',409);return replay(env,p,race);}
-    if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);
+    if(String(e).includes('api_key_no_longer_valid'))fail('invalid_api_key',401);if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);
     throw e;
   }
   try{
@@ -163,7 +163,7 @@ async function runVisualRoute(request,env,p){
   await limit(env,'visual-route:'+p.user_id,6,3600);await limit(env,'visual-route-global',60,3600);
   const id=crypto.randomUUID();let reservation;
   try{reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'route') RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();}
-  catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
+  catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('api_key_no_longer_valid'))fail('invalid_api_key',401);if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
   try{
     const assessment=await analyzeVisualRoute(env,input);
     const scores=assessment.segments.map(s=>s.risk_score).filter(Number.isFinite),peak=scores.length?Math.max(...scores):null;
