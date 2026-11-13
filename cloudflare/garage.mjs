@@ -30,7 +30,7 @@ async function imageGeneration(env,p,v,request,helpers,fetcher){
  const previous=await q(env,'SELECT status,response_json,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(previous){if(previous.operation_kind!=='image')fail('idempotency_conflict',409);if(previous.status==='completed'){const data=JSON.parse(previous.response_json);if(data.vehicle_id!==v.id)fail('idempotency_conflict',409);return json({...data,replayed:true});}fail(previous.status==='refunded'?'image_generation_failed':'image_processing',409);}
  if(!env.OPENAI_API_KEY)fail('image_provider_not_configured',503);
  await helpers.limit(env,'garage-image:'+p.user_id,2,86400);await helpers.limit(env,'garage-image-global',10,86400);
- const id=crypto.randomUUID();try{await q(env,"INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'image')",id,keyID,p.user_id,idem,now()+900,now(),now()).run();}catch(e){if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);fail('image_processing',409);}
+ const id=crypto.randomUUID();try{await q(env,"INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'image')",id,keyID,p.user_id,idem,now()+900,now(),now()).run();}catch(e){if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);fail('image_processing',409);}
  let uploaded=false;
  try{
   const prompt=vehiclePrompt(v);await phfGate(env.OPENAI_API_KEY,prompt,fetcher);

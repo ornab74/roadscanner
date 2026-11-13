@@ -245,6 +245,8 @@ for child in list(rendered.contents):
     (section if section is not None else container).append(child)
 save('docs',docs,'docs.mjs',(ROOT/'cloudflare/frontend/docs.css').read_text())
 
+save('billing-return',BeautifulSoup((ROOT/'cloudflare/frontend/billing-return.html').read_text(),'html.parser'),'billing-return.mjs')
+
 manifest={'name':'QRoadScan.com','short_name':'QRS','start_url':'/home','display':'standalone','theme_color':'#0b0f17','background_color':'#0b0f17','icons':[{'src':'/favicon.svg','sizes':'any','type':'image/svg+xml'}]}
 (PUBLIC/'site.webmanifest').write_text(json.dumps(manifest))
 print('Generated QRS pages and single-page visual route planner.')

@@ -1,3 +1,4 @@
+import {billingUI} from './billing-ui.mjs';
 import {API_SCOPE_PRESETS} from './api-scopes.mjs';
 import {garageUI} from './garage-ui.mjs';
 import {api,byId,bindLogout,requireSession,status} from './common.mjs';
@@ -26,3 +27,5 @@ window.addEventListener('pagehide',clearKey);document.addEventListener('visibili
 refresh().catch(e=>message(e.message,true));
 
 garageUI().catch(e=>status('garageMessage',e.message,true));
+
+billingUI().catch(e=>status('billingMessage',e.message,true));

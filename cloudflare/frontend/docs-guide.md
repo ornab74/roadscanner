@@ -1565,3 +1565,27 @@ Each provider has its own access, licensing, availability, privacy, and usage te
 The project’s security tests and browser checks exercise specific implemented controls. They are not a certification of road safety, aviation suitability, cryptographic perfection, or every possible threat. The app has no live vehicle or aircraft hardware validation. Synthetic GPS fixtures and simulated quantum states are explicitly test/simulation data, not evidence that a real route or flight is safe.
 
 For maintainers, the repository includes deployment instructions, implemented security controls, validation records, and the OpenAPI artifact. Build the frontend before deployment so page assets and SRI hashes stay synchronized. Apply required database migrations before publishing a Worker that expects the new columns. Never commit local environment files, provider credentials, private test-account files, or generated customer images to the repository.
+
+## Stripe sandbox billing
+
+Approved testers can open **User Settings → Billing** to purchase a test credit
+pack or start a test monthly plan through Stripe-hosted Checkout. This deployment
+accepts **test payments only**; ordinary accounts cannot mint test credits.
+
+The demonstration fixtures are **USD 5 / 100 credits** and **USD 20 per month /
+1,000 credits**. These are not the final commercial prices. There are no automatic
+overages. Monthly sandbox grants accumulate while the live rollover/expiry policy
+is being decided.
+
+Use only Stripe test cards in Checkout, such as `4242 4242 4242 4242`, a future
+expiry, and a test CVC. On return, refresh credits if Stripe's webhook is still
+processing. Credits are granted by verified payment events, never by the return
+URL. The billing portal provides test invoice history, payment-method updates and
+subscription cancellation at period end.
+
+Browser billing endpoints require a cookie session and CSRF token. Scan API bearer
+keys do not authorize purchases. Secret keys and webhook signing secrets stay on
+the server. Public API callers cannot create purchased credit grants themselves.
+Live payments and automatic tax remain disabled pending commercial configuration
+and sandbox acceptance. See `docs/stripe-sandbox.md` in the repository for the
+operator runbook, event handling, deployment settings and live-launch requirements.

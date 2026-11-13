@@ -1,5 +1,11 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ billing_account_restricted:'Your billing account requires review before more paid work. Existing reports remain available.',
+ payments_disabled:'Payments are not enabled for this account.',
+ stripe_test_access_required:'Stripe test checkout is restricted to approved testers.',
+ billing_provider_unavailable:'Stripe test checkout is temporarily unavailable. Please retry shortly.',
+ checkout_already_open:'A checkout is already open for this product. Complete it or wait for its 30-minute expiry.',
+ subscription_already_exists:'A subscription already exists. Use Manage subscription.',
  phf_blocked:'The PHF safety filter did not approve this illustration. Change the appearance details and try again.',
  phf_unavailable:'The PHF filter is unavailable. No illustration was delivered; the reserved credit was refunded.',
  image_generation_failed:'The illustration could not be completed. Your reserved credit was refunded.',

@@ -1,3 +1,4 @@
+import {billingRoutes,billingWebhook} from './billing.mjs';
 import {navigationVoiceRoutes} from './navigation-voice.mjs';
 import {routeFailure} from './route-failure.mjs';
 import {apiUtilities,requireScope} from './api-contract.mjs';
@@ -120,7 +121,7 @@ async function runScan(request,env,p){
   }catch(e){
     const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
     if(race){if(race.operation_kind!=='scan')fail('idempotency_conflict',409);return replay(env,p,race);}
-    if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);
+    if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);
     throw e;
   }
   try{
@@ -162,7 +163,7 @@ async function runVisualRoute(request,env,p){
   await limit(env,'visual-route:'+p.user_id,6,3600);await limit(env,'visual-route-global',60,3600);
   const id=crypto.randomUUID();let reservation;
   try{reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'route') RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();}
-  catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
+  catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
   try{
     const assessment=await analyzeVisualRoute(env,input);
     const scores=assessment.segments.map(s=>s.risk_score).filter(Number.isFinite),peak=scores.length?Math.max(...scores):null;
@@ -178,6 +179,7 @@ async function runVisualRoute(request,env,p){
 }
 async function routes(request,env,context){
   const url=new URL(request.url), path=url.pathname;
+  if(path==='/billing/webhook'&&request.method==='POST')return billingWebhook(request,env);
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
   // Every cookie/browser mutation, including sign-in, requires a signed CSRF token.
   // Bearer-only v1 scans do not use ambient browser credentials.
@@ -186,6 +188,7 @@ async function routes(request,env,context){
   const api=path.startsWith('/api/v1/');let apiPrincipal=null;
   if(api||request.headers.has('Authorization')&&path.startsWith('/api/')){apiPrincipal=await principal(request,env,true);context.rate=await limit(env,'api:'+apiPrincipal.key_id,120,60);if(api){const utility=await apiUtilities(request,env,apiPrincipal,context);if(utility)return utility;}}
   const authenticated=(r,e,apiOnly=false)=>r===request&&apiOnly&&apiPrincipal?Promise.resolve(apiPrincipal):principal(r,e,apiOnly);
+  const billing=await billingRoutes(request,env,{principal:authenticated,limit,isAdmin});if(billing)return billing;
   const feature=await garageRoutes(request,env,{principal:authenticated,limit,hmac})??await aviationRoutes(request,env,{principal:authenticated,limit});if(feature)return feature;
 
   const voice=await navigationVoiceRoutes(request,env,{principal:authenticated,limit,loadRoute:async(user,id)=>{
@@ -198,7 +201,7 @@ async function routes(request,env,context){
   if(request.method==='GET'&&(path==='/'||path==='/home/'))return Response.redirect(new URL('/home',request.url),301);
   if(request.method==='GET'&&path==='/radar')return Response.redirect(new URL('/dashboard#locationMap',request.url),302);
   if(request.method==='GET'&&path==='/favicon.ico')return Response.redirect(new URL('/favicon.svg',request.url),302);
-  const pages={'/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
+  const pages={'/payment-return':'billing-return','/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
   if(request.method==='GET'&&pages[path]){
     const protectedPage=['/dashboard','/settings/user','/radar','/admin','/aircraft'].includes(path);
     if(protectedPage){

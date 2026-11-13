@@ -19,6 +19,7 @@
     "@mapbox/vector-tile": "3.0.0",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.1.0",
-    "pbf": "5.1.2"
+    "pbf": "5.1.2",
+    "stripe": "23.0.0"
   }
 }
