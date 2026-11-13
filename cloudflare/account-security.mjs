@@ -1,6 +1,6 @@
 import {validateScopes} from './api-contract.mjs';
 import {generateRegistrationOptions,verifyRegistrationResponse,generateAuthenticationOptions,verifyAuthenticationResponse} from '@simplewebauthn/server';
-import {hmac,sha256,passwordHash,verifyPassword,sameSecret,randomToken,readJSON} from './security.mjs';
+import {cookieValue,hmac,sha256,passwordHash,verifyPassword,sameSecret,randomToken,readJSON} from './security.mjs';
 const now=()=>Math.floor(Date.now()/1000),json=(v,s=200,h={})=>Response.json(v,{status:s,headers:{'Cache-Control':'no-store',...h}});
 const fail=(m,s)=>{throw Object.assign(new Error(m),{status:s});};
 const q=(env,sql,...args)=>env.DB.prepare(sql).bind(...args);
@@ -22,7 +22,7 @@ export async function securityRoutes(request,env,{principal,limit}){
  if(!auth&&!p.session_hash)fail('login_required',401);
  const ip=await hmac(env.QRS_API_KEY_PEPPER,request.headers.get('CF-Connecting-IP')??'local');
  if(method!=='GET')await limit(env,'security:'+(p?.user_id??ip),30,300);
- const binding=auth?await sha256(request.headers.get('Cookie')?.match(/(?:^|;\s*)__Host-qrs_preview=([^;]+)/)?.[1]??''):p.session_hash;
+ const binding=auth?await sha256(cookieValue(request,'__Host-qrs_preview')??''):p.session_hash;
  const rpID=url.hostname,origin=url.origin;
  async function challenge(purpose){const data=await readJSON(request,32768);if(typeof data.challenge_id!=='string'||!data.response||typeof data.response!=='object')fail('invalid_credential',400);const row=await q(env,'DELETE FROM security_challenges WHERE id=? AND binding=? AND purpose=? AND expires_at>? RETURNING *',data.challenge_id,binding,purpose,now()).first();if(!row||p&&row.user_id!==p.user_id)fail('invalid_challenge',400);return {data,row};}
  async function saveChallenge(options,purpose,name=null){const id=crypto.randomUUID();await q(env,'INSERT INTO security_challenges VALUES (?,?,?,?,?,?,?)',id,p?.user_id??null,binding,purpose,options.challenge,name,now()+120).run();return json({challenge_id:id,options});}

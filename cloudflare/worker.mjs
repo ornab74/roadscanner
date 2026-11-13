@@ -11,7 +11,7 @@ import {analyzeVisualRoute,validateVisualRequest,coordinate} from './visual-rout
 import {geocode} from './geocode.mjs';
 import {verifyBrowserCSRF} from './public-home.mjs';
 import {publicHomeCSRF,publicHomePreview} from './public-home.mjs';
-import { hmac,sha256,randomToken,passwordHash,verifyPassword,sameSecret,readJSON,validateScan,encryptReport,decryptReport } from './security.mjs';
+import { cookieValue,hmac,sha256,randomToken,passwordHash,verifyPassword,sameSecret,readJSON,validateScan,encryptReport,decryptReport } from './security.mjs';
 import { assessWithOpenAI } from './openai.mjs';
 import { boundedBody } from './internal-auth.mjs';
 const now=()=>Math.floor(Date.now()/1000);
@@ -81,8 +81,8 @@ async function principal(request,env,apiOnly=false){
     if(!row)fail('invalid_api_key',401);await query(env,'UPDATE api_keys SET last_used_at=? WHERE id=?',now(),row.key_id).run();return row;
   }
   if(apiOnly)fail('invalid_api_key',401);
-  const token=/\b__Host-qrs_session=([a-f0-9]{64})\b/.exec(request.headers.get('Cookie')??'')?.[1];
-  if(!token)fail('login_required',401);
+  const token=cookieValue(request,'__Host-qrs_session');
+  if(!/^[a-f0-9]{64}$/.test(token??''))fail('login_required',401);
   const row=await query(env,`SELECT s.user_id,u.email FROM sessions s JOIN users u ON u.id=s.user_id
     WHERE s.token_hash=? AND s.expires_at>?`,await sha256(token),now()).first();
   if(!row)fail('login_required',401);
@@ -348,6 +348,9 @@ export default {
     headers.set('Strict-Transport-Security','max-age=31536000');
     headers.set('Permissions-Policy','geolocation=(self), camera=(), microphone=()');
     headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');
+    headers.set('X-Frame-Options','DENY');
+    headers.set('Cross-Origin-Opener-Policy','same-origin');
+    headers.set('Cross-Origin-Resource-Policy','same-origin');
     headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://server.arcgisonline.com; connect-src 'self' https://api.rainviewer.com; media-src 'self' blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     return new Response(response.body,{status:response.status,headers});
   },

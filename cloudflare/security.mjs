@@ -5,6 +5,18 @@ export const unhex = s => {
   if (typeof s !== 'string' || !/^(?:[a-f0-9]{2})+$/i.test(s)) throw new Error('invalid hex');
   return Uint8Array.from(s.match(/../g), x => parseInt(x,16));
 };
+// Match whole, case-sensitive cookie names. Never accept suffix/lookalike names
+// or choose between duplicate cookies with the same security-sensitive name.
+export function cookieValue(request,name) {
+  let found=null;
+  for(const part of (request.headers.get('Cookie')??'').split(';')) {
+    const entry=part.trim(),separator=entry.indexOf('=');
+    if(separator<0||entry.slice(0,separator)!==name)continue;
+    if(found!==null)return null;
+    found=entry.slice(separator+1);
+  }
+  return found;
+}
 export const randomToken = () => hex(crypto.getRandomValues(new Uint8Array(32)));
 export const sha256 = async value => hex(await crypto.subtle.digest('SHA-256',enc.encode(value)));
 export async function hmac(secret,value) {

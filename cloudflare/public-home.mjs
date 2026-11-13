@@ -1,6 +1,6 @@
 import {assessWithGrok} from './grok-home.mjs';
 import {weatherLocation,currentWeather} from './weather.mjs';
-import {hmac,randomToken,sameSecret,readJSON,encryptReport,decryptReport} from './security.mjs';
+import {cookieValue,hmac,randomToken,sameSecret,readJSON,encryptReport,decryptReport} from './security.mjs';
 import {assessWithOpenAI} from './openai.mjs';
 const now=()=>Math.floor(Date.now()/1000);
 const json=(v,status=200,headers={})=>Response.json(v,{status,headers:{'Cache-Control':'no-store',...headers}});
@@ -19,16 +19,16 @@ async function rate(env,request){
 }
 export async function publicHomeCSRF(request,env){
  sameOrigin(request);await rate(env,request);
- const existing=/\b__Host-qrs_preview=([a-f0-9]{64}\.\d{10}\.[a-f0-9]{64})(?:;|$)/.exec(request.headers.get('Cookie')??'')?.[1];
- if(existing){const [nonce,expires,signature]=existing.split('.');if(Number(expires)>now()+60&&Number(expires)<=now()+3600&&await sameSecret(signature,await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+nonce+'.'+expires)))return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+existing),expires_at:Number(expires)});}
+ const existing=cookieValue(request,'__Host-qrs_preview');
+ if(/^[a-f0-9]{64}\.\d{10}\.[a-f0-9]{64}$/.test(existing??'')){const [nonce,expires,signature]=existing.split('.');if(Number(expires)>now()+60&&Number(expires)<=now()+3600&&await sameSecret(signature,await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+nonce+'.'+expires)))return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+existing),expires_at:Number(expires)});}
  const expiresAt=now()+3600,value=randomToken()+'.'+expiresAt;
  const cookie=value+'.'+await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+value);
  return json({csrf_token:await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+cookie),expires_at:expiresAt},200,{'Set-Cookie':'__Host-qrs_preview='+cookie+'; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600'});
 }
 export async function verifyBrowserCSRF(request,env){
  sameOrigin(request);
- const cookie=/\b__Host-qrs_preview=([a-f0-9]{64}\.\d{10}\.[a-f0-9]{64})(?:;|$)/.exec(request.headers.get('Cookie')??'')?.[1];
- if(!cookie)fail('invalid_csrf',403);
+ const cookie=cookieValue(request,'__Host-qrs_preview');
+ if(!/^[a-f0-9]{64}\.\d{10}\.[a-f0-9]{64}$/.test(cookie??''))fail('invalid_csrf',403);
  const [nonce,expires,signature]=cookie.split('.');
  if(Number(expires)<now()||Number(expires)>now()+3600||!await sameSecret(signature,await hmac(env.QRS_API_KEY_PEPPER,'public-home-cookie:'+nonce+'.'+expires))||!await sameSecret(request.headers.get('X-CSRF-Token'),await hmac(env.QRS_API_KEY_PEPPER,'public-home-csrf:'+cookie)))fail('invalid_csrf',403);
 }
