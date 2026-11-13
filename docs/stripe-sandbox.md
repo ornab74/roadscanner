@@ -24,6 +24,24 @@ allowances accumulate in the existing balance. Cancellation ends the Pro plan bu
 does not remove previously granted test credits. Do not enable commercial sales
 until the allowance, rollover, expiry, refund and cancellation policies are agreed.
 
+## Enable or disable billing
+
+`STRIPE_ENABLED` is a Cloudflare Worker runtime variable. It is currently **false**.
+Only the exact string `true` enables browser billing; missing or other values fail
+closed. With it off, the Billing card is hidden and Checkout/portal POSTs return
+`payments_disabled` without contacting Stripe. Existing scan credits are unchanged.
+
+Change it in Cloudflare → Workers & Pages → roadscanner-ride → Settings →
+Variables and Secrets, then deploy the setting. Keep `cloudflare/wrangler.jsonc`
+in sync because a later Wrangler deployment reapplies its configured value.
+Enabling this switch restores **approved-tester sandbox billing only**; it does
+not enable live keys or bypass the existing test-mode guard.
+
+Verified signed webhooks remain active while the switch is off, so already-paid
+transactions, refunds and subscription changes can still reconcile. The switch
+does not cancel Stripe subscriptions or reverse prior grants. Existing open
+Checkout sessions must be expired separately when pausing sales.
+
 ## Test through the website
 
 1. Sign in using an approved sandbox tester or administrator account.
@@ -140,6 +158,7 @@ Define the commercial review and refund process before live launch.
 
 Required Worker secrets/bindings:
 
+- `STRIPE_ENABLED=false`: browser billing off; set to `true` only when ready to resume testing
 - `BILLING_MODE=test`
 - `STRIPE_SECRET_KEY`: test secret, preferably a least-privilege restricted `rk_test_` key
 - `STRIPE_PUBLISHABLE_KEY`: test public key; hosted redirect Checkout currently does not need it in the browser

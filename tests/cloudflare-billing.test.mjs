@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import Stripe from '../cloudflare/node_modules/stripe/esm/stripe.esm.node.js';
 import {fixture} from './fixtures/account-worker.mjs';
 import {billingRoutes,billingWebhook,processBillingEvent,sandboxConfigured} from '../cloudflare/billing.mjs';
-const config={BILLING_MODE:'test',STRIPE_SECRET_KEY:'sk_test_fixture_only',STRIPE_WEBHOOK_SECRET:'whsec_fixture_only',STRIPE_PRICE_CREDITS:'price_pack',STRIPE_PRICE_PRO:'price_month',QRS_CREDIT_PACK_SIZE:'100',QRS_PRO_MONTHLY_CREDITS:'1000'};
+const config={STRIPE_ENABLED:'true',BILLING_MODE:'test',STRIPE_SECRET_KEY:'sk_test_fixture_only',STRIPE_WEBHOOK_SECRET:'whsec_fixture_only',STRIPE_PRICE_CREDITS:'price_pack',STRIPE_PRICE_PRO:'price_month',QRS_CREDIT_PACK_SIZE:'100',QRS_PRO_MONTHLY_CREDITS:'1000'};
 const event=(id,type,object)=>({id:'evt_'+id.replace(/^evt_/,'').replaceAll('_',''),type,data:{object},livemode:false,created:Math.floor(Date.now()/1000)});
 const credit=f=>f.DB.prepare("SELECT credits,plan FROM accounts WHERE user_id='owner'").first();
 async function prepare(){const f=await fixture();Object.assign(f.env,config);await f.DB.prepare('INSERT INTO billing_test_access VALUES (?,?)').bind('owner',1).run();await f.DB.prepare('INSERT INTO billing_customers VALUES (?,?,?)').bind('owner','cus_owner',1).run();await f.DB.prepare('INSERT INTO billing_catalog VALUES (?,?,?)').bind('price_month','pro',1000).run();return f;}
@@ -62,5 +62,21 @@ test('Stripe return landing is public and cannot grant credits or select an exte
   const response=await f.request('/payment-return?status=success&url=https://attacker.invalid');assert.equal(response.status,200);assert.equal(await response.text(),'/pages/billing-return.html');assert.equal((await credit(f)).credits,2);
   const {readFileSync}=await import('node:fs'),{runInNewContext}=await import('node:vm'),source=readFileSync(new URL('../cloudflare/public/pages/billing-return.mjs',import.meta.url),'utf8');
   for(const status of ['success','cancelled','https://attacker.invalid','//attacker.invalid']){let target;runInNewContext(source,{URLSearchParams,location:{search:'?status='+encodeURIComponent(status),replace:v=>{target=v;}}});assert.ok(target.startsWith('/settings/user'));assert.equal(new URL(target,'https://example.test').origin,'https://example.test');}
+ }finally{f.close();}
+});
+
+test('Stripe switch defaults off, blocks browser billing, and preserves signed webhook reconciliation',async()=>{
+ const f=await prepare(),helpers={principal:async()=>({user_id:'owner',session_hash:'session'}),isAdmin:async()=>true,limit:async()=>{throw Error('Disabled billing must not use quotas');}};
+ try{
+  for(const flag of [undefined,'false','TRUE',true]){
+   f.env.STRIPE_ENABLED=flag;
+   const info=await billingRoutes(new Request('https://example.test/api/billing'),f.env,helpers,{});assert.deepEqual(await info.json(),{available:false,mode:'disabled'});
+   for(const path of ['checkout','portal'])await assert.rejects(billingRoutes(new Request('https://example.test/api/billing/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),f.env,helpers,{}),e=>e.status===503&&e.message==='payments_disabled');
+  }
+  f.env.STRIPE_ENABLED='false';
+  await f.DB.prepare("INSERT INTO billing_orders VALUES (?,?,?,?,?,?,?,'open',?)").bind('order_pack','owner','credits','price_pack',100,'cus_owner','cs_pack',1).run();
+  const raw=JSON.stringify(event('evt_afterdisable','checkout.session.completed',{id:'cs_pack'})),signature=Stripe.webhooks.generateTestHeaderString({payload:raw,secret:config.STRIPE_WEBHOOK_SECRET});
+  const sdk=new Stripe('sk_test_fixture_only');sdk.checkout.sessions.retrieve=async()=>session;
+  const response=await billingWebhook(new Request('https://example.test/billing/webhook',{method:'POST',headers:{'Stripe-Signature':signature},body:raw}),f.env,sdk);assert.equal(response.status,200);assert.equal((await credit(f)).credits,102);
  }finally{f.close();}
 });

@@ -57,7 +57,7 @@ export async function billingWebhook(request,env,clientOverride){
 export async function billingRoutes(request,env,helpers,clientOverride){
  const url=new URL(request.url);if(!url.pathname.startsWith('/api/billing'))return null;
  const p=await helpers.principal(request,env);if(!p.session_hash)fail('login_required',401);
- const configured=sandboxConfigured(env),access=configured&&await allowed(env,p,helpers.isAdmin);
+ const configured=env.STRIPE_ENABLED==='true'&&sandboxConfigured(env),access=configured&&await allowed(env,p,helpers.isAdmin);
  if(url.pathname==='/api/billing'&&request.method==='GET'){
   if(!access)return json({available:false,mode:'disabled'});
   const client=clientOverride??stripeClient(env);let products;try{products=await catalog(env,client);}catch{fail('billing_provider_unavailable',503);}
