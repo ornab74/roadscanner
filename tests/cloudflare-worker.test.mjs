@@ -56,6 +56,19 @@ async function fixture(){
  return {env,DB,key,objects,request,calls:()=>calls,setFailure:value=>{fail=value;},close:()=>rmSync(directory,{recursive:true,force:true})};
 }
 const scene={latitude:40.7,longitude:-74,vehicle_type:'car',destination:'Home',weather:'rain'};
+test('navigation audio requires a browser session and signed CSRF and exposes no provider secret',async()=>{
+ const f=await fixture(),original=globalThis.fetch;let calls=0;f.env.OPENAI_API_KEY='PRIVATE_TEST_KEY';
+ globalThis.fetch=async()=>{calls++;return new Response(new Uint8Array([73,68,51]),{headers:{'Content-Type':'audio/mpeg'}});};
+ try{
+  let r=await f.request('/auth/login',{method:'POST',headers:{Origin:'https://example.test','Content-Type':'application/json'},body:JSON.stringify({email:'owner@example.test',password:'test-password-1234'})});const session=r.headers.get('Set-Cookie').split(';')[0];
+  const body=JSON.stringify({cue:'preview',preset:'atlas'});
+  r=await f.request('/api/route/voice',{method:'POST',headers:{Origin:'https://example.test',Cookie:session,'Content-Type':'application/json'},body});assert.equal(r.status,403);assert.equal(calls,0);
+  const csrf=await f.request('/api/home/csrf'),token=(await csrf.json()).csrf_token;
+  const headers={Origin:'https://example.test',Cookie:session+'; '+csrf.headers.get('Set-Cookie').split(';')[0],'Content-Type':'application/json','X-CSRF-Token':token};
+  r=await f.request('/api/route/voice',{method:'POST',headers,body});assert.equal(r.status,200);assert.equal(calls,1);assert.equal(r.headers.get('Content-Type'),'audio/mpeg');assert.match(r.headers.get('Content-Security-Policy'),/media-src 'self' blob:/);assert.equal((await f.DB.prepare('SELECT credits FROM accounts WHERE user_id=?').bind('owner').first()).credits,2);
+  r=await f.request('/api/route/voice',{method:'POST',headers,body:JSON.stringify({cue:'summary',preset:'atlas',report_id:123456})});assert.equal(r.status,404);assert.equal(calls,1);
+ }finally{globalThis.fetch=original;f.close();}
+});
 test('unexpected scanner and database exceptions do not expose private message text in logs or responses',async()=>{
  const f=await fixture(),original=console.error,originalFetch=globalThis.fetch,logs=[];const sensitive='PRIVATE-TEST-LOCATION-AND-CREDENTIAL-SENTINEL';
  console.error=(...args)=>logs.push(args);

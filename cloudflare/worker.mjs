@@ -1,3 +1,4 @@
+import {navigationVoiceRoutes} from './navigation-voice.mjs';
 import {routeFailure} from './route-failure.mjs';
 import {apiUtilities,requireScope} from './api-contract.mjs';
 import {garageRoutes,cleanupGarage} from './garage.mjs';
@@ -186,6 +187,11 @@ async function routes(request,env,context){
   const authenticated=(r,e,apiOnly=false)=>r===request&&apiOnly&&apiPrincipal?Promise.resolve(apiPrincipal):principal(r,e,apiOnly);
   const feature=await garageRoutes(request,env,{principal:authenticated,limit,hmac})??await aviationRoutes(request,env,{principal:authenticated,limit});if(feature)return feature;
 
+  const voice=await navigationVoiceRoutes(request,env,{principal:authenticated,limit,loadRoute:async(user,id)=>{
+    const row=await query(env,"SELECT id FROM api_requests WHERE rowid=? AND user_id=? AND status='completed' AND operation_kind='route' AND created_at>=?",id,user,now()-90*86400).first();
+    if(!row)fail('report_not_found',404);const object=await env.REPORTS.get(reportPath(user,row.id));if(!object)fail('report_unavailable',503);
+    return decryptReport(env.QRS_REPORT_KEY,user,row.id,await object.text());
+  }});if(voice)return voice;
   const security=await securityRoutes(request,env,{principal,limit});if(security)return security;
 
   if(request.method==='GET'&&(path==='/'||path==='/home/'))return Response.redirect(new URL('/home',request.url),301);
@@ -338,7 +344,7 @@ export default {
     headers.set('Strict-Transport-Security','max-age=31536000');
     headers.set('Permissions-Policy','geolocation=(self), camera=(), microphone=()');
     headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','same-origin');
-    headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://server.arcgisonline.com; connect-src 'self' https://api.rainviewer.com; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://server.arcgisonline.com; connect-src 'self' https://api.rainviewer.com; media-src 'self' blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     return new Response(response.body,{status:response.status,headers});
   },
   async scheduled(_controller,env){
