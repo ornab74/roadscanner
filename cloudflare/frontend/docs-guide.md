@@ -136,7 +136,21 @@ When the system returns `needs_context`, it should identify missing evidence or 
 
 New approved mapped routes use NAZA-inspired mandatory classification: the model returns an integer index from 0 to 100 for every section, even when weather, traffic or a street name is missing. Missing conditions no longer force the whole route to grey. Each section shows a numeric badge and its `score_basis`: `weather_estimate` (weather-informed model), `map_context` (mapped features and vehicle context), or `illustrative_baseline` (an explicitly illustrative estimate when observations are sparse). The baseline is chosen by the model, not a fixed fallback percentage, random color, CPU reading or simulated quantum measurement. This follows NAZA's classify-despite-unknown-inputs approach, without presenting synthetic signals as real-world evidence.
 
-An illustrative score is not a measurement, calibrated accident probability, known road condition or clearance certificate. Weather, surface, access and traffic gaps remain explicit even when a numeric index is displayed. A weather estimate near a street is an area forecast, not a measurement of grip on that exact lane. Color differences need a stated modeling reason, rather than cosmetic variety. The returned report includes `risk_scoring.version: naza-inspired-llm-v1` and `probability: false`.
+An illustrative score is not a measurement, calibrated accident probability, known road condition or clearance certificate. Weather, surface, access and traffic gaps remain explicit even when a numeric index is displayed. A weather estimate near a street is an area forecast, not a measurement of grip on that exact lane. Color differences need a stated modeling reason, rather than cosmetic variety.
+
+New reports use `risk_scoring.version: section-components-v2` and `probability: false`. The LLM assigns five integer `risk_components` to each section; the application computes `risk_score` as the rounded weighted sum below. These are modeling weights, not empirically calibrated accident statistics. The raw model's overall score is superseded by this explicit calculation.
+
+| Component | Weight | Basis |
+| --- | --- | --- |
+| `geometry` | 25% | Mapped bends and bending per kilometer; length alone does not imply difficulty. |
+| `maneuver` | 25% | Entry heading change and supported connection complexity; legal turns remain unverified. |
+| `weather` | 20% | Available time-specific area forecasts; unavailable conditions require an illustrative hypothesis. |
+| `vehicle` | 20% | Additional demand for the selected vehicle, using supplied specifications and evidence. |
+| `uncertainty` | 10% | Missing or ambiguous section context, kept distinct from an observed hazard. |
+
+The component rubric uses low, moderate and high anchors and does not stretch the scores to fill the available color range. Similar sections can still receive similar indices. Each section card and map popup displays the breakdown, rationale and basis. Saved reports keep their original scoring version; run a new analysis to apply the revised rubric.
+
+Click a ribbon to highlight and inspect that section. Clicking close to a ribbon also selects it; background clicks do not reposition endpoints. Choose **Pick start on map** or **Pick destination** to enable one endpoint-placement click. That mode stops after placement. These endpoint pins are planning inputs, separate from the GPS position.
 
 Road shape and road labels are imported separately. Label-only vector features now supply names rather than being treated as drivable roads. Names may be recovered from a sufficiently close, aligned map-label segment and carry `name_provenance: DERIVED_FROM_MAPPED_LABEL`. Ambiguous labels are left unresolved; an actual missing name is shown as a road-class connector, never filled with an invented street name. Old saved reports keep their original scores and labels. Re-analyze to apply the updated matching and scoring; a previously grey report is not silently rewritten.
 
