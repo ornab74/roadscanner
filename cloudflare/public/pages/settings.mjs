@@ -1,3 +1,4 @@
+import {legalUI} from './legal-ui.mjs';
 import {billingUI} from './billing-ui.mjs';
 import {API_SCOPE_PRESETS} from './api-scopes.mjs';
 import {garageUI} from './garage-ui.mjs';
@@ -29,3 +30,5 @@ refresh().catch(e=>message(e.message,true));
 garageUI().catch(e=>status('garageMessage',e.message,true));
 
 billingUI().catch(e=>status('billingMessage',e.message,true));
+
+legalUI().catch(e=>status('legalMessage',e.message,true));

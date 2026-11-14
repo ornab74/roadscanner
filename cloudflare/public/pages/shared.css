@@ -207,3 +207,5 @@ hr{
 }
 
 .site-announcement{position:relative;z-index:3;background:#193744;color:#e1f6ff;border-bottom:1px solid #71d8f766;padding:12px 24px;font:14px/1.5 system-ui,sans-serif;text-align:center;overflow-wrap:anywhere}.site-announcement.account-notice{margin-left:232px}@media(max-width:768px){.site-announcement.account-notice{margin-left:70px}}
+
+.qrs-terms-link{display:block;text-align:center;padding:16px;color:#91b6c9;font-size:12px}.terms-consent{display:flex!important;align-items:flex-start;gap:12px;margin:18px 0;color:#b6ccd9;font-size:13px;line-height:1.6}.terms-consent input{width:18px!important;min-height:18px!important;flex-shrink:0;margin-top:4px}.terms-consent span{display:block}.terms-consent a{color:#7bd9ef}

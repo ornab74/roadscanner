@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import runpy
 import markdown
 
 from bs4 import BeautifulSoup
@@ -21,6 +22,7 @@ from markupsafe import Markup
 from wtforms import Form, PasswordField, StringField, SubmitField
 
 ROOT = Path(__file__).resolve().parents[1]
+TERMS_DOCUMENT = runpy.run_path(str(ROOT/'scripts/build-legal.py'))['metadata']
 PUBLIC = Path(__file__).resolve().parent / 'public'
 PAGES = PUBLIC / 'pages'
 PAGES.mkdir(exist_ok=True)
@@ -95,6 +97,7 @@ def save(page: str, soup: BeautifulSoup, module: str | None = None, extra_css: s
     (PAGES / (page + '.css')).write_text('\n'.join(line.rstrip() for line in (css+'\n'+extra_css).splitlines()).rstrip()+'\n')
     soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/' + page + '.css'))
     soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/shared.css'))
+    terms_link=soup.new_tag('a',href='/terms',attrs={'class':'qrs-terms-link'});terms_link.string='Terms of Service';soup.body.append(terms_link)
     if page in ('dashboard','settings','admin','aircraft'):
         soup.select_one('.sidebar').replace_with(account_navigation(page))
         soup.head.append(soup.new_tag('link', rel='stylesheet', href='/pages/account-navigation.css'))
@@ -189,6 +192,9 @@ for page in ('login','register'):
     error=soup.new_tag('p',id='authError',attrs={'class':'error-message text-center','role':'alert','aria-live':'polite','hidden':True})
     form_tag.insert_before(error)
     if page=='register':
+        form_tag['data-terms-version']=TERMS_DOCUMENT['version'];form_tag['data-terms-sha256']=TERMS_DOCUMENT['sha256']
+        consent=fragment('<label class="terms-consent"><input type="checkbox" id="acceptTerms" name="accept_terms" required><span>I have read and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>, including the simulation limitations and my responsibility for human oversight.</span></label>').label
+        form_tag.select_one('[type=submit]').insert_before(consent)
         for element in soup.select('#rule-upper,#rule-lower,#rule-digit,#rule-special'):element.decompose()
         soup.select_one('#rule-len span:last-child').string='At least 12 characters'
     save(page,soup,'auth.mjs')
@@ -264,6 +270,8 @@ button=soup.new_tag('button',id='passkeySignIn',type='button',attrs={'class':'bt
 button.string='Sign in with a passkey or security key'
 soup.select_one('#authForm').insert_after(button)
 login_path.write_text(str(soup))
+
+(PAGES/'shared.css').write_text((PAGES/'shared.css').read_text()+'\n.qrs-terms-link{display:block;text-align:center;padding:16px;color:#91b6c9;font-size:12px}.terms-consent{display:flex!important;align-items:flex-start;gap:12px;margin:18px 0;color:#b6ccd9;font-size:13px;line-height:1.6}.terms-consent input{width:18px!important;min-height:18px!important;flex-shrink:0;margin-top:4px}.terms-consent span{display:block}.terms-consent a{color:#7bd9ef}\n')
 
 # Bundle pinned WebAuthn browser code locally. No third-party script/CDN execution.
 vendor=PUBLIC/'vendor';vendor.mkdir(exist_ok=True)

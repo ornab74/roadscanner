@@ -1,3 +1,4 @@
+import {legalRoutes,validateTermsAcceptance,acceptanceStatement} from './legal.mjs';
 import {configuredEnvironment,enforceFeature,adminContentRoutes,publicBlog,publicSettings} from './admin-content.mjs';
 import {billingRoutes,billingWebhook} from './billing.mjs';
 import {navigationVoiceRoutes} from './navigation-voice.mjs';
@@ -187,6 +188,7 @@ async function routes(request,env,context){
   // Bearer-only v1 scans do not use ambient browser credentials.
   if(!['GET','HEAD','OPTIONS'].includes(request.method)&&!path.startsWith('/api/v1/'))await verifyBrowserCSRF(request,env);
   enforceFeature(request,env);
+  const legal=await legalRoutes(request,env,{principal,limit});if(legal)return legal;
   if(path==='/api/site'&&request.method==='GET')return json(publicSettings(env));
   if(path==='/admin'&&request.method==='GET'){const p=await principal(request,env);if(!p.session_hash||!await isAdmin(env,p.user_id))fail('admin_required',403);}
   const api=path.startsWith('/api/v1/');let apiPrincipal=null;
@@ -207,7 +209,8 @@ async function routes(request,env,context){
   if(request.method==='GET'&&(path==='/'||path==='/home/'))return Response.redirect(new URL('/home',request.url),301);
   if(request.method==='GET'&&path==='/radar')return Response.redirect(new URL('/dashboard#locationMap',request.url),302);
   if(request.method==='GET'&&path==='/favicon.ico')return Response.redirect(new URL('/favicon.svg',request.url),302);
-  const pages={'/payment-return':'billing-return','/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
+  if(path==='/terms/'&&request.method==='GET')return Response.redirect(new URL('/terms',request.url),302);
+  const pages={'/terms':'terms','/payment-return':'billing-return','/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
   if(request.method==='GET'&&pages[path]){
     const protectedPage=['/dashboard','/settings/user','/radar','/admin','/aircraft'].includes(path);
     if(protectedPage){
@@ -215,8 +218,8 @@ async function routes(request,env,context){
     }
     const assetURL=new URL('/pages/'+pages[path]+'.html',request.url);
     const response=await env.ASSETS.fetch(new Request(assetURL,request));
-    if(!protectedPage)return response;
-    const headers=new Headers(response.headers);headers.set('Cache-Control','no-store');
+    if(!protectedPage&&path!=='/terms')return response;
+    const headers=new Headers(response.headers);headers.set('Cache-Control',path==='/terms'?'no-store, no-transform':'no-store');
     return new Response(response.body,{status:response.status,headers});
   }
   if(request.method==='GET'&&path==='/healthz'){
@@ -236,6 +239,7 @@ async function routes(request,env,context){
     if(path==='/auth/login')await limit(env,'auth-account:'+await hmac(env.QRS_API_KEY_PEPPER,email),30,300);
     if(path==='/auth/register'){
       if(env.REGISTRATION_ENABLED!=='true')fail('registration_disabled',403);
+      validateTermsAcceptance(data);
       const salt=randomToken().slice(0,32);let hash;
       if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
       try{hash=await passwordHash(data.password,salt,env.QRS_PASSWORD_PEPPER);}catch(e){fail(e.message,400);}
@@ -244,6 +248,7 @@ async function routes(request,env,context){
         query(env,'INSERT INTO users(id,email,created_at) VALUES (?,?,?)',id,email,now()),
         query(env,'INSERT INTO user_credentials(user_id,password_hash,password_salt) VALUES (?,?,?)',id,hash,salt),
         query(env,'INSERT INTO accounts(user_id,credits,updated_at) VALUES (?,0,?)',id,now()),
+        acceptanceStatement(env,id,'registration'),
       ]);}catch(e){if(String(e).includes('UNIQUE'))fail('account_could_not_be_created',409);throw e;}
       return json({created:true},201);
     }

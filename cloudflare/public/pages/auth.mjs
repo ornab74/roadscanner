@@ -15,9 +15,10 @@ form.addEventListener('submit',async event=>{
  event.preventDefault();status('authError','');
  if(!email.value.trim()||email.validity.typeMismatch){error('Enter a valid email address.');email.focus();return;}
  if(password.value.length<12||password.value.length>256){error('Use a password with 12–256 characters.');password.focus();return;}
+ if(mode==='register'&&!byId('acceptTerms').checked){error('Read and accept the Terms of Service to create an account.');byId('acceptTerms').focus();return;}
  submit.disabled=true;setLabel(mode==='register'?'Creating account…':'Logging in…');
  try{
-  await api(mode==='register'?'/auth/register':'/auth/login',{method:'POST',body:JSON.stringify({email:email.value.trim(),password:password.value})});
+  await api(mode==='register'?'/auth/register':'/auth/login',{method:'POST',body:JSON.stringify({email:email.value.trim(),password:password.value,...(mode==='register'?{accept_terms:byId('acceptTerms').checked,terms_version:form.dataset.termsVersion,terms_sha256:form.dataset.termsSha256}:{})})});
   if(mode==='register'){
    sessionStorage.setItem('qrs-signup-email',email.value.trim());password.value='';location.assign('/login?registered=1');
   }else{

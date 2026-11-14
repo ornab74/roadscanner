@@ -13,3 +13,6 @@
 
 /naza-one/*
   Cache-Control: public, max-age=0, must-revalidate, no-transform
+
+/terms/*
+  Cache-Control: public, max-age=0, must-revalidate, no-transform

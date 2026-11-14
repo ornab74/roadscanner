@@ -1,3 +1,4 @@
+import {TERMS_DOCUMENT} from '../cloudflare/legal-version.mjs';
 import {pngHeader,imageryResponse} from './fixtures/image-headers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -102,7 +103,7 @@ test('model catalog bounds upstream data, cancels oversized streams and preserve
 test('registration creates an account that can log in and reports duplicate accounts',async()=>{
  const f=await fixture();try{
   const headers={Origin:'https://example.test','Content-Type':'application/json'};
-  const user={email:'new-user@example.test',password:'a-new-test-password-1234'};
+  const user={email:'new-user@example.test',password:'a-new-test-password-1234',accept_terms:true,terms_version:TERMS_DOCUMENT.version,terms_sha256:TERMS_DOCUMENT.sha256};
   let response=await f.request('/auth/register',{method:'POST',headers,body:JSON.stringify(user)});
   assert.equal(response.status,201);
   response=await f.request('/auth/register',{method:'POST',headers,body:JSON.stringify(user)});

@@ -1,5 +1,8 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ terms_acceptance_required:'Read and expressly accept the Terms of Service to continue.',
+ terms_changed:'The Terms changed. Reload the page and review the current document before accepting.',
+
  invalid_blog_post:'Enter a title, a lowercase URL slug, and post text within the displayed limits.',
  invalid_site_settings:'Check the setting values and required change reason. Limits cannot exceed the safety ceilings.',
  post_not_found:'That post is no longer available.',
