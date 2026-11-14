@@ -1,0 +1,10 @@
+{
+  "$schema": "../cloudflare/node_modules/wrangler/config-schema.json",
+  "name": "qroadscan",
+  "account_id": "38e2a248033fe5ae6fc32b05c00377ba",
+  "compatibility_date": "2026-11-09",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{"pattern": "qroadscan.com", "custom_domain": true}],
+  "assets": {"directory": "public", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page"}
+}
