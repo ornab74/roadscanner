@@ -3,7 +3,7 @@
 Validated 2026-11-14 on `https://qroadscan.com`.
 
 - Deployment: Cloudflare assets-only Worker `qroadscan`.
-- Final version: `0ed441e4-654b-4baa-8561-8f66ecf60b17`.
+- Final version: `7f49d921-2b3d-444c-a0c6-8c239c6e6605`.
 - Previous deployment available for rollback: `604288e2-3cf2-4443-9e90-747f99742fad`.
 - Homepage and preserved `/naza-one/` page passed real Chromium checks at widths
   1440, 1024, 768, 390 and 360 pixels, with no horizontal page overflow or script exceptions.
