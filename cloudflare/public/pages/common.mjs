@@ -1,5 +1,7 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ report_storage_full:'Saved-report storage has reached its limit. Existing reports remain available; new scans and images are paused.',
+ report_storage_unavailable:'Saved-report storage is temporarily unavailable. Please try again later.',
  terms_acceptance_required:'Read and expressly accept the Terms of Service to continue.',
  terms_changed:'The Terms changed. Reload the page and review the current document before accepting.',
 

@@ -573,7 +573,7 @@ curl --fail-with-body --silent --show-error \
 
 The response includes the modeled classification, observations, provider provenance, report identifier, and operation identifier for a newly completed operation. Preserve the observations and limitations beside the result in your own interface. A `High` classification should not be relabeled as a measured chance of a crash, and a `Low` classification should not be presented as clearance to drive.
 
-Local Llama can have a cold start because it runs in a container. Provider availability and latency differ from OpenAI. A returned failure with refund is different from a client timing out while the server is still working. Use operation status when you have an operation ID, or retry the same logical request with the same idempotency key rather than creating duplicate paid work.
+Local Llama container inference is disabled in this deployment to prevent container compute charges. New scene scans default to OpenAI; explicit `llama_local` requests return unavailable before charging. Other deployments must explicitly enable local inference before advertising it. Provider availability and latency vary. A returned failure with refund is different from a client timing out while the server is still working. Use operation status when you have an operation ID, or retry the same logical request with the same idempotency key rather than creating duplicate paid work.
 
 ## Visual road-route API
 

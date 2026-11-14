@@ -1991,7 +1991,8 @@ components:
           enum:
           - llama_local
           - openai
-          default: llama_local
+          default: openai
+          description: OpenAI is the production default. llama_local is unavailable unless explicitly enabled by the operator.
         language:
           type: string
           enum:

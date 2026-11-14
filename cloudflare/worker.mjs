@@ -1,3 +1,4 @@
+import {guardedReports,ensureReportCapacity} from './report-storage.mjs';
 import {legalRoutes,validateTermsAcceptance,acceptanceStatement} from './legal.mjs';
 import {configuredEnvironment,enforceFeature,adminContentRoutes,publicBlog,publicSettings} from './admin-content.mjs';
 import {billingRoutes,billingWebhook} from './billing.mjs';
@@ -36,6 +37,7 @@ async function homeAssessment(request,env){
     if(object)return json({...await decryptReport(env.QRS_REPORT_KEY,p.user_id,'home:'+existing.id,await object.text()),cached:true});
     await query(env,"UPDATE home_assessments SET status='failed',lease_expires_at=0 WHERE id=? AND status='completed'",existing.id).run();
   }
+  await ensureReportCapacity(env);
   const id=crypto.randomUUID();
   const claimed=await query(env,`INSERT INTO home_assessments(id,user_id,source_request_id,model,status,lease_expires_at,created_at,updated_at)
     VALUES (?,?,?,?,'reserved',?,?,?)
@@ -107,13 +109,14 @@ async function replay(env,p,row){
 async function runScan(request,env,p){
   const idem=request.headers.get('Idempotency-Key');
   if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idem??''))fail('invalid_idempotency_key',400);
-  let scan;try{scan=validateScan(await readJSON(request));}catch(e){fail(e.message,e.status??400);}
-  if(!['llama_local','openai'].includes(scan.model)||(scan.model==='openai'&&!env.OPENAI_API_KEY))fail('model_unavailable',503);
+  let scan;try{const raw=await readJSON(request);if(raw&&typeof raw==='object'&&!Array.isArray(raw)&&raw.model===undefined&&raw.model_selection===undefined&&env.LOCAL_SCANNER_ENABLED!=='true')raw.model='openai';scan=validateScan(raw);}catch(e){fail(e.message,e.status??400);}
+  if(!['llama_local','openai'].includes(scan.model)||(scan.model==='openai'&&!env.OPENAI_API_KEY)||(scan.model==='llama_local'&&env.LOCAL_SCANNER_ENABLED!=='true'))fail('model_unavailable',503);
   if(scan.language!=='en')fail('language_unavailable',503);
   const keyID=p.key_id;
   await limit(env,'scan:'+keyID,20,60);
   const existing=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();
   if(existing){if(existing.operation_kind!=='scan')fail('idempotency_conflict',409);return replay(env,p,existing);}
+  await ensureReportCapacity(env);
   // API keys and browser scans share one account budget for new inference work.
   await limit(env,'scan-user:'+p.user_id,20,60);
   const id=crypto.randomUUID();let reservation;
@@ -163,6 +166,7 @@ async function runVisualRoute(request,env,p){
   await query(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,'web-session-v1:'+p.user_id),now()).run();
   const prior=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(prior){if(prior.operation_kind!=='route')fail('idempotency_conflict',409);if(prior.status==='refunded')fail('route_analysis_failed',409);return replay(env,p,prior);}
   await limit(env,'visual-route:'+p.user_id,env.SITE_SETTINGS?.route_user_hour??6,3600);await limit(env,'visual-route-global',env.SITE_SETTINGS?.route_global_hour??60,3600);
+  await ensureReportCapacity(env);
   const id=crypto.randomUUID();let reservation;
   try{reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'route') RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();}
   catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('api_key_no_longer_valid'))fail('invalid_api_key',401);if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
@@ -225,7 +229,7 @@ async function routes(request,env,context){
   if(request.method==='GET'&&path==='/healthz'){
     await query(env,'SELECT 1').first();return json({status:'ok'});
   }
-  if(request.method==='GET'&&path==='/api/config')return json({payments_enabled:false,registration_enabled:env.REGISTRATION_ENABLED==='true',models:env.OPENAI_API_KEY?['openai','llama_local']:['llama_local'],model_names:{openai:'OpenAI ('+(env.OPENAI_SCAN_MODEL??'gpt-5.5')+')',llama_local:'Local Llama (llama.cpp)'},languages:['en'],home_model:env.HOME_PROVIDER==='grok'?{provider:'grok',model:env.GROK_HOME_MODEL??'grok-4-1-fast-non-reasoning',configured:!!env.GROK_API_KEY}:{provider:'openai',model:env.OPENAI_HOME_MODEL??'gpt-5.5',configured:!!env.OPENAI_API_KEY}});
+  if(request.method==='GET'&&path==='/api/config')return json({payments_enabled:false,registration_enabled:env.REGISTRATION_ENABLED==='true',models:[...(env.OPENAI_API_KEY?['openai']:[]),...(env.LOCAL_SCANNER_ENABLED==='true'?['llama_local']:[])],model_names:{openai:'OpenAI ('+(env.OPENAI_SCAN_MODEL??'gpt-5.5')+')',llama_local:'Local Llama (llama.cpp)'},languages:['en'],home_model:env.HOME_PROVIDER==='grok'?{provider:'grok',model:env.GROK_HOME_MODEL??'grok-4-1-fast-non-reasoning',configured:!!env.GROK_API_KEY}:{provider:'openai',model:env.OPENAI_HOME_MODEL??'gpt-5.5',configured:!!env.OPENAI_API_KEY}});
   if(request.method==='GET'&&path==='/api/home/csrf')return publicHomeCSRF(request,env);
   if(request.method==='POST'&&path==='/api/home/preview')return publicHomePreview(request,env);
   if(request.method==='POST'&&path==='/api/home/assessment')return homeAssessment(request,env);
@@ -342,6 +346,7 @@ async function routes(request,env,context){
 }
 export default {
   async fetch(request,env){
+    env={...env,REPORTS:guardedReports(env)};
     const canonicalURL=new URL(request.url);
     if(canonicalURL.protocol==='http:'){canonicalURL.protocol='https:';return Response.redirect(canonicalURL.toString(),308);}
     let response;const context={request_id:crypto.randomUUID(),rate:null};
@@ -366,6 +371,7 @@ export default {
     return new Response(response.body,{status:response.status,headers});
   },
   async scheduled(_controller,env){
+    env={...env,REPORTS:guardedReports(env)};
     await env.DB.batch([
       query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE status='reserved' AND lease_expires_at<?",now(),now()),
       query(env,'DELETE FROM sessions WHERE expires_at<?',now()),

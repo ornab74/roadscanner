@@ -5,6 +5,7 @@ import { boundedBody, classifyWithScanner } from './internal-auth.mjs';
 export class ScannerContainer extends DurableObject {
   starting;
   async fetch(request) {
+    if(this.env.LOCAL_SCANNER_ENABLED!=='true')return new Response('Local scanner disabled',{status:503});
     if (request.method !== 'POST' || new URL(request.url).pathname !== '/v1/classify') {
       return new Response('Not found', { status: 404 });
     }
@@ -20,6 +21,7 @@ export class ScannerContainer extends DurableObject {
       this.env.QRS_LLAMA_API_TOKEN, body);
   }
   async start() {
+    if(this.env.LOCAL_SCANNER_ENABLED!=='true')throw new Error('Local scanner disabled');
     const container = this.ctx.container;
     if (!container.running) {
       container.start({ image: container.images.base, instance: 'standard-1', enableInternet: false,

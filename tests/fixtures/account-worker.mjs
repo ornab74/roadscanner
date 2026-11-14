@@ -1,3 +1,4 @@
+import {guardedReports} from '../../cloudflare/report-storage.mjs';
 import {execFileSync} from 'node:child_process';
 import {mkdtempSync,rmSync,readdirSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -26,11 +27,13 @@ export async function fixture(){
  const migrations=new URL('../../cloudflare/migrations/',import.meta.url);
  const schema=readdirSync(migrations).filter(x=>x.endsWith('.sql')).sort().map(x=>readFileSync(new URL(x,migrations),'utf8')).join('\n');
  execFileSync(process.env.QRS_TEST_PYTHON||'python3',['-c','import sqlite3,sys; sqlite3.connect(sys.argv[1]).executescript(sys.stdin.read())',path],{input:schema});
- const DB=new Database(path),objects=new Map();let calls=0,fail=false;
- const env={DB,QRS_PASSWORD_PEPPER:'s'.repeat(48),QRS_API_KEY_PEPPER:'p'.repeat(48),QRS_REPORT_KEY:'ab'.repeat(32),REGISTRATION_ENABLED:'true',
-  REPORTS:{async put(k,v){objects.set(k,v);},async get(k){return objects.has(k)?{text:async()=>objects.get(k)}:null;}},
+ const DB=new Database(path),objects=new Map();
+ await DB.prepare('UPDATE report_storage_budget SET initialized=1 WHERE id=1').run();let calls=0,fail=false;
+ const env={DB,LOCAL_SCANNER_ENABLED:'true',QRS_PASSWORD_PEPPER:'s'.repeat(48),QRS_API_KEY_PEPPER:'p'.repeat(48),QRS_REPORT_KEY:'ab'.repeat(32),REGISTRATION_ENABLED:'true',
+  REPORTS:{async put(k,v){objects.set(k,v);},async get(k){return objects.has(k)?{text:async()=>typeof objects.get(k)==='string'?objects.get(k):new TextDecoder().decode(objects.get(k))}:null;},async delete(k){objects.delete(k);}},
   SCANNER:{idFromName:x=>x,get(){return {async fetch(){calls++;if(fail)throw new Error('test scanner failure');return Response.json({label:'High',schema:'qrs-risk-v1',model:'test-model'});}};}},
  };
+ env.REPORTS=guardedReports(env);
  for(const id of ['owner','other']){
   await DB.batch([
    DB.prepare('INSERT INTO users VALUES (?,?,?)').bind(id,id+'@example.test',1),

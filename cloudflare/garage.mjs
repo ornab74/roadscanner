@@ -1,3 +1,4 @@
+import {ensureReportCapacity} from './report-storage.mjs';
 import {requireScope} from './api-contract.mjs';
 import {markerSVG} from './public/pages/vehicle-marker.mjs';
 import {vehicleNavigationContext} from './public/pages/vehicle-guidance.mjs';
@@ -28,6 +29,7 @@ async function imageGeneration(env,p,v,request,helpers,fetcher){
  const idem=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9_-]{16,100}$/.test(idem??''))fail('invalid_idempotency_key');
  const keyID=p.key_id??'web:garage:'+p.user_id;await q(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await helpers.hmac(env.QRS_API_KEY_PEPPER,keyID),now()).run();
  const previous=await q(env,'SELECT status,response_json,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(previous){if(previous.operation_kind!=='image')fail('idempotency_conflict',409);if(previous.status==='completed'){const data=JSON.parse(previous.response_json);if(data.vehicle_id!==v.id)fail('idempotency_conflict',409);return json({...data,replayed:true});}fail(previous.status==='refunded'?'image_generation_failed':'image_processing',409);}
+ await ensureReportCapacity(env);
  if(!env.OPENAI_API_KEY)fail('image_provider_not_configured',503);
  await helpers.limit(env,'garage-image:'+p.user_id,2,86400);await helpers.limit(env,'garage-image-global',env.SITE_SETTINGS?.images_global_day??10,86400);
  const id=crypto.randomUUID();try{await q(env,"INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'image')",id,keyID,p.user_id,idem,now()+900,now(),now()).run();}catch(e){if(String(e).includes('api_key_no_longer_valid'))fail('invalid_api_key',401);if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);fail('image_processing',409);}
