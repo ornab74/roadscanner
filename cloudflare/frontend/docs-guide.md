@@ -1589,3 +1589,72 @@ the server. Public API callers cannot create purchased credit grants themselves.
 Live payments and automatic tax remain disabled pending commercial configuration
 and sandbox acceptance. See `docs/stripe-sandbox.md` in the repository for the
 operator runbook, event handling, deployment settings and live-launch requirements.
+
+## Admin blog publishing
+
+Sign in using an administrator account, then open [Blog](/blog). The **Write a
+post** and **Manage blog** links appear after your admin session is recognized.
+They lead to [Admin console → Blog editor](/admin#blog). You can also open that
+address directly. An ordinary account or API key cannot use the editor.
+
+Choose **Verify admin access** and enter your current password when requested.
+The existing five-minute verification window protects publishing, draft access,
+configuration changes and support actions. If it expires while you write, saving
+asks you to verify again; keep the editor open so your unsaved text stays there.
+
+Create a post with **New post**, add its title, URL slug, description and body,
+then choose **Save draft**. Drafts are private to verified administrators and
+never appear in public listings. The body supports a deliberately limited
+Markdown format: headings, bold, emphasis, lists, quotes, inline code, fenced code
+blocks and HTTP(S) links. The toolbar inserts common patterns. **Preview** uses
+the same formatter as the public page. Raw HTML and scripts remain text; image
+embeds and arbitrary HTML attributes are not supported.
+
+**Publish now** makes the post available at `/blog/your-slug`. **Save published
+changes** updates a post that is already live. **Unpublish** returns it to a
+private draft. **Archive** removes it from the public blog while keeping its
+contents; **Restore draft** makes an archived post editable as a private draft
+again. Changing a published slug changes its URL, so avoid changing slugs that
+have already been shared. The editor does not create redirects for old slugs.
+
+Concurrent edits use a version check. If someone else saves first, your stale
+save is rejected rather than overwriting their changes. Copy your unsaved text
+somewhere safe, reload that post, and reconcile the edits. Publishing and status
+changes are recorded in the audit trail without copying full post bodies there.
+Public pages return no-store responses so an unpublished post is not served from
+an application/CDN cache; previously downloaded or third-party copies cannot be
+recalled.
+
+## Administrator runtime settings
+
+[Admin console → Configuration](/admin#configuration) provides 21 persisted
+settings. Verify your admin access, edit the controls, provide a short operational
+reason and choose **Save configuration**. Settings take effect on subsequent
+requests without redeploying the Worker. **Fill default values** only fills the
+form; saving with a reason is still required. **Reload settings** reads the saved
+version again.
+
+- **General:** public site/blog name, public announcement and HTTPS support URL.
+  Announcements appear in app pages; support links appear in the account navigation.
+- **Access:** registration and a pause for new AI analyses/generation. Pausing new
+  work preserves login, settings and saved-report access.
+- **Features:** homepage AI previews, routes/imagery previews, navigation voice,
+  garage illustrations and aircraft AI reviews can be enabled or disabled separately.
+- **Publishing:** public blog availability. The admin editor remains available
+  when the public blog is disabled, so an admin can restore it.
+- **Models:** optional model identifier overrides for OpenAI routes/aircraft,
+  OpenAI homepage, Grok homepage and OpenAI scene assessments. Blank values use
+  Cloudflare's operator configuration. Existing provider selection and secrets
+  remain operator-managed. A model must be supported by the configured provider;
+  these controls do not grant provider access or bypass quotas and credit checks.
+- **Limits:** reduce per-account or global budgets for routes, imagery previews,
+  navigation voice, generated images and aircraft AI reviews. Controls cannot
+  increase the existing operator safety ceilings. Capabilities report the active
+  account limits.
+
+Registration additionally requires Cloudflare's operator registration switch to
+be on. Runtime controls cannot enable Stripe, reveal or replace provider keys,
+change provider URLs, grant administrator roles or access private user reports.
+Stripe remains controlled by the separately configured operator switch and
+sandbox/live safeguards. Configuration writes are versioned and audited with the
+admin's reason; a stale browser cannot silently overwrite a newer configuration.

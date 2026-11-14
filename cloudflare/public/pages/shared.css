@@ -205,3 +205,5 @@ code{
 hr{
   border-top-color:rgba(255,255,255,.14) !important;
 }
+
+.site-announcement{position:relative;z-index:3;background:#193744;color:#e1f6ff;border-bottom:1px solid #71d8f766;padding:12px 24px;font:14px/1.5 system-ui,sans-serif;text-align:center;overflow-wrap:anywhere}.site-announcement.account-notice{margin-left:232px}@media(max-width:768px){.site-announcement.account-notice{margin-left:70px}}

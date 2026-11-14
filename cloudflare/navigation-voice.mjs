@@ -26,7 +26,7 @@ export function voiceText(body,report){
 export async function navigationVoiceRoutes(request,env,helpers,fetcher=fetch){
  if(new URL(request.url).pathname!=='/api/route/voice')return null;
  const p=await helpers.principal(request,env);if(!p.session_hash)fail('login_required',401);
- const enabled=!!env.OPENAI_API_KEY&&env.ROUTE_VOICE_ENABLED!=='false';
+ const enabled=!!env.OPENAI_API_KEY&&env.ROUTE_VOICE_ENABLED!=='false'&&env.SITE_SETTINGS?.voice_enabled!==false&&env.SITE_SETTINGS?.pause_new_work!==true;
  if(request.method==='GET')return Response.json({enabled,model:'gpt-4o-mini-tts',voice:'cedar',presets:Object.keys(voiceStyles),ai_generated:true},{headers:{'Cache-Control':'no-store'}});
  if(request.method!=='POST')fail('method_not_allowed',405);
  if(!enabled)fail('voice_not_configured',503);
@@ -40,7 +40,7 @@ export async function navigationVoiceRoutes(request,env,helpers,fetcher=fetch){
  }
  const text=voiceText(body,report).replace(/[\u0000-\u001f\u007f]/g,' ');
  await helpers.limit(env,'voice-minute:'+p.user_id,12,60);
- await helpers.limit(env,'voice-hour:'+p.user_id,120,3600);
+ await helpers.limit(env,'voice-hour:'+p.user_id,env.SITE_SETTINGS?.voice_user_hour??120,3600);
  await helpers.limit(env,'voice-global-hour',600,3600);
  await helpers.limit(env,'voice-global-day',2000,86400);
  const turn=['turn','arrival','approach'].includes(body.cue);

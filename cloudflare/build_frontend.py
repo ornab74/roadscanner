@@ -28,7 +28,7 @@ TREE = ast.parse((ROOT / 'main.py').read_text())
 ENV = Environment(autoescape=True, undefined=StrictUndefined)
 polish_node = next(n for n in TREE.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='APP_BUTTON_POLISH_CSS' for t in n.targets))
 polish = BeautifulSoup(ast.literal_eval(polish_node.value),'html.parser').style.get_text()
-(PAGES/'shared.css').write_text(polish)
+(PAGES/'shared.css').write_text(polish+'\n.site-announcement{position:relative;z-index:3;background:#193744;color:#e1f6ff;border-bottom:1px solid #71d8f766;padding:12px 24px;font:14px/1.5 system-ui,sans-serif;text-align:center;overflow-wrap:anywhere}.site-announcement.account-notice{margin-left:232px}@media(max-width:768px){.site-announcement.account-notice{margin-left:70px}}\n')
 
 def template(name: str) -> str:
     function = next(n for n in TREE.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
@@ -297,3 +297,6 @@ for page_path in PAGES.glob('*.html'):
         soup.head.append(tag)
     page_path.write_text(str(soup))
 (PUBLIC/'asset-integrity.json').write_text(json.dumps({'algorithm':'sha384','assets':{'/'+str(p.relative_to(PUBLIC)):integrity(p) for p in sorted(PUBLIC.rglob('*')) if p.suffix in ('.js','.mjs','.css')}},sort_keys=True))
+
+# Server-rendered blog pages use these exact same pinned asset bytes.
+(ROOT/'cloudflare/blog-assets.mjs').write_text('export const BLOG_ASSETS='+json.dumps({'css':integrity(PAGES/'blog-public.css'),'js':integrity(PAGES/'blog-public.mjs')})+';\n')

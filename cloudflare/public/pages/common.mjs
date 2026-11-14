@@ -1,5 +1,17 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ invalid_blog_post:'Enter a title, a lowercase URL slug, and post text within the displayed limits.',
+ invalid_site_settings:'Check the setting values and required change reason. Limits cannot exceed the safety ceilings.',
+ post_not_found:'That post is no longer available.',
+ blog_post_limit:'The blog has reached its 500-post limit. Ask the operator to review retained posts.',
+ blog_unavailable:'The blog is temporarily unavailable.',
+
+ settings_changed:'Settings changed in another tab. Reload them before saving.',
+ post_changed:'This post changed elsewhere. Reload it before saving.',
+ blog_slug_taken:'Another post already uses this URL slug.',
+ feature_disabled:'This feature is temporarily disabled by the administrator.',
+ new_work_paused:'New analyses are temporarily paused. Existing reports and account settings remain available.',
+
  billing_account_restricted:'Your billing account requires review before more paid work. Existing reports remain available.',
  payments_disabled:'Payments are not enabled for this account.',
  stripe_test_access_required:'Stripe test checkout is restricted to approved testers.',
@@ -81,6 +93,7 @@ export async function requireSession(){
  return user;
 }
 export function bindLogout(){
+ loadSiteNotice();
  for(const form of document.querySelectorAll('[data-action=logout]'))form.addEventListener('submit',async event=>{
   event.preventDefault();await api('/auth/logout',{method:'POST'});location.assign('/home');
  });
@@ -89,3 +102,10 @@ export function status(id,message,error=false){
  const element=byId(id);if(!element)return;
  element.textContent=message;element.hidden=!message;element.classList.toggle('text-danger',error);
 }
+
+// One read per page load; announcements never inject HTML or load external code.
+let noticeRequested=false;
+function loadSiteNotice(){if(noticeRequested)return;noticeRequested=true;fetch('/api/site',{credentials:'same-origin'}).then(async r=>{if(!r.ok)return;const s=await r.json();document.dispatchEvent(new CustomEvent('qrs-site-config',{detail:s}));
+ if(typeof s.support_url==='string'&&s.support_url){const target=document.querySelector('.account-navigation')??document.querySelector('nav .navbar-nav');if(target&&!target.querySelector('[data-support-link]')){const a=document.createElement('a');a.href=s.support_url;a.textContent='Support';if(target.classList.contains('account-navigation')){const icon=document.createElement('i'),label=document.createElement('span');icon.className='fas fa-life-ring';icon.setAttribute('aria-hidden','true');label.textContent='Support';a.replaceChildren(icon,label);}a.dataset.supportLink='';a.target='_blank';a.rel='noopener noreferrer';if(target.tagName==='UL'){const li=document.createElement('li');li.className='nav-item';a.className='nav-link';li.append(a);target.append(li);}else target.insertBefore(a,target.querySelector('form'));}}
+ if(typeof s.announcement==='string'&&s.announcement){const banner=document.createElement('aside');banner.className='site-announcement'+(document.querySelector('.account-navigation')?' account-notice':'');banner.setAttribute('role','status');banner.textContent=(typeof s.site_name==='string'?s.site_name+' · ':'')+s.announcement;document.body.prepend(banner);}
+ }).catch(()=>{});}

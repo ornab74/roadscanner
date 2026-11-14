@@ -1,3 +1,4 @@
+import {configuredEnvironment,enforceFeature,adminContentRoutes,publicBlog,publicSettings} from './admin-content.mjs';
 import {billingRoutes,billingWebhook} from './billing.mjs';
 import {navigationVoiceRoutes} from './navigation-voice.mjs';
 import {routeFailure} from './route-failure.mjs';
@@ -160,7 +161,7 @@ async function runVisualRoute(request,env,p){
   const keyID=p.key_id??'web:'+p.user_id;
   await query(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,'web-session-v1:'+p.user_id),now()).run();
   const prior=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(prior){if(prior.operation_kind!=='route')fail('idempotency_conflict',409);if(prior.status==='refunded')fail('route_analysis_failed',409);return replay(env,p,prior);}
-  await limit(env,'visual-route:'+p.user_id,6,3600);await limit(env,'visual-route-global',60,3600);
+  await limit(env,'visual-route:'+p.user_id,env.SITE_SETTINGS?.route_user_hour??6,3600);await limit(env,'visual-route-global',env.SITE_SETTINGS?.route_global_hour??60,3600);
   const id=crypto.randomUUID();let reservation;
   try{reservation=await query(env,`INSERT INTO api_requests(id,api_key_id,user_id,idempotency_key,status,lease_expires_at,created_at,updated_at,operation_kind) VALUES (?,?,?,?,'reserved',?,?,?,'route') RETURNING rowid`,id,keyID,p.user_id,idem,now()+900,now(),now()).first();}
   catch(e){const race=await query(env,'SELECT id,status,operation_kind FROM api_requests WHERE api_key_id=? AND idempotency_key=?',keyID,idem).first();if(race){if(race.operation_kind!=='route')fail('idempotency_conflict',409);return replay(env,p,race);}if(String(e).includes('api_key_no_longer_valid'))fail('invalid_api_key',401);if(String(e).includes('billing_account_restricted'))fail('billing_account_restricted',403);if(String(e).includes('reservation_not_allowed'))fail('insufficient_api_credits',402);throw e;}
@@ -179,15 +180,20 @@ async function runVisualRoute(request,env,p){
 }
 async function routes(request,env,context){
   const url=new URL(request.url), path=url.pathname;
+  if(path.startsWith('/api/')||path.startsWith('/auth/')||path==='/blog'||path.startsWith('/blog/'))env=await configuredEnvironment(env);
   if(path==='/billing/webhook'&&request.method==='POST')return billingWebhook(request,env);
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
   // Every cookie/browser mutation, including sign-in, requires a signed CSRF token.
   // Bearer-only v1 scans do not use ambient browser credentials.
   if(!['GET','HEAD','OPTIONS'].includes(request.method)&&!path.startsWith('/api/v1/'))await verifyBrowserCSRF(request,env);
+  enforceFeature(request,env);
+  if(path==='/api/site'&&request.method==='GET')return json(publicSettings(env));
   if(path==='/admin'&&request.method==='GET'){const p=await principal(request,env);if(!p.session_hash||!await isAdmin(env,p.user_id))fail('admin_required',403);}
   const api=path.startsWith('/api/v1/');let apiPrincipal=null;
   if(api||request.headers.has('Authorization')&&path.startsWith('/api/')){apiPrincipal=await principal(request,env,true);context.rate=await limit(env,'api:'+apiPrincipal.key_id,120,60);if(api){const utility=await apiUtilities(request,env,apiPrincipal,context);if(utility)return utility;}}
   const authenticated=(r,e,apiOnly=false)=>r===request&&apiOnly&&apiPrincipal?Promise.resolve(apiPrincipal):principal(r,e,apiOnly);
+  const content=await adminContentRoutes(request,env,{principal:authenticated,limit});if(content)return content;
+  const blog=await publicBlog(request,env);if(blog)return blog;
   const billing=await billingRoutes(request,env,{principal:authenticated,limit,isAdmin});if(billing)return billing;
   const feature=await garageRoutes(request,env,{principal:authenticated,limit,hmac})??await aviationRoutes(request,env,{principal:authenticated,limit});if(feature)return feature;
 
@@ -268,7 +274,7 @@ async function routes(request,env,context){
   if(request.method==='POST'&&['/api/route/geocode','/api/route/analyze','/api/route/atlas','/api/v1/route/geocode','/api/v1/route/analyze','/api/v1/route/atlas'].includes(path)){
     const p=api?apiPrincipal:await principal(request,env);if(api)requireScope(p,'routes:write');else{if(!p.session_hash)fail('login_required',401);await verifyBrowserCSRF(request,env);}
     if(path.endsWith('/route/atlas')){
-      await limit(env,'route-atlas:'+p.user_id,6,3600);await limit(env,'route-atlas-global',30,3600);
+      await limit(env,'route-atlas:'+p.user_id,env.SITE_SETTINGS?.atlas_user_hour??6,3600);await limit(env,'route-atlas-global',30,3600);
       const data=await readJSON(request,1024);if(!data||Object.keys(data).sort().join(',')!=='destination,mode,start'||!['driving','walking'].includes(data.mode))fail('invalid_route_request',400);
       const batch=await captureRouteImagery({start:coordinate(data.start),destination:coordinate(data.destination),mode:data.mode});
       return json({imagery_manifest:batch.frames.map(({image,...meta})=>meta),imagery_warnings:batch.warnings});
