@@ -1,5 +1,6 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ password_factor_required:'Enter your email and password again, then verify your enrolled security key. The pending sign-in may have expired.',
  report_storage_full:'Saved-report storage has reached its limit. Existing reports remain available; new scans and images are paused.',
  report_storage_unavailable:'Saved-report storage is temporarily unavailable. Please try again later.',
  terms_acceptance_required:'Read and expressly accept the Terms of Service to continue.',

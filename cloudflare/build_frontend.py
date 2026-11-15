@@ -258,7 +258,7 @@ manifest={'name':'QRoadScan.com','short_name':'QRS','start_url':'/home','display
 print('Generated QRS pages and single-page visual route planner.')
 
 # Account and operations consoles use one responsive design system.
-verification_dialog = """<dialog id="verifyDialog"><form id="verifyForm"><span class="eyebrow">CONFIRM IT'S YOU</span><h2>Verify your identity</h2><p>Enter your current password to unlock sensitive changes for five minutes.</p><label for="verifyPassword">Current password</label><input id="verifyPassword" type="password" autocomplete="current-password" maxlength="256" required><p id="verifyMessage" role="alert"></p><div class="button-row"><button type="submit" class="primary">Verify identity</button><button id="verifyCancel" type="button">Cancel</button></div></form></dialog>"""
+verification_dialog = """<dialog id="verifyDialog"><form id="verifyForm"><span class="eyebrow">CONFIRM IT'S YOU</span><h2>Verify your identity</h2><p>Enter your current password and, if enrolled, verify your security key to unlock sensitive changes for five minutes.</p><label for="verifyPassword">Current password</label><input id="verifyPassword" type="password" autocomplete="current-password" maxlength="256" required><p id="verifyMessage" role="alert"></p><div class="button-row"><button type="submit" class="primary">Verify identity</button><button id="verifyCancel" type="button">Cancel</button></div></form></dialog>"""
 for page,module in [('settings','settings.mjs'),('admin','admin.mjs'),('aircraft','aircraft.mjs')]:
     soup=BeautifulSoup((ROOT/'cloudflare/frontend'/f'{page}.html').read_text(),'html.parser')
     soup.body.append(fragment(verification_dialog))
@@ -266,9 +266,10 @@ for page,module in [('settings','settings.mjs'),('admin','admin.mjs'),('aircraft
 
 login_path=PAGES/'login.html'
 soup=BeautifulSoup(login_path.read_text(),'html.parser')
-button=soup.new_tag('button',id='passkeySignIn',type='button',attrs={'class':'btn btn-outline-light btn-block mt-3'})
-button.string='Sign in with a passkey or security key'
+button=soup.new_tag('button',id='passkeySignIn',type='button',attrs={'class':'btn btn-outline-light btn-block mt-3','hidden':True})
+button.string='Retry security-key verification'
 soup.select_one('#authForm').insert_after(button)
+cancel=soup.new_tag('button',id='cancelSecondFactor',type='button',attrs={'class':'btn btn-outline-light btn-block mt-3','hidden':True});cancel.string='Start sign-in again';button.insert_after(cancel)
 login_path.write_text(str(soup))
 
 (PAGES/'shared.css').write_text((PAGES/'shared.css').read_text()+'\n.qrs-terms-link{display:block;text-align:center;padding:16px;color:#91b6c9;font-size:12px}.terms-consent{display:flex!important;align-items:flex-start;gap:12px;margin:18px 0;color:#b6ccd9;font-size:13px;line-height:1.6}.terms-consent input{width:18px!important;min-height:18px!important;flex-shrink:0;margin-top:4px}.terms-consent span{display:block}.terms-consent a{color:#7bd9ef}\n')

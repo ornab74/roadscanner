@@ -1,3 +1,5 @@
+import {hasSecurityKeys,beginPasswordFactor,passwordFactor,cancelPasswordFactor,issuePasskeySession,clearPendingCookie,factorPolicySQL} from './login-factor.mjs';
+export {issuePasskeySession} from './login-factor.mjs';
 import {reportStorageStatus} from './report-storage.mjs';
 import {validateScopes} from './api-contract.mjs';
 import {generateRegistrationOptions,verifyRegistrationResponse,generateAuthenticationOptions,verifyAuthenticationResponse} from '@simplewebauthn/server';
@@ -10,11 +12,7 @@ const bytes64=bytes=>btoa(String.fromCharCode(...bytes));
 const from64=value=>Uint8Array.from(atob(value),x=>x.charCodeAt(0));
 function label(value,fallback){const s=value??fallback;if(typeof s!=='string'||!s.trim()||s.length>60||/[\x00-\x1f\x7f]/.test(s))fail('invalid_name',400);return s.trim();}
 export async function isAdmin(env,id){return !!await q(env,"SELECT user_id FROM user_roles WHERE user_id=? AND role='admin'",id).first();}
-export async function issuePasskeySession(env,key,counter,token){
- const result=await q(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at,elevated_until) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM security_keys WHERE id=? AND user_id=? AND public_key=? AND counter=?)',await sha256(token),key.user_id,now()+86400,now(),now()+300,key.id,key.user_id,key.public_key,counter).run();
- if(result.meta.changes!==1)fail('credential_verification_failed',400);
-}
-export async function requireElevated(env,p){if(!p.session_hash)fail('login_required',401);const r=await q(env,'SELECT elevated_until FROM sessions WHERE token_hash=? AND user_id=? AND expires_at>?',p.session_hash,p.user_id,now()).first();if(!r||r.elevated_until<=now())fail('reauthentication_required',403);}
+export async function requireElevated(env,p){if(!p.session_hash)fail('login_required',401);const r=await q(env,`SELECT elevated_until FROM sessions s WHERE token_hash=? AND user_id=? AND expires_at>? AND ${factorPolicySQL()}`,p.session_hash,p.user_id,now()).first();if(!r||r.elevated_until<=now())fail('reauthentication_required',403);}
 export async function securityRoutes(request,env,{principal,limit}){
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!path.startsWith('/api/security/')&&!path.startsWith('/api/admin/')&&!path.startsWith('/auth/passkey/')&&path!=='/api/keys'&&!path.startsWith('/api/keys/'))return null;
@@ -26,13 +24,15 @@ export async function securityRoutes(request,env,{principal,limit}){
  const binding=auth?await sha256(cookieValue(request,'__Host-qrs_preview')??''):p.session_hash;
  const rpID=url.hostname,origin=url.origin;
  async function challenge(purpose){const data=await readJSON(request,32768);if(typeof data.challenge_id!=='string'||!data.response||typeof data.response!=='object')fail('invalid_credential',400);const row=await q(env,'DELETE FROM security_challenges WHERE id=? AND binding=? AND purpose=? AND expires_at>? RETURNING *',data.challenge_id,binding,purpose,now()).first();if(!row||p&&row.user_id!==p.user_id)fail('invalid_challenge',400);return {data,row};}
- async function saveChallenge(options,purpose,name=null){const id=crypto.randomUUID();await q(env,'INSERT INTO security_challenges VALUES (?,?,?,?,?,?,?)',id,p?.user_id??null,binding,purpose,options.challenge,name,now()+120).run();return json({challenge_id:id,options});}
+ async function saveChallenge(options,purpose,name=null,intent=null){const id=crypto.randomUUID();await q(env,'INSERT INTO security_challenges(id,user_id,binding,purpose,challenge,name,expires_at,login_intent_hash) VALUES (?,?,?,?,?,?,?,?)',id,intent?.user_id??p?.user_id??null,binding,purpose,options.challenge,name,now()+120,intent?.token_hash??null).run();return json({challenge_id:id,options});}
+ if(path==='/auth/passkey/cancel'&&method==='POST')return cancelPasswordFactor(request,env);
  if(path==='/api/security/reauth'&&method==='POST'){
   await limit(env,'reauth:'+p.user_id,5,300);const data=await readJSON(request,2048),c=await q(env,'SELECT password_hash,password_salt FROM user_credentials WHERE user_id=?',p.user_id).first();let hash;
   if(!env.QRS_PASSWORD_PEPPER)fail('password_service_unavailable',503);
   try{hash=await verifyPassword(data.password,c.password_salt,c.password_hash,env.QRS_PASSWORD_PEPPER);}catch{fail('invalid_credentials',401);}
   if(!hash)fail('invalid_credentials',401);
-  const elevated=await q(env,'UPDATE sessions SET elevated_until=? WHERE token_hash=? AND user_id=? AND expires_at>? AND EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?)',now()+300,p.session_hash,p.user_id,now(),p.user_id,c.password_hash,c.password_salt).run();if(elevated.meta.changes!==1)fail('invalid_credentials',401);
+  if(await hasSecurityKeys(env,p.user_id))return beginPasswordFactor(request,env,p.user_id,c,p.session_hash);
+  const elevated=await q(env,'UPDATE sessions SET elevated_until=? WHERE token_hash=? AND user_id=? AND expires_at>? AND EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM security_keys WHERE user_id=?)',now()+300,p.session_hash,p.user_id,now(),p.user_id,c.password_hash,c.password_salt,p.user_id).run();if(elevated.meta.changes!==1)fail('invalid_credentials',401);
   await audit(env,p,'session.reauthenticated',p.user_id).run();return json({elevated_until:now()+300});
  }
  if(path==='/api/security/keys'&&method==='GET')return json((await q(env,'SELECT id,name,created_at,last_used_at,backed_up FROM security_keys WHERE user_id=? ORDER BY created_at DESC',p.user_id).all()).results);
@@ -44,22 +44,26 @@ export async function securityRoutes(request,env,{principal,limit}){
  if(path==='/api/security/keys/verify'&&method==='POST'){
   await requireElevated(env,p);const {data,row}=await challenge('register');let result;try{result=await verifyRegistrationResponse({response:data.response,expectedChallenge:row.challenge,expectedOrigin:origin,expectedRPID:rpID,requireUserVerification:true});}catch{fail('credential_verification_failed',400);}
   if(!result.verified||!result.registrationInfo)fail('credential_verification_failed',400);const info=result.registrationInfo,k=info.credential;
-  await env.DB.batch([q(env,'INSERT INTO security_keys VALUES (?,?,?,?,?,?,?,?,?)',k.id,p.user_id,row.name,bytes64(k.publicKey),k.counter,JSON.stringify(k.transports??[]),info.credentialBackedUp?1:0,now(),null),audit(env,p,'security_key.enrolled',k.id)]);return json({enrolled:true},201);
+  const inserted=await env.DB.batch([q(env,`INSERT INTO security_keys SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM sessions s WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>unixepoch() AND s.elevated_until>unixepoch() AND ${factorPolicySQL()}) RETURNING id`,k.id,p.user_id,row.name,bytes64(k.publicKey),k.counter,JSON.stringify(k.transports??[]),info.credentialBackedUp?1:0,now(),null,p.session_hash,p.user_id),q(env,"INSERT INTO security_audit SELECT ?,?,'security_key.enrolled',?,'{}',? WHERE EXISTS(SELECT 1 FROM security_keys WHERE id=? AND user_id=?)",crypto.randomUUID(),p.user_id,k.id,now(),k.id,p.user_id)]);if(!inserted[0].results.length)fail('reauthentication_required',403);return json({enrolled:true,mfa_required:true,sessions_revoked:true},201);
  }
  if(path.startsWith('/api/security/keys/')&&method==='DELETE'){
   await requireElevated(env,p);const id=decodeURIComponent(path.slice('/api/security/keys/'.length));if(!await q(env,'SELECT id FROM security_keys WHERE id=? AND user_id=?',id,p.user_id).first())fail('key_not_found',404);
-  await env.DB.batch([q(env,'DELETE FROM security_keys WHERE id=? AND user_id=?',id,p.user_id),audit(env,p,'security_key.removed',id)]);return json({removed:true});
+  const removed=await env.DB.batch([q(env,`DELETE FROM security_keys WHERE id=? AND user_id=? AND EXISTS(SELECT 1 FROM sessions s WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>unixepoch() AND s.elevated_until>unixepoch() AND ${factorPolicySQL()}) RETURNING id`,id,p.user_id,p.session_hash,p.user_id),audit(env,p,'security_key.removed',id)]);if(!removed[0].results.length)fail('reauthentication_required',403);return json({removed:true,sessions_revoked:true});
  }
- if(path==='/auth/passkey/options'&&method==='POST')return saveChallenge(await generateAuthenticationOptions({rpID,userVerification:'required',timeout:120000}),'authenticate');
+ if(path==='/auth/passkey/options'&&method==='POST'){
+  const intent=await passwordFactor(request,env);await limit(env,'mfa-options:'+intent.token_hash,10,300);
+  const keys=(await q(env,'SELECT id,transports FROM security_keys WHERE user_id=?',intent.user_id).all()).results;
+  return saveChallenge(await generateAuthenticationOptions({rpID,userVerification:'required',timeout:120000,allowCredentials:keys.map(k=>({id:k.id,transports:JSON.parse(k.transports)}))}),'authenticate',null,intent);
+ }
  if(path==='/auth/passkey/verify'&&method==='POST'){
-  const {data,row}=await challenge('authenticate'),key=await q(env,'SELECT * FROM security_keys WHERE id=?',data.response.id??'').first();if(!key)fail('credential_verification_failed',400);
+  const intent=await passwordFactor(request,env);await limit(env,'mfa-verify:'+intent.token_hash,5,300);
+  const {data,row}=await challenge('authenticate');if(row.login_intent_hash!==intent.token_hash||row.user_id!==intent.user_id)fail('invalid_challenge',400);
+  const key=await q(env,'SELECT * FROM security_keys WHERE id=? AND user_id=?',data.response.id??'',intent.user_id).first();if(!key)fail('credential_verification_failed',400);
   let result;try{result=await verifyAuthenticationResponse({response:data.response,expectedChallenge:row.challenge,expectedOrigin:origin,expectedRPID:rpID,requireUserVerification:true,credential:{id:key.id,publicKey:from64(key.public_key),counter:key.counter,transports:JSON.parse(key.transports)}});}catch{fail('credential_verification_failed',400);}
-  if(!result.verified)fail('credential_verification_failed',400);const token=randomToken(),actor={user_id:key.user_id};
-  // Compare-and-swap the signature counter before issuing a session. Synced keys may use zero.
-  const updated=await q(env,'UPDATE security_keys SET counter=?,last_used_at=? WHERE id=? AND counter=? RETURNING id',result.authenticationInfo.newCounter,now(),key.id,key.counter).first();if(!updated)fail('credential_verification_failed',400);
-  await issuePasskeySession(env,key,result.authenticationInfo.newCounter,token);
-  await audit(env,actor,'security_key.sign_in',key.id).run();
-  return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
+  if(!result.verified)fail('credential_verification_failed',400);const token=randomToken();
+  await issuePasskeySession(env,key,result.authenticationInfo.newCounter,token,intent);
+  const headers=new Headers({'Cache-Control':'no-store'});headers.append('Set-Cookie',`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`);headers.append('Set-Cookie',clearPendingCookie);
+  return Response.json({authenticated:true,mfa_verified:true},{headers});
  }
  if(path==='/api/security/sessions'&&method==='GET')return json((await q(env,'SELECT token_hash,created_at,expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY expires_at DESC',p.user_id,now()).all()).results.map(s=>({id:s.token_hash,current:s.token_hash===p.session_hash,created_at:s.created_at,expires_at:s.expires_at})));
  if(path==='/api/security/sessions/revoke-others'&&method==='POST'){

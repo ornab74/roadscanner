@@ -1,3 +1,4 @@
+import {hasSecurityKeys,beginPasswordFactor,factorPolicySQL} from './login-factor.mjs';
 import {guardedReports,ensureReportCapacity} from './report-storage.mjs';
 import {legalRoutes,validateTermsAcceptance,acceptanceStatement} from './legal.mjs';
 import {configuredEnvironment,enforceFeature,adminContentRoutes,publicBlog,publicSettings} from './admin-content.mjs';
@@ -8,7 +9,7 @@ import {apiUtilities,requireScope} from './api-contract.mjs';
 import {garageRoutes,cleanupGarage} from './garage.mjs';
 import {aviationRoutes} from './aviation.mjs';
 import {vehicleFor,guidanceScope} from './vehicle-profile.mjs';
-import {securityRoutes,isAdmin} from './account-security.mjs';
+import {securityRoutes,isAdmin,requireElevated} from './account-security.mjs';
 import {captureRouteImagery} from './route-imagery.mjs';
 import {analyzeVisualRoute,validateVisualRequest,coordinate} from './visual-route.mjs';
 import {geocode} from './geocode.mjs';
@@ -88,7 +89,7 @@ async function principal(request,env,apiOnly=false){
   const token=cookieValue(request,'__Host-qrs_session');
   if(!/^[a-f0-9]{64}$/.test(token??''))fail('login_required',401);
   const row=await query(env,`SELECT s.user_id,u.email FROM sessions s JOIN users u ON u.id=s.user_id
-    WHERE s.token_hash=? AND s.expires_at>?`,await sha256(token),now()).first();
+    WHERE s.token_hash=? AND s.expires_at>? AND ${factorPolicySQL()}`,await sha256(token),now()).first();
   if(!row)fail('login_required',401);
   return {...row,session_hash:await sha256(token)};
 }
@@ -263,11 +264,12 @@ async function routes(request,env,context){
     if(/^[a-f0-9]{64}$/.test(user.password_hash)){
       const salt=randomToken().slice(0,32),hash=await passwordHash(data.password,salt,env.QRS_PASSWORD_PEPPER);
       const updated=await query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=? AND password_hash=? AND password_salt=?',hash,salt,user.id,user.password_hash,user.password_salt).run();
-      if(updated.meta.changes!==1)fail('invalid_credentials',401);
+      if(updated.meta.changes<1)fail('invalid_credentials',401);
       user.password_hash=hash;user.password_salt=salt;
     }
-    const token=randomToken();const issued=await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?)',await sha256(token),user.id,now()+86400,now(),user.id,user.password_hash,user.password_salt).run();
-    if(issued.meta.changes!==1)fail('invalid_credentials',401);
+    if(await hasSecurityKeys(env,user.id))return beginPasswordFactor(request,env,user.id,user);
+    const token=randomToken();const issued=await query(env,'INSERT INTO sessions(token_hash,user_id,expires_at,created_at) SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?) AND NOT EXISTS(SELECT 1 FROM security_keys WHERE user_id=?)',await sha256(token),user.id,now()+86400,now(),user.id,user.password_hash,user.password_salt,user.id).run();
+    if(issued.meta.changes!==1){if(await hasSecurityKeys(env,user.id))return beginPasswordFactor(request,env,user.id,user);fail('invalid_credentials',401);}
     return json({authenticated:true},200,{'Set-Cookie':`__Host-qrs_session=${token}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`});
   }
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
@@ -316,6 +318,7 @@ async function routes(request,env,context){
   if(path==='/auth/password'&&request.method==='POST'){
     browserOrigin(request);const p=await principal(request,env);
     if(!p.session_hash)fail('login_required',401);
+    if(await hasSecurityKeys(env,p.user_id))await requireElevated(env,p);
     await limit(env,'password:'+p.user_id,5,300);
     const data=await readJSON(request,4096);
     const credentials=await query(env,'SELECT password_hash,password_salt FROM user_credentials WHERE user_id=?',p.user_id).first();
@@ -324,10 +327,10 @@ async function routes(request,env,context){
     try{valid=await verifyPassword(data.current_password,credentials.password_salt,credentials.password_hash,env.QRS_PASSWORD_PEPPER);next=await passwordHash(data.new_password,salt,env.QRS_PASSWORD_PEPPER);}catch(e){fail(e.message,400);}
     if(!valid)fail('invalid_credentials',401);
     const changed=await env.DB.batch([
-      query(env,'UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=? AND password_hash=? AND password_salt=?',next,salt,p.user_id,credentials.password_hash,credentials.password_salt),
+      query(env,`UPDATE user_credentials SET password_hash=?,password_salt=? WHERE user_id=? AND password_hash=? AND password_salt=? AND EXISTS(SELECT 1 FROM sessions s WHERE s.token_hash=? AND s.user_id=? AND s.expires_at>unixepoch() AND ${factorPolicySQL()} AND (NOT EXISTS(SELECT 1 FROM security_keys WHERE user_id=s.user_id) OR s.elevated_until>unixepoch()))`,next,salt,p.user_id,credentials.password_hash,credentials.password_salt,p.session_hash,p.user_id),
       query(env,'DELETE FROM sessions WHERE user_id=? AND EXISTS (SELECT 1 FROM user_credentials WHERE user_id=? AND password_hash=? AND password_salt=?)',p.user_id,p.user_id,next,salt),
     ]);
-    if(changed[0].meta.changes!==1)fail('invalid_credentials',401);
+    if(changed[0].meta.changes<1)fail('invalid_credentials',401);
     return json({password_changed:true},200,{'Set-Cookie':'__Host-qrs_session=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});
   }
   if(path==='/api/reports'&&request.method==='GET'){
@@ -376,6 +379,7 @@ export default {
       query(env,"UPDATE api_requests SET status='refunded',updated_at=? WHERE status='reserved' AND lease_expires_at<?",now(),now()),
       query(env,'DELETE FROM sessions WHERE expires_at<?',now()),
       query(env,'DELETE FROM security_challenges WHERE expires_at<?',now()),
+      query(env,'DELETE FROM password_login_intents WHERE expires_at<?',now()),
       query(env,'DELETE FROM security_audit WHERE created_at<?',now()-180*86400),
       query(env,'DELETE FROM rate_limits WHERE expires_at<?',now()),
       query(env,'DELETE FROM public_home_previews WHERE expires_at<? AND lease_expires_at<?',now()-3600,now()),

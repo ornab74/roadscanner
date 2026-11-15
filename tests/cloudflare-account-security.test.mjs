@@ -2,18 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../cloudflare/worker.mjs';
 import {issuePasskeySession} from '../cloudflare/account-security.mjs';
+import {beginPasswordFactor,passwordFactor} from '../cloudflare/login-factor.mjs';
 import {fixture} from './fixtures/account-worker.mjs';
 const origin='https://example.test';
-test('passkey session issuance rechecks revocation, ownership, public key and counter at its write boundary',async()=>{
+test('two-factor session issuance requires current password proof and rechecks key ownership, public key, counter and revocation',async()=>{
  const f=await fixture();try{
-  const key={id:'test-passkey',user_id:'owner',public_key:'test-public-key'};
+  const key={id:'test-passkey',user_id:'owner',public_key:'test-public-key',counter:0};
   await f.DB.prepare('INSERT INTO security_keys VALUES (?,?,?,?,?,?,?,?,?)').bind(key.id,'owner','Test key',key.public_key,0,'[]',0,1,null).run();
-  await issuePasskeySession(f.env,key,0,'valid-passkey-token');
-  for(const invalid of [{...key,user_id:'other'},{...key,public_key:'replaced-key'}])await assert.rejects(issuePasskeySession(f.env,invalid,0,'invalid-token'));
-  await assert.rejects(issuePasskeySession(f.env,key,1,'stale-counter-token'));
-  await f.DB.prepare('DELETE FROM security_keys WHERE id=?').bind(key.id).run();
-  await assert.rejects(issuePasskeySession(f.env,key,0,'revoked-key-token'));
+  const proof=async()=>{const credentials=await f.DB.prepare("SELECT password_hash,password_salt FROM user_credentials WHERE user_id='owner'").first();const request=new Request(origin,{headers:{Cookie:'__Host-qrs_preview=test-browser-binding'}});const r=await beginPasswordFactor(request,f.env,'owner',credentials);return passwordFactor(new Request(origin,{headers:{Cookie:'__Host-qrs_preview=test-browser-binding; '+r.headers.get('Set-Cookie').split(';')[0]}}),f.env);};
+  await assert.rejects(issuePasskeySession(f.env,key,0,'missing-password-proof'));
+  await issuePasskeySession(f.env,key,0,'valid-passkey-token',await proof());
+  for(const invalid of [{...key,user_id:'other'},{...key,public_key:'replaced-key'},{...key,counter:1}])await assert.rejects(issuePasskeySession(f.env,invalid,invalid.counter,'invalid-token',await proof()));
   assert.equal((await f.DB.prepare('SELECT COUNT(*) AS n FROM sessions').first()).n,1);
+  const pending=await proof();await f.DB.prepare('DELETE FROM security_keys WHERE id=?').bind(key.id).run();
+  await assert.rejects(issuePasskeySession(f.env,key,0,'revoked-key-token',pending));
+  assert.equal((await f.DB.prepare('SELECT COUNT(*) AS n FROM sessions').first()).n,0);
  }finally{f.close();}
 });
 test('a concurrent credential replacement prevents session issuance, elevation and stale password overwrites',async()=>{
@@ -103,7 +106,7 @@ test('passkey challenges bind to the browser, expire, and cannot replay or enrol
  const f=await fixture();try{const c=await client(f),other=await client(f,'other@example.test');assert.equal((await c.request('/api/security/keys/options','POST',{name:'Test key'})).status,403);await c.elevate();let r=await c.request('/api/security/keys/options','POST',{name:'Test key'});assert.equal(r.status,200);const options=await r.json();assert.equal(options.options.authenticatorSelection.userVerification,'required');assert.equal(options.options.authenticatorSelection.residentKey,'required');assert.equal(options.options.rp.id,'example.test');await other.elevate();assert.equal((await other.request('/api/security/keys/verify','POST',{challenge_id:options.challenge_id,response:{}})).status,400);
  assert.equal((await c.request('/api/security/keys/verify','POST',{challenge_id:options.challenge_id,response:{}})).status,400);assert.equal((await c.request('/api/security/keys/verify','POST',{challenge_id:options.challenge_id,response:{}})).status,400);
  assert.equal((await f.DB.prepare('SELECT COUNT(*) AS n FROM security_challenges WHERE id=?').bind(options.challenge_id).first()).n,0);
- r=await c.request('/auth/passkey/options','POST',{});const login=await r.json();await f.DB.prepare('UPDATE security_challenges SET expires_at=1 WHERE id=?').bind(login.challenge_id).run();assert.equal((await c.request('/auth/passkey/verify','POST',{challenge_id:login.challenge_id,response:{id:'fake'}})).status,400);
+ assert.equal((await c.request('/auth/passkey/options','POST',{})).status,401);assert.equal((await c.request('/auth/passkey/verify','POST',{challenge_id:'fake',response:{id:'fake'}})).status,401);
  }finally{f.close();}
 });
 test('token refresh preserves a valid browser cookie so parallel tabs remain usable',async()=>{const f=await fixture();try{const c=await client(f);const before=await c.request('/api/home/csrf');assert.equal(before.headers.get('Set-Cookie'),null);assert.equal((await before.json()).csrf_token,c.headers['X-CSRF-Token']);}finally{f.close();}});

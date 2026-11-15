@@ -1,0 +1,19 @@
+# Password plus security-key sign-in
+
+Enrolling any key automatically requires both the account password and an enrolled WebAuthn key/passkey for browser sign-in. Passwordless/key-only sign-in is disabled. Removing the last key restores password-only sign-in. Accounts without an enrolled key retain normal password authentication; keys must be enrolled interactively by their owner in Settings.
+
+The server first verifies the password, including legacy hash migration. It then issues a five-minute pending capability in a Secure, HttpOnly, SameSite=Strict `__Host-` cookie. The database stores its digest and an HMAC credential fingerprint, not the raw capability or password. This state cannot access account APIs. It is bound to the existing signed-CSRF browser cookie and account. One pending proof per browser is permitted; replacing it invalidates older challenges. Cross-origin mutations remain blocked by Origin/CSRF checks.
+
+The second step offers only that account's enrolled credentials. A two-minute WebAuthn challenge requires user verification and is checked against the expected RP ID, origin, current public key, signature counter, and pending password proof. A successful signature alone cannot bypass a missing or stale password proof. Five verification attempts per pending proof and existing per-IP limits bound abuse. Challenge and proof replay, wrong-account keys and stolen proofs in a different browser are rejected.
+
+Session insertion, pending-proof consumption, signature-counter update, prior-session rotation for step-up, and audit logging share a D1 transaction. Final writes recheck password freshness, key ownership/public key/counter, pending expiry and any source session. Password-only session creation atomically checks that no key exists. Cookie-session admission also checks the key policy, so an old/forged password-only row is not sufficient when keys exist.
+
+Adding, removing or replacing a security key invalidates all account sessions and pending password proofs through database triggers. Successful enrollment/removal returns the browser to login. The key owner must sign in again under the resulting policy. Existing sessions on accounts with keys are revoked by migration 0017. Registering a new key and removing a key also recheck the current session and elevation at their database write boundaries.
+
+Sensitive reauthentication requires the password and key again when keys are enrolled. It rotates the session and grants five minutes of elevation. Password changes on key-protected accounts require this recent verification; a final SQL guard closes concurrent session/key-policy changes. Scoped Bearer API keys remain separate automation credentials and do not prompt for a physical key on every API request. Their creation and sensitive browser management remain protected.
+
+Keep a spare enrolled key. Password alone cannot recover a key-protected account, and no email recovery or bypass has been introduced. Adding a key changes policy only after real WebAuthn registration succeeds. Test authenticators must never be installed on real user accounts.
+
+Verification includes server tests with real P-256 assertion signatures, negative/race tests, and an isolated Chromium virtual-authenticator browser flow covering enrollment, rejection of password-only access, full login, sensitive step-up and last-key removal. The duplicate account deletion was an explicitly authorized one-off operation; no public deletion endpoint or reusable administrator bypass was added.
+
+The deployed Cloudflare flow was also verified with a disposable zero-credit account and a Chromium virtual authenticator, including password-only denial, hardware-key login, step-up session rotation and last-key removal. That test account was deleted afterward. No authenticator was installed on the retained real administrator account.
