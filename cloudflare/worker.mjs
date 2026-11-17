@@ -220,7 +220,7 @@ async function routes(request,env,context){
   if(request.method==='GET'&&path==='/radar')return Response.redirect(new URL('/dashboard#locationMap',request.url),302);
   if(request.method==='GET'&&path==='/favicon.ico')return Response.redirect(new URL('/favicon.svg',request.url),302);
   if(path==='/terms/'&&request.method==='GET')return Response.redirect(new URL('/terms',request.url),302);
-  const pages={'/demo/delivery':'delivery-demo','/terms':'terms','/payment-return':'billing-return','/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
+  const pages={'/demo/truck':'fleet-demo','/demo/aircraft':'flight-demo','/demo/delivery':'delivery-demo','/terms':'terms','/payment-return':'billing-return','/home':'home','/login':'login','/register':'register','/dashboard':'dashboard','/settings/user':'settings','/radar':'radar','/blog':'blog','/docs':'docs','/admin':'admin','/aircraft':'aircraft'};
   if(request.method==='GET'&&pages[path]){
     const protectedPage=['/dashboard','/settings/user','/radar','/admin','/aircraft'].includes(path);
     if(protectedPage){

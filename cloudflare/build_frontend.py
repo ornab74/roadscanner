@@ -252,6 +252,15 @@ demo_soup=BeautifulSoup((demo_root/'index.html').read_text(),'html.parser')
 for element,attribute in [(demo_soup.select_one('link[rel=stylesheet]'),'href'),(demo_soup.select_one('script[type=module]'),'src')]:
     element[attribute]='/pages/'+element[attribute].removeprefix('./')
 (PAGES/'delivery-demo.html').write_text(str(demo_soup))
+(PAGES/'briefing-demo.css').write_text((ROOT/'examples/shared/public/briefing-demo.css').read_text())
+for demo_name,prefix in [('truck-dispatch','fleet'),('aircraft-briefing','flight')]:
+    demo_dir=ROOT/'examples'/demo_name/'public'
+    (PAGES/(prefix+'-demo-data.mjs')).write_text((demo_dir/'briefing-demo-data.mjs').read_text())
+    (PAGES/(prefix+'-demo.mjs')).write_text((ROOT/'examples/shared/public/briefing-demo.mjs').read_text().replace('./briefing-demo-data.mjs','./'+prefix+'-demo-data.mjs'))
+    demo_page=BeautifulSoup((demo_dir/'index.html').read_text(),'html.parser')
+    demo_page.select_one('link[rel=stylesheet]')['href']='/pages/briefing-demo.css'
+    demo_page.select_one('script[type=module]')['src']='/pages/'+prefix+'-demo.mjs'
+    (PAGES/(prefix+'-demo.html')).write_text(str(demo_page))
 docs=BeautifulSoup((ROOT/'cloudflare/frontend/docs.html').read_text(),'html.parser')
 manual=markdown.Markdown(extensions=['fenced_code','tables','toc'],extension_configs={'toc':{'toc_depth':'2-3'}})
 reference=['| Method | Endpoint | Required scope | Purpose |','| --- | --- | --- | --- |']

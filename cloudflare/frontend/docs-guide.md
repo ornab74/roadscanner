@@ -71,6 +71,43 @@ Each new live analysis uses an eligible trial attempt or paid credit; failed fre
 
 This is a loopback-only teaching server, not a production deployment template. Before exposing a similar service publicly, add your own authenticated users, per-user ownership, CSRF protection appropriate to your session design, durable idempotency and budgets. Keep the existing QRoadScan account limits and permission checks. The app explicitly distinguishes unknown scores and unsupported connections from accepted route results.
 
+## More API demo apps
+
+Explore two more complete example interfaces. Hosted previews use **illustrative fixtures**, not live observations or actual vehicle-clearance/flight decisions. Switching preview states uses no API calls or credits.
+
+### Haul — truck dispatch review
+
+[![Truck-dispatch demo with vehicle dimensions, section caution and turn-review checks](/images/fleet-demo.png)](/demo/truck)
+
+[Open truck demo](/demo/truck) · [Source and local setup](https://github.com/ornab74/roadscanner/tree/main/examples/truck-dispatch)
+
+Shows an articulated-truck profile, section-level caution, high-attention maneuvers and unknown restriction/clearance states. Live mode sends an owned truck `vehicle_id` to `POST /api/v1/routes` and reads `truck_turn_review`. Turn reviews are checks to perform, not approved swept paths or verified access.
+
+```bash
+# Node.js 22+, no packages required. Run from the repository root.
+node examples/truck-dispatch/server.mjs
+# http://127.0.0.1:8900
+```
+
+For live mode, configure `QRS_API_KEY` with `routes:write` and `QRS_DEMO_TRUCK_ID` with the UUID of an owned truck profile before starting. Each new analysis uses an eligible route attempt; the existing free/paid limits apply. Vehicle dimensions come from that profile, not from the illustrative preview.
+
+### Aero — aircraft briefing review
+
+[![Aircraft-briefing demo with missing-provider states, illustrative wind samples and a review checklist](/images/flight-demo.png)](/demo/aircraft)
+
+[Open aircraft demo](/demo/aircraft) · [Source and local setup](https://github.com/ornab74/roadscanner/tree/main/examples/aircraft-briefing)
+
+Combines airport-weather availability, surveillance availability, corridor wind samples, incomplete fuel assumptions and a human-review checklist. The preview's wind values are explicitly fictional fixtures. Unavailable traffic never becomes “clear airspace”; missing fuel inputs never become a zero-fuel estimate. This is an advisory evidence interface, not ATC, collision avoidance, flight authorization or verified routing.
+
+```bash
+node examples/aircraft-briefing/server.mjs
+# http://127.0.0.1:8901
+```
+
+For live mode, configure `QRS_API_KEY` with `aviation:review` and `QRS_DEMO_AIRCRAFT_ID` with an owned aircraft UUID. The server calls `POST /api/v1/aviation/briefing` for the fixed KGSP–KAVL scenario. No usable-fuel amount is assumed; incomplete aircraft assumptions remain incomplete. Aviation provider/AI quotas apply independently of the road trial, and upstream availability varies.
+
+Both servers keep keys and profile IDs server-side, bind only to loopback, require the exact local Origin for requests, limit body sizes, cache results within the process and allow at most three new upstream attempts per process. No hosted live proxy is enabled. The aircraft endpoint does not promise upstream idempotency: after a transport failure its local operation is marked uncertain and is not automatically sent again. These are teaching apps; add authentication, ownership, durable operation storage and production budgets before any public deployment.
+
 ## Create a route from endpoints
 
 **`POST /api/v1/routes`** is the recommended route-creation endpoint for server integrations. Supply coordinates; the server assembles the primary labeled overview, street and satellite endpoint close-ups, corridor imagery and available weather. You do not need to upload a browser map capture. The existing `/api/v1/route/analyze` interface remains available for integrations that explicitly supply georeferenced imagery.
