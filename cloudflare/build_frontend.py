@@ -242,6 +242,9 @@ save('blog',blog,'navigation.mjs')
 radar=BeautifulSoup(template('radar_page'),'html.parser')
 save('radar',radar,'radar.mjs')
 (PAGES/'radar.mjs').write_text("import './navigation.mjs';\n"+(ROOT/'static/js/radar.js').read_text())
+example_files={'curl':'curl.sh','httpx':'httpx.py','requests':'requests.py','javascript':'javascript.mjs','go':'go.go','csharp':'csharp.cs','php':'php.php'}
+route_examples={key:(ROOT/'cloudflare/frontend/quickstart'/name).read_text() for key,name in example_files.items()}
+(PAGES/'docs-examples.mjs').write_text('export const routeExamples='+json.dumps(route_examples)+';\n')
 docs=BeautifulSoup((ROOT/'cloudflare/frontend/docs.html').read_text(),'html.parser')
 manual=markdown.Markdown(extensions=['fenced_code','tables','toc'],extension_configs={'toc':{'toc_depth':'2-3'}})
 reference=['| Method | Endpoint | Required scope | Purpose |','| --- | --- | --- | --- |']

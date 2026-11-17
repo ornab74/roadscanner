@@ -4,6 +4,8 @@ The visible interface and the machine-readable [OpenAPI specification](/openapi.
 
 ## API quick start
 
+For the complete runnable setup in seven languages—including saved request identity, route creation, GeoJSON, directions, section scores and report retrieval—start with the [full integration panel](#complete-route-quick-start) above. The discovery requests below are the initial credential check, not the entire integration.
+
 Choose a server client: [Python httpx](#python-with-httpx), [async httpx](#python-with-async-httpx), [Python requests](#python-with-requests), [JavaScript fetch](#javascript-server-client-example), [Axios](#javascript-with-axios), [TypeScript](#typescript-with-fetch), [Go](#go-client-example), [C#/.NET](#c-sharp-client-example), or [PHP cURL](#php-curl-client-example). The complete examples below read credentials from server environment settings and include timeout, redirect, and error handling.
 
 The versioned API uses the production base URL below. The URL path remains `/api/v1/` for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.
@@ -76,9 +78,9 @@ curl --fail-with-body --silent --show-error --max-time 240 \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $QRS_ROUTE_ID" \
   --data '{
-    "start":{"latitude":40.7532,"longitude":-73.9822},
-    "destination":{"latitude":40.7587,"longitude":-73.9787},
-    "mode":"walking",
+    "start":{"latitude":40.75854190779626,"longitude":-73.97720754146576},
+    "destination":{"latitude":40.753478752021245,"longitude":-73.98087680339813},
+    "mode":"driving",
     "objective":"balanced",
     "notes":"Review visible crossings and the final public entrance."
   }'
@@ -93,9 +95,9 @@ import httpx
 
 operation_key = str(uuid.uuid4())  # Persist with the unchanged request for recovery.
 journey = {
-    "start": {"latitude": 40.7532, "longitude": -73.9822},
-    "destination": {"latitude": 40.7587, "longitude": -73.9787},
-    "mode": "walking",
+    "start": {"latitude": 40.75854190779626, "longitude": -73.97720754146576},
+    "destination": {"latitude": 40.753478752021245, "longitude": -73.98087680339813},
+    "mode": "driving",
     "objective": "balanced",
 }
 with httpx.Client(timeout=httpx.Timeout(240, connect=10), follow_redirects=False) as client:
@@ -137,9 +139,9 @@ const response = await fetch("https://ride.qroadscan.com/api/v1/routes", {
     "Idempotency-Key": operationKey
   },
   body: JSON.stringify({
-    start: {latitude: 40.7532, longitude: -73.9822},
-    destination: {latitude: 40.7587, longitude: -73.9787},
-    mode: "walking"
+    start: {latitude: 40.75854190779626, longitude: -73.97720754146576},
+    destination: {latitude: 40.753478752021245, longitude: -73.98087680339813},
+    mode: "driving"
   })
 });
 if (!response.ok) throw new Error("Route HTTP " + response.status);
