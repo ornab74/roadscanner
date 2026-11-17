@@ -263,7 +263,7 @@ test('visual route analysis requires session and CSRF, charges once, replays and
  const f=await fixture(),original=globalThis.fetch;f.env.OPENAI_API_KEY='test-openai';f.env.ROUTE_MODEL='gpt-6-luna';let calls=0,broken=false,contextOnly=false;
  const mapBounds={north:40.8,south:40.7,east:-73.9,west:-74.1};
  const image='data:image/png;base64,'+pngHeader().toString('base64');
- const input={start:{latitude:40.75,longitude:-74},destination:{latitude:40.75,longitude:-74},mode:'walking',notes:'Test',map:{image,width:800,height:600,bounds:mapBounds},context_images:[]};
+ const input={start:{latitude:40.75,longitude:-74},destination:{latitude:40.7515,longitude:-74},mode:'walking',notes:'Test',map:{image,width:800,height:600,bounds:mapBounds},context_images:[]};
  globalThis.fetch=async(url,options)=>{if(imageryResponse(url))return imageryResponse(url);if(url.startsWith('https://api.met.no/'))return new Response('',{status:503});calls++;if(broken)throw Error('fixture provider failure');const b=JSON.parse(options.body),facts=JSON.parse(b.input[0].content[0].text);return Response.json({status:'completed',model:'gpt-6-luna',output:[{content:[{type:'output_text',text:JSON.stringify({status:contextOnly?'needs_context':'proposal',summary:'Visual proposal.',endpoint_guidance:[],limitations:['No verified navigation.'],segments:contextOnly?[]:[{id:0,street:'Test',instruction:'Proposed path.',risk_score:null,risk_reason:'Unknown.',evidence:'uncertain',points:[facts.start_pixel,facts.destination_pixel]}]})}]}]});};
  try{
   const origin={'Origin':'https://example.test','Content-Type':'application/json'};

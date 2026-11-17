@@ -230,6 +230,8 @@ save('dashboard',dashboard,'dashboard.mjs','\n.radar-controls{padding:12px 0}.ra
 
 # Single-page visual route workspace; account navigation remains shared.
 planner=BeautifulSoup((ROOT/'cloudflare/frontend/planner.html').read_text(),'html.parser')
+(PAGES/'quick-start.css').write_text((ROOT/'cloudflare/frontend/quick-start.css').read_text())
+planner.head.append(planner.new_tag('link',rel='stylesheet',href='/pages/quick-start.css'))
 save('dashboard',planner,'planner.mjs')
 planner_page=PAGES/'dashboard.html'
 planner_page.write_text(planner_page.read_text().replace('/pages/dashboard.css','/pages/planner.css'))

@@ -1,3 +1,4 @@
+import {onboardingRoutes} from './onboarding.mjs';
 import {hasSecurityKeys,beginPasswordFactor,factorPolicySQL} from './login-factor.mjs';
 import {guardedReports,ensureReportCapacity} from './report-storage.mjs';
 import {legalRoutes,validateTermsAcceptance,acceptanceStatement} from './legal.mjs';
@@ -194,6 +195,7 @@ async function routes(request,env,context){
   if(!['GET','HEAD','OPTIONS'].includes(request.method)&&!path.startsWith('/api/v1/'))await verifyBrowserCSRF(request,env);
   enforceFeature(request,env);
   const legal=await legalRoutes(request,env,{principal,limit});if(legal)return legal;
+  const onboarding=await onboardingRoutes(request,env,{principal,limit});if(onboarding)return onboarding;
   if(path==='/api/site'&&request.method==='GET')return json(publicSettings(env));
   if(path==='/admin'&&request.method==='GET'){const p=await principal(request,env);if(!p.session_hash||!await isAdmin(env,p.user_id))fail('admin_required',403);}
   const api=path.startsWith('/api/v1/');let apiPrincipal=null;
@@ -254,6 +256,7 @@ async function routes(request,env,context){
         query(env,'INSERT INTO user_credentials(user_id,password_hash,password_salt) VALUES (?,?,?)',id,hash,salt),
         query(env,'INSERT INTO accounts(user_id,credits,updated_at) VALUES (?,0,?)',id,now()),
         acceptanceStatement(env,id,'registration'),
+        query(env,"INSERT INTO user_onboarding(user_id,version,state,updated_at) VALUES (?,1,'pending',?)",id,now()),
       ]);}catch(e){if(String(e).includes('UNIQUE'))fail('account_could_not_be_created',409);throw e;}
       return json({created:true},201);
     }

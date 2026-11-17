@@ -45,3 +45,10 @@ test('short journeys request detailed road tiles without exceeding source zoom o
  const tiles=tilesForRoute(request,14);assert.equal(tiles[0].z,14);assert.ok(tiles.length<=36);assert.equal(tilesForRoute(request,13)[0].z,13);
  assert.ok(tilesForRoute({start:{latitude:34.8,longitude:-82.5},destination:{latitude:35.1,longitude:-82.1}},14).length<=36);
 });
+test('empty graphs and label-only data never become a navigable route',()=>{
+ const a=p(0,0),b=p(100,0),r={status:'proposal',summary:'A',limitations:[],segments:[segment('A',a,b)]};
+ for(const roads of [[],[{...road('A',[a,b]),label_only:true}]])assert.throws(()=>alignToRoads(r,{start:point(a),destination:point(b),mode:'driving'},source(roads)),/far/);
+});
+test('tile selection stays bounded at high latitude and the antimeridian edges',()=>{
+ for(const longitude of [-179.99,179.99]){const tiles=tilesForRoute({start:{latitude:84.9,longitude},destination:{latitude:84.901,longitude:longitude+.001}},14);assert.ok(tiles.length>0&&tiles.length<=36);assert.ok(tiles.every(t=>t.x>=0&&t.y>=0&&t.x<2**t.z&&t.y<2**t.z));}
+});

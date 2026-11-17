@@ -1,6 +1,6 @@
 import {alignmentFailure} from './alignment-failure.mjs';
 import {routeObjectives,routeMetrics,truckTurnReviews} from './route-options.mjs';
-import {importRoads,alignToRoads} from './road-geometry.mjs';
+import {importRoads,alignToRoads,meters} from './road-geometry.mjs';
 import {annotateMappedRoute} from './mapped-directions.mjs';
 import {constrainImage} from './image-constraints.mjs';
 import {captureRouteImagery,captureConnectorImagery} from './route-imagery.mjs';
@@ -16,6 +16,7 @@ function image(value,expected){
 export function validateVisualRequest(b){
  if(!b||Object.keys(b).filter(k=>!['vehicle_id','objective'].includes(k)).sort().join(',')!=='context_images,destination,map,mode,notes,start'||b.vehicle_id!==undefined&&(typeof b.vehicle_id!=='string'||!/^[a-f0-9-]{36}$/.test(b.vehicle_id))||b.objective!==undefined&&(typeof b.objective!=='string'||!Object.hasOwn(routeObjectives,b.objective))||!['driving','walking'].includes(b.mode)||typeof b.notes!=='string'||b.notes.length>1200||!Array.isArray(b.context_images)||b.context_images.length>2)fail('invalid_route_request');
  const start=coordinate(b.start),destination=coordinate(b.destination),m=b.map;
+ if(meters([start.longitude,start.latitude],[destination.longitude,destination.latitude])<1)fail('endpoints_too_close');
  if(!m||!Number.isInteger(m.width)||!Number.isInteger(m.height)||m.width<200||m.width>1400||m.height<200||m.height>1400)fail('invalid_map_capture');
  const bounds=m.bounds;if(!bounds||!['north','south','east','west'].every(k=>Number.isFinite(bounds[k]))||bounds.north<=bounds.south||bounds.east<=bounds.west||bounds.north>85||bounds.south< -85||bounds.east>180||bounds.west< -180||bounds.east-bounds.west>10||bounds.north-bounds.south>10)fail('invalid_map_capture');
  for(const p of [start,destination])if(p.latitude>bounds.north||p.latitude<bounds.south||p.longitude>bounds.east||p.longitude<bounds.west)fail('endpoints_outside_map');

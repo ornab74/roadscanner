@@ -1,5 +1,6 @@
 export const byId=id=>document.getElementById(id);
 export const friendly={
+ endpoints_too_close:'Start and destination are effectively the same point. Choose a distinct destination before planning.',
  password_factor_required:'Enter your email and password again, then verify your enrolled security key. The pending sign-in may have expired.',
  report_storage_full:'Saved-report storage has reached its limit. Existing reports remain available; new scans and images are paused.',
  report_storage_unavailable:'Saved-report storage is temporarily unavailable. Please try again later.',

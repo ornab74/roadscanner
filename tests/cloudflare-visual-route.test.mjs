@@ -34,3 +34,6 @@ test('GPT-6 Luna receives images and weather, uses no route engine, and rejects 
  const r=await analyzeVisualRoute({OPENAI_API_KEY:'test'},input,fetcher);assert.equal(r.model_used,'gpt-6-luna');assert.equal(r.provenance.routing_engine,false);assert.equal(r.provenance.raw_images_retained,false);assert.equal(providerCalls,1);
  await assert.rejects(analyzeVisualRoute({OPENAI_API_KEY:'test'},input,async url=>imageryResponse(url)??(url.startsWith('https://api.met.no/')?new Response('',{status:503}):Response.json({status:'incomplete',output:[]}))),/complete/);
 });
+test('coincident and effectively identical endpoints are rejected before image/model work',()=>{
+ for(const destination of [input.start,{latitude:input.start.latitude+.00000001,longitude:input.start.longitude}])assert.throws(()=>validateVisualRequest({...input,destination}),/endpoints_too_close/);
+});
