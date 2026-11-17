@@ -192,6 +192,7 @@ for page in ('login','register'):
     error=soup.new_tag('p',id='authError',attrs={'class':'error-message text-center','role':'alert','aria-live':'polite','hidden':True})
     form_tag.insert_before(error)
     if page=='register':
+        form_tag.insert_before(fragment('<p class="trial-registration-note">Registration is open. Up to 5 free browser scan attempts per UTC day and 3 API trial attempts total. Shared limits apply; failed free attempts count. <a href="/docs#free-access-and-usage-limits">See limits</a>.</p>'))
         form_tag['data-terms-version']=TERMS_DOCUMENT['version'];form_tag['data-terms-sha256']=TERMS_DOCUMENT['sha256']
         consent=fragment('<label class="terms-consent"><input type="checkbox" id="acceptTerms" name="accept_terms" required><span>I have read and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>, including the simulation limitations and my responsibility for human oversight.</span></label>').label
         form_tag.select_one('[type=submit]').insert_before(consent)
@@ -243,7 +244,15 @@ save('radar',radar,'radar.mjs')
 (PAGES/'radar.mjs').write_text("import './navigation.mjs';\n"+(ROOT/'static/js/radar.js').read_text())
 docs=BeautifulSoup((ROOT/'cloudflare/frontend/docs.html').read_text(),'html.parser')
 manual=markdown.Markdown(extensions=['fenced_code','tables','toc'],extension_configs={'toc':{'toc_depth':'2-3'}})
-rendered=fragment(manual.convert((ROOT/'cloudflare/frontend/docs-guide.md').read_text()))
+reference=['| Method | Endpoint | Required scope | Purpose |','| --- | --- | --- | --- |']
+api_spec=(PUBLIC/'openapi.yaml').read_text()
+for path,block in re.findall(r'^  (/api/v1/[^:]+):\n(.*?)(?=^  /|^components:|\Z)',api_spec,re.M|re.S):
+    for method,operation in re.findall(r'^    (get|post|put|delete|patch):\n(.*?)(?=^    (?:get|post|put|delete|patch):|\Z)',block,re.M|re.S):
+        summary=re.search(r'^      summary: (.+)$',operation,re.M)
+        scope=re.search(r'^      x-required-scope: (.+)$',operation,re.M)
+        reference.append('| `'+method.upper()+'` | `'+path+'` | `'+(scope.group(1) if scope else 'Authenticated key')+'` | '+(summary.group(1) if summary else 'See OpenAPI')+' |')
+manual_source=(ROOT/'cloudflare/frontend/docs-guide.md').read_text().replace('<!-- ENDPOINT_REFERENCE -->','\n'.join(reference))
+rendered=fragment(manual.convert(manual_source))
 docs.select_one('#docsTOC').append(fragment(manual.toc))
 container=docs.select_one('#docsContent');section=None
 for child in list(rendered.contents):

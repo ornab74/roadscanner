@@ -1,3 +1,4 @@
+import {freeAllowance} from './free-allowance.mjs';
 import {onboardingRoutes} from './onboarding.mjs';
 import {hasSecurityKeys,beginPasswordFactor,factorPolicySQL} from './login-factor.mjs';
 import {guardedReports,ensureReportCapacity} from './report-storage.mjs';
@@ -99,7 +100,7 @@ function browserOrigin(request){
 }
 async function account(env,user){
   const a=await query(env,'SELECT plan,credits FROM accounts WHERE user_id=?',user).first();
-  return {plan:a.plan,status:'active',api_credits:a.credits};
+  const free=await freeAllowance(env,user);return {plan:a.plan,status:'active',api_credits:a.credits+free.api_trial_remaining,paid_credits:a.credits,browser_scan_credits:a.credits+free.browser_remaining,free_allowance:free};
 }
 async function replay(env,p,row){
   if(row.status!=='completed')fail('idempotency_conflict',409);

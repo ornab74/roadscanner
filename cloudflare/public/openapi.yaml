@@ -172,7 +172,11 @@ paths:
       - ApiKey: []
       responses:
         '200':
-          description: Account summary
+          description: Paid balance and separate, capped browser/API trial allowances. These totals overlap; do not add them.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountSummary'
           headers:
             X-Request-ID: *id001
             RateLimit-Limit: *id002
@@ -1828,6 +1832,65 @@ components:
       scheme: bearer
       bearerFormat: qrs_live
   schemas:
+    AccountSummary:
+      type: object
+      required: [plan, status, api_credits, paid_credits, browser_scan_credits, free_allowance]
+      properties:
+        plan:
+          type: string
+          enum: [free, pro]
+        status:
+          type: string
+        api_credits:
+          type: integer
+          minimum: 0
+          description: Paid credits plus currently eligible API trial attempts.
+        paid_credits:
+          type: integer
+          minimum: 0
+        browser_scan_credits:
+          type: integer
+          minimum: 0
+          description: Paid credits plus currently eligible browser attempts. Overlaps api_credits.
+        free_allowance:
+          $ref: '#/components/schemas/FreeAllowance'
+    FreeAllowance:
+      type: object
+      description: Free scene/route attempts only. Failures count. Shared ceilings can reduce individual availability. Not a dollar spending cap.
+      required: [enabled, reset_timezone, browser_remaining, api_trial_remaining, shared_remaining, failed_attempts_count]
+      properties:
+        enabled:
+          type: boolean
+        day:
+          type: [string, 'null']
+          description: Current UTC date.
+        reset_timezone:
+          type: string
+          const: UTC
+        browser_daily_limit:
+          type: integer
+          maximum: 5
+        browser_remaining:
+          type: integer
+          minimum: 0
+        api_trial_limit:
+          type: integer
+          maximum: 3
+        api_trial_remaining:
+          type: integer
+          minimum: 0
+        shared_daily_limit:
+          type: integer
+          maximum: 50
+        shared_monthly_limit:
+          type: integer
+          maximum: 500
+        shared_remaining:
+          type: integer
+          minimum: 0
+        failed_attempts_count:
+          type: boolean
+          const: true
     GarageVehicle:
       type: object
       required:

@@ -1,8 +1,17 @@
 <!DOCTYPE html>
 
-<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-F95iScvq2n1Aeg16obllHbOdEnMfJm/9RK3Cle6RQed/HmO5eYSRfGCaBnuwqQkB" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-cuBIoilm5/2U4pKjSuEDtV41ktrd6PvY8TxN1IsrD0dlcD7wXOLXF9g5pY3zMai4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-llwD3t4b6tRmnE6TR8oTKFvxd4nsveuRpr2HEP21Z8uh2s6yu8/6CCj1Jup59rYy" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-It0fwZRu1/2/Zcp1qen0+6U1vPDzQE2mfEeVuf3PfOKe4gsHJdkCfPurNd1fIdGR" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>The QRoadScan handbook.</h1><p>From your first vehicle profile to a complete server integration. Understand the data, the requests, and the limits behind every result.</p><div class="docs-hero-links"><a href="#api-quick-start">API quick start</a><a href="#quick-start-in-the-app">Start in the app</a><a href="/openapi.yaml">Download OpenAPI</a></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search this handbook</label><input autocomplete="off" id="docsSearch" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><details id="docsNav" open=""><summary>On this page</summary><div id="docsTOC"><div class="toc">
+<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-xsRJf1jay7uoaBSapQumruq8LJOtMh5rkmEpfELaNfbXdskY0bni8tHH+S0JR+JB" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-cuBIoilm5/2U4pKjSuEDtV41ktrd6PvY8TxN1IsrD0dlcD7wXOLXF9g5pY3zMai4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-1steGh8BiJtO/fIXNtAKd0DO1ENm1HF0NASSc3w+VDhzJPG/pWDioZFFsf0I2DjQ" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-yzZ7c4pRZyGEzqta8xEoGftvwPercqm314vy89j0/RwtAkFjqEDCNfMeJanQNRvU" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>Build with QRoadScan.</h1><p>A practical API guide for route intelligence, private garages and aircraft briefings. Authenticate, send your first request, then build around clear schemas and limits.</p><div class="docs-hero-links"><a href="#api-quick-start">API quick start</a><a href="#quick-start-in-the-app">Start in the app</a><a href="/openapi.yaml">Download OpenAPI</a></div><div class="docs-start-grid"><div><h2>Your first API request</h2><p>Register, create a scoped key in Settings, and read your account from your server. This request uses no scan allowance.</p><div class="docs-start-meta"><span>Bearer authentication</span><span>JSON responses</span><span>HTTPS only</span></div></div><div class="docs-start-code"><div aria-label="Quick start language" id="docsLanguageTabs" role="tablist"><button aria-controls="docsQuickPanel" aria-selected="true" data-lang="curl" id="lang-curl" role="tab" type="button">cURL</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="httpx" id="lang-httpx" role="tab" tabindex="-1" type="button">Python · httpx</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="requests" id="lang-requests" role="tab" tabindex="-1" type="button">requests</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="javascript" id="lang-javascript" role="tab" tabindex="-1" type="button">JavaScript</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="go" id="lang-go" role="tab" tabindex="-1" type="button">Go</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="csharp" id="lang-csharp" role="tab" tabindex="-1" type="button">C#</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="php" id="lang-php" role="tab" tabindex="-1" type="button">PHP</button></div><div aria-labelledby="lang-curl" id="docsQuickPanel" role="tabpanel" tabindex="0"><pre><code id="docsQuickExample">curl --fail-with-body --max-time 30 https://ride.qroadscan.com/api/v1/account \
+  -H "Authorization: Bearer $QRS_API_KEY"</code></pre></div><button id="docsQuickCopy" type="button">Copy request</button></div></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search documentation</label><input autocomplete="off" id="docsSearch" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><details id="docsNav" open=""><summary>Documentation</summary><nav aria-label="Start building" class="docs-core-nav"><a href="#api-quick-start">Quick start</a><a href="#free-access-and-usage-limits">Free access &amp; limits</a><a href="#endpoint-reference">API reference</a><a href="#authentication-and-request-lifecycle">Authentication &amp; requests</a><a href="#errors-request-ids-and-retries">Errors &amp; retries</a></nav><div id="docsTOC"><div class="toc">
 <ul>
 <li><a href="#api-quick-start">API quick start</a></li>
+<li><a href="#free-access-and-usage-limits">Free access and usage limits</a></li>
+<li><a href="#authentication-and-request-lifecycle">Authentication and request lifecycle</a></li>
+<li><a href="#endpoint-reference">Endpoint reference</a><ul>
+<li><a href="#common-request-headers">Common request headers</a></li>
+<li><a href="#response-envelopes-and-pagination">Response envelopes and pagination</a></li>
+<li><a href="#api-versioning-and-compatibility">API versioning and compatibility</a></li>
+</ul>
+</li>
 <li><a href="#quick-start-in-the-app">Quick start in the app</a></li>
 <li><a href="#what-the-different-outputs-mean">What the different outputs mean</a></li>
 <li><a href="#account-credits-and-privacy-basics">Account, credits, and privacy basics</a></li>
@@ -104,6 +113,269 @@ curl --fail-with-body --silent --show-error \
   -H "Authorization: Bearer $QRS_API_KEY"
 </code></pre>
 <p>Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.</p>
+</section><section class="doc-section" id="free-access-and-usage-limits"><h2>Free access and usage limits</h2>
+<p>Registration is open. Create an account at <a href="/register">Register</a>, accept the Terms, then sign in. The first dashboard visit offers a four-step guide that you can reopen with <strong>Quick start</strong>. You do not need to provide an API-provider key to use the browser trial.</p>
+<table>
+<thead>
+<tr>
+<th>Allowance</th>
+<th>Per account</th>
+<th>Shared service ceiling</th>
+<th>Reset</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Browser scene/route analysis</td>
+<td>Up to 5 free attempts</td>
+<td>50 free attempts per UTC day; 500 per UTC month, combined with API trials</td>
+<td>Midnight UTC; unused attempts do not accumulate</td>
+</tr>
+<tr>
+<td>API scene/route trial</td>
+<td>3 free attempts total, across all keys</td>
+<td>Same shared ceilings</td>
+<td>No daily or monthly refill</td>
+</tr>
+<tr>
+<td>Account, capabilities and key reads</td>
+<td>No scan allowance</td>
+<td>Ordinary request rate limits</td>
+<td>See response headers</td>
+</tr>
+<tr>
+<td>Vehicle image generation</td>
+<td>Not included in free scans</td>
+<td>Requires an existing paid balance and PHF approval</td>
+<td>Existing image-specific limits</td>
+</tr>
+</tbody>
+</table>
+<p>These are <strong>attempt allowances</strong>. An admitted free request still counts if the model fails, needs more context, or the request's reservation expires: upstream work can cost money even when no route is saved. Replaying a completed request with the same key and idempotency key does not create a new attempt. A new idempotency key represents new work. Paid credits retain their existing debit/refund rules.</p>
+<p>The browser allowance cannot be moved into an API key. Creating another key does not refill the API trial. Four-objective comparisons can consume four attempts. A balance can change between checking it and submitting: the database makes the final reservation atomically, including concurrent requests. Shared limits may stop free access before an individual allowance is exhausted. Existing paid credits may fund work after a trial limit is reached; payments and automatic overages remain disabled.</p>
+<p>Check <code>GET /api/v1/account</code> before metered API work. <code>api_credits</code> is paid balance plus currently available API trial attempts; <code>browser_scan_credits</code> is paid balance plus currently available browser attempts. These two totals overlap in the paid balance: <strong>do not add them together</strong>. <code>paid_credits</code> is the actual stored paid balance. <code>free_allowance</code> describes the trial limits and remaining amounts.</p>
+<pre><code class="language-json">{
+  "plan": "free",
+  "status": "active",
+  "api_credits": 3,
+  "paid_credits": 0,
+  "browser_scan_credits": 5,
+  "free_allowance": {
+    "enabled": true,
+    "reset_timezone": "UTC",
+    "browser_daily_limit": 5,
+    "browser_remaining": 5,
+    "api_trial_limit": 3,
+    "api_trial_remaining": 3,
+    "shared_daily_limit": 50,
+    "shared_monthly_limit": 500,
+    "shared_remaining": 50,
+    "failed_attempts_count": true
+  }
+}
+</code></pre>
+<p>This illustrative response omits the server's current <code>day</code> field. An exhausted allowance without paid funds returns <code>402 insufficient_api_credits</code>. A rate limit can independently return <code>429</code>. Do not poll either failure in a tight loop. These limits control free scan admission, <strong>not a guaranteed dollar ceiling</strong> on Cloudflare or AI-provider invoices. Homepage previews, speech, aircraft evidence and other features retain their own separate controls.</p>
+</section><section class="doc-section" id="authentication-and-request-lifecycle"><h2>Authentication and request lifecycle</h2>
+<ol>
+<li>Create an account in the browser and sign in. If you enroll a security key, keep a spare: password-plus-key sign-in is required thereafter.</li>
+<li>In <a href="/settings/user#apiAccess">Settings → API access</a>, create a named, expiring key. Start with <strong>Road planner</strong> for road work, or <strong>Read-only</strong> for inspection.</li>
+<li>Store the raw value once as <code>QRS_API_KEY</code> in your server's secret store. It is a QRoadScan key, not your OpenAI, Grok or Cloudflare credential.</li>
+<li>Send <code>Authorization: Bearer ...</code> over HTTPS. Do not put credentials in query strings, frontend bundles, mobile source code or analytics logs.</li>
+<li>Verify <code>GET /api/v1/key</code> and <code>GET /api/v1/account</code> before metered work. Choose the least required scope below.</li>
+<li>For scans, route analysis and image generation, generate an idempotency key of 16–128 allowed characters. Reuse the same key and unchanged payload only when recovering that same operation.</li>
+<li>Use a bounded request timeout. A transport timeout is not proof that provider work stopped. Check operation status where an operation ID is available, or retry with the original idempotency key.</li>
+<li>Inspect semantic status as well as HTTP status. A route can return <code>needs_context</code> without a usable navigation proposal. Never treat that as a connected road route.</li>
+<li>Save owned report IDs, request IDs and safe error codes. Redact keys, private images and full home-address payloads in logs.</li>
+</ol>
+<p>API Bearer requests do not use the browser CSRF-token flow. Browser session mutations do require the signed CSRF token and same-origin checks. An API key never grants admin publishing rights, account password changes or security-key management.</p>
+</section><section class="doc-section" id="endpoint-reference"><h2>Endpoint reference</h2>
+<p>The table below is generated from the deployed OpenAPI source. Use the workflow guides below for request bodies, examples and interpretation. Download <a href="/openapi.yaml">OpenAPI 3.1</a> to import the full schemas into your API tooling. No browser “try it” widget sends private keys or spends your allowance implicitly.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Required scope</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/scans</code></td>
+<td><code>scans:write</code></td>
+<td>Run and store one road-risk scan</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/account</code></td>
+<td><code>account:read</code></td>
+<td>Read the authenticated API account and credit balance</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/garage/vehicles</code></td>
+<td><code>garage:read</code></td>
+<td>List your private garage and active vehicle</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/garage/vehicles</code></td>
+<td><code>garage:write</code></td>
+<td>Create an encrypted vehicle profile (maximum 20 active vehicles)</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/v1/garage/active</code></td>
+<td><code>garage:write</code></td>
+<td>Set active garage vehicle (null clears selection)</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}</code></td>
+<td><code>garage:read</code></td>
+<td>Read an owned vehicle</td>
+</tr>
+<tr>
+<td><code>PUT</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}</code></td>
+<td><code>garage:write</code></td>
+<td>Replace a vehicle using its current version; clears illustration when appearance changes</td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}</code></td>
+<td><code>garage:write</code></td>
+<td>Delete an owned vehicle and schedule its encrypted illustration for removal</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}/image</code></td>
+<td><code>images:read</code></td>
+<td>Retrieve owned private PNG illustration</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}/image</code></td>
+<td><code>images:write</code></td>
+<td>Generate GPT Image 2 illustration, gated by input/output PHF, costing one scan credit</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}/guidance</code></td>
+<td><code>garage:read</code></td>
+<td>Read mode-specific advisory checklist and optional area weather</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/aviation/config</code></td>
+<td><code>aviation:read</code></td>
+<td>Providers, quotas and advisory scope (no secrets)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/aviation/snapshot</code></td>
+<td><code>aviation:read</code></td>
+<td>Aircraft briefing snapshot with OpenSky traffic, AWC METAR/TAF, winds aloft and fuel scenario</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/aviation/briefing</code></td>
+<td><code>aviation:review</code></td>
+<td>Refresh aircraft evidence and request a bounded GPT-6 Luna briefing review</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/capabilities</code></td>
+<td><code>Authenticated key</code></td>
+<td>Discover supported features, quotas and scopes</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/key</code></td>
+<td><code>Authenticated key</code></td>
+<td>Inspect the current key without exposing its secret</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/reports</code></td>
+<td><code>scans:read</code></td>
+<td>List owned reports with signed cursor pagination</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/reports/{report_id}</code></td>
+<td><code>scans:read</code></td>
+<td>Read an owned completed report within retention</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/operations/{operation_id}</code></td>
+<td><code>operations:read</code></td>
+<td>Inspect owned metered operation state</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/v1/garage/vehicles/{vehicle_id}/marker</code></td>
+<td><code>garage:read</code></td>
+<td>Retrieve a free transparent type/color SVG map marker</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/route/geocode</code></td>
+<td><code>routes:write</code></td>
+<td>Search candidates with precision and source metadata</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/route/atlas</code></td>
+<td><code>routes:write</code></td>
+<td>Preview automatic endpoint/corridor imagery metadata without model credit</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/v1/route/analyze</code></td>
+<td><code>routes:write</code></td>
+<td>Analyze real georeferenced map imagery into an unverified road proposal</td>
+</tr>
+</tbody>
+</table>
+<h3 id="common-request-headers">Common request headers</h3>
+<table>
+<thead>
+<tr>
+<th>Header</th>
+<th>When to use</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Authorization: Bearer $QRS_API_KEY</code></td>
+<td>Every versioned API request</td>
+<td>Keep it on your trusted server</td>
+</tr>
+<tr>
+<td><code>Content-Type: application/json</code></td>
+<td>JSON request bodies</td>
+<td>Unsupported content types are rejected</td>
+</tr>
+<tr>
+<td><code>Idempotency-Key: UUID</code></td>
+<td>Metered mutations</td>
+<td>Same operation, same body, same key</td>
+</tr>
+<tr>
+<td><code>Accept: application/json</code></td>
+<td>Optional</td>
+<td>Errors may use <code>application/problem+json</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="response-envelopes-and-pagination">Response envelopes and pagination</h3>
+<p>Account and key endpoints return objects directly. Report lists return <code>data</code>, <code>pagination</code> and <code>meta</code>. Follow the signed <code>pagination.next_cursor</code> with the same account; do not edit the cursor or assume a numerical offset. Report ownership is enforced even if another ID is guessed. Image and marker endpoints return image bytes, so do not parse those bodies as JSON.</p>
+<h3 id="api-versioning-and-compatibility">API versioning and compatibility</h3>
+<p>The URL prefix is <code>/api/v1</code>. The capabilities document reports the additive API contract version; that number is distinct from the path prefix. Clients should tolerate extra response fields, handle documented enum/status cases, and reject unsafe assumptions about unknown proposal states. The machine-readable specification documents HTTP contracts; the guides explain data provenance and workflow limits.</p>
 </section><section class="doc-section" id="quick-start-in-the-app"><h2>Quick start in the app</h2>
 <p>Start at <a href="/home">Home</a>, create an account if registration is open, and sign in. Your account can have a garage, private API keys, security keys, signed-in sessions, and saved scan reports. Creating an account does not purchase credits or automatically grant administrator access. Purchases are currently disabled. If your account has no scan credits, you can still manage its settings and inspect the available briefing tools; metered analyses and generated illustrations require an existing credit balance.</p>
 <p>Open <a href="/settings/user#garage">Settings → Garage</a> and add a vehicle. Choose its actual vehicle type explicitly. A motorcycle should be saved as <code>motorcycle</code>, an articulated truck as <code>truck</code>, and an airplane as <code>aircraft</code>. The make or model text does not silently override the type. This matters because the type selects the appropriate workspace, advisory language, specifications, and transparent map icon. The garage highlights the known Kawasaki Z125/type mismatch and offers a correction that you must choose yourself.</p>
@@ -392,7 +664,7 @@ curl --fail-with-body --silent --show-error \
 <tr>
 <td><code>POST /api/v1/route/analyze</code></td>
 <td><code>routes:write</code></td>
-<td>Metered visual proposal or refunded context request.</td>
+<td>Metered visual proposal; paid-credit refund for a context-only result.</td>
 </tr>
 <tr>
 <td><code>GET /api/v1/reports</code></td>
@@ -682,11 +954,11 @@ curl --fail-with-body --silent --show-error \
   -H "Idempotency-Key: $ROUTE_IDEMPOTENCY_KEY" \
   --data-binary @route-with-real-capture.json
 </code></pre>
-<p>A completed proposal includes sections, imported/modeled provenance, geometry alignment metadata, image-manifest metadata, weather samples, limitations, and a stored report identifier. A <code>needs_context</code> response can be HTTP 200 while indicating that no supported proposal was completed and the credit was refunded. Inspect the semantic <code>status</code>; HTTP success alone does not establish a usable route.</p>
+<p>A completed proposal includes sections, imported/modeled provenance, geometry alignment metadata, image-manifest metadata, weather samples, limitations, and a stored report identifier. A <code>needs_context</code> response can be HTTP 200 while indicating that no supported proposal was completed and any paid credit was refunded; a free attempt still counts. Inspect the semantic <code>status</code>; HTTP success alone does not establish a usable route.</p>
 <p>Road analysis currently accepts driving and walking contexts. Aircraft and train profiles are rejected by this road handler. Do not describe an aircraft as a car to force a road ribbon into an aviation UI. For long or unsupported corridors, refine the region or provide better evidence; do not invent a continuous line and label it a verified road trace.</p>
 </section><section class="doc-section" id="comparing-route-proposals"><h2>Comparing route proposals</h2>
 <h3 id="four-objective-route-comparison">Four-objective route comparison</h3>
-<p>Use <strong>Compare 4 objectives</strong> in the road workspace to request fastest estimate, simplest maneuvers, lowest modeled caution, and fuel economy proposals for the same captured overview and endpoints. The comparison runs at most two requests at once. Four available scan credits are required to start; each successful proposal consumes one credit and is saved as its own report. A context-only response or analysis failure follows the existing refund behavior. <strong>Finish current requests &amp; stop</strong> prevents queued objectives from starting; it does not cancel the two potentially active requests. Review saved reports before retrying after a network interruption.</p>
+<p>Use <strong>Compare 4 objectives</strong> in the road workspace to request fastest estimate, simplest maneuvers, lowest modeled caution, and fuel economy proposals for the same captured overview and endpoints. The comparison runs at most two requests at once. Four available scan credits are required to start; each admitted free attempt counts toward the free limits, while successful paid proposals consume one credit. Completed proposals are saved as separate reports. Context-only responses and failures return paid credits but do not restore free attempts. <strong>Finish current requests &amp; stop</strong> prevents queued objectives from starting; it does not cancel the two potentially active requests. Review saved reports before retrying after a network interruption.</p>
 <p>The existing one-credit planning button remains available. Its <strong>Single-proposal objective</strong> selector requests only one of the objectives, or a balanced proposal. The API accepts optional <code>objective: balanced | fastest | simplest | caution | fuel</code> on the existing route-analysis request. To compare through an API client, make up to four ordinary requests with distinct idempotency keys; each has its own operation, credit reservation and saved report. Existing owner scopes, CSRF rules for browser calls, quotas and report encryption still apply.</p>
 <p>The model receives the objective as a preference; explicit user via/avoid requirements take priority. Map alignment uses objective-dependent road-class weights for time, continuity and fuel preferences. Objectives do not change the caution scoring rubric. The application compares the <strong>actual returned</strong> distance, substantive entry-heading maneuvers, length-weighted caution and fuel scenario. An objective request does not guarantee that its candidate wins that metric. The same mapped path can be returned for multiple objectives; those paths are merged into one card and labeled with their shared objectives. Alternatives are drawn as muted dashed lines; selecting a card activates that report’s directions, score ribbon, truck review, GPS route and voice source. The comparison tray is hidden during fullscreen guidance. Comparison groups are session UI state; the individual proposals remain in saved reports.</p>
 <p><code>route_metrics</code> records distance, estimated seconds, maneuver count, weighted caution, caution-coverage fraction, fuel proxy, optional fuel gallons/effective MPG, and the modeling assumptions. Time uses assumed km/h by class: motorway 90, trunk 70, primary 55, secondary 45, tertiary 35, minor 25, service 12. Each substantive heading change adds a 12-second scenario delay. These are not posted speeds, live traffic, recommended speeds or calibrated ETAs. The lowest-caution label requires at least 95% scored-distance coverage; missing scores cannot silently win by being omitted.</p>
@@ -726,7 +998,7 @@ curl --fail-with-body --silent --show-error \
   "$QRS_BASE/api/v1/operations/$OPERATION_ID" \
   -H "Authorization: Bearer $QRS_API_KEY"
 </code></pre>
-<p><code>reserved</code> means the operation has reserved a credit and has not reached a settled terminal state. It does not mean the model is at a specific percentage. Respect <code>poll_after_seconds</code> rather than polling continuously. <code>completed</code> means settlement finished; the response can include a result resource link. <code>refunded</code> means the reservation was returned, which can result from a provider failure or an unsupported route requiring more context.</p>
+<p><code>reserved</code> means the operation has reserved a credit and has not reached a settled terminal state. It does not mean the model is at a specific percentage. Respect <code>poll_after_seconds</code> rather than polling continuously. <code>completed</code> means settlement finished; the response can include a result resource link. <code>refunded</code> means the operation ended without consuming a paid credit, which can result from a provider failure or an unsupported route requiring more context. Free attempts remain counted even when the operation has this status.</p>
 <p>A status resource does not reveal another user’s operation. The server checks the owning account. A result link also does not bypass the scope required to retrieve the actual report or PNG. A key with operation-status permission alone does not automatically gain all report or image contents.</p>
 <p>Use a fresh idempotency key for every genuinely new metered operation. Store the key together with the original request body before sending it. When retrying a transport failure, reuse the exact original body and key. Do not reuse a key across different operation kinds or different intended jobs. The key is an operation identity, not permission to swap the inputs after submission.</p>
 <p>A request can finish after a client disconnects. If you lost the entire response and do not have an operation ID, retry the same request identity rather than inventing another job. A completed replay should not reserve or debit again. A conflicting or still-processing reservation can return 409. Read the original error and operation state before deciding whether the next action is to wait, correct an input, or create a new logical request.</p>
@@ -1449,7 +1721,7 @@ print('Available credits:', account['api_credits'])
 <tr>
 <td>Scene scans</td>
 <td>20 attempts/key/minute; 20 new scans/account/minute</td>
-<td>API keys and browser scans share the account limit. Stored idempotent replays do not consume the new-scan allowance; ordinary per-key request limits still apply. Successful metered work uses a credit.</td>
+<td>API keys and browser scans share the account limit. Stored idempotent replays do not consume the new-scan allowance; ordinary per-key request limits still apply. Free attempts count at admission; paid credits retain debit/refund rules.</td>
 </tr>
 <tr>
 <td>Visual route analysis</td>
@@ -1608,4 +1880,4 @@ be on. Runtime controls cannot enable Stripe, reveal or replace provider keys,
 change provider URLs, grant administrator roles or access private user reports.
 Stripe remains controlled by the separately configured operator switch and
 sandbox/live safeguards. Configuration writes are versioned and audited with the
-admin's reason; a stale browser cannot silently overwrite a newer configuration.</p></section></main></div><footer class="docs-footer">QRoadScan · Evidence and uncertainty stay visible. <a href="/dashboard">Open workspace</a> · <a href="/settings/user#garage">Your garage</a> · <a href="/aircraft">Aircraft briefing</a></footer><p aria-live="polite" class="docs-copy-status" id="docsCopyStatus" role="status"></p><a class="qrs-terms-link" href="/terms">Terms of Service</a><script crossorigin="anonymous" integrity="sha384-It0fwZRu1/2/Zcp1qen0+6U1vPDzQE2mfEeVuf3PfOKe4gsHJdkCfPurNd1fIdGR" src="/pages/docs.mjs" type="module"></script></body></html>
+admin's reason; a stale browser cannot silently overwrite a newer configuration.</p></section></main></div><footer class="docs-footer">QRoadScan · Evidence and uncertainty stay visible. <a href="/dashboard">Open workspace</a> · <a href="/settings/user#garage">Your garage</a> · <a href="/aircraft">Aircraft briefing</a></footer><p aria-live="polite" class="docs-copy-status" id="docsCopyStatus" role="status"></p><a class="qrs-terms-link" href="/terms">Terms of Service</a><script crossorigin="anonymous" integrity="sha384-yzZ7c4pRZyGEzqta8xEoGftvwPercqm314vy89j0/RwtAkFjqEDCNfMeJanQNRvU" src="/pages/docs.mjs" type="module"></script></body></html>

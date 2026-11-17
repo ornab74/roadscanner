@@ -42,6 +42,84 @@ curl --fail-with-body --silent --show-error \
 Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.
 
 
+## Free access and usage limits
+
+Registration is open. Create an account at [Register](/register), accept the Terms, then sign in. The first dashboard visit offers a four-step guide that you can reopen with **Quick start**. You do not need to provide an API-provider key to use the browser trial.
+
+| Allowance | Per account | Shared service ceiling | Reset |
+| --- | --- | --- | --- |
+| Browser scene/route analysis | Up to 5 free attempts | 50 free attempts per UTC day; 500 per UTC month, combined with API trials | Midnight UTC; unused attempts do not accumulate |
+| API scene/route trial | 3 free attempts total, across all keys | Same shared ceilings | No daily or monthly refill |
+| Account, capabilities and key reads | No scan allowance | Ordinary request rate limits | See response headers |
+| Vehicle image generation | Not included in free scans | Requires an existing paid balance and PHF approval | Existing image-specific limits |
+
+These are **attempt allowances**. An admitted free request still counts if the model fails, needs more context, or the request's reservation expires: upstream work can cost money even when no route is saved. Replaying a completed request with the same key and idempotency key does not create a new attempt. A new idempotency key represents new work. Paid credits retain their existing debit/refund rules.
+
+The browser allowance cannot be moved into an API key. Creating another key does not refill the API trial. Four-objective comparisons can consume four attempts. A balance can change between checking it and submitting: the database makes the final reservation atomically, including concurrent requests. Shared limits may stop free access before an individual allowance is exhausted. Existing paid credits may fund work after a trial limit is reached; payments and automatic overages remain disabled.
+
+Check `GET /api/v1/account` before metered API work. `api_credits` is paid balance plus currently available API trial attempts; `browser_scan_credits` is paid balance plus currently available browser attempts. These two totals overlap in the paid balance: **do not add them together**. `paid_credits` is the actual stored paid balance. `free_allowance` describes the trial limits and remaining amounts.
+
+```json
+{
+  "plan": "free",
+  "status": "active",
+  "api_credits": 3,
+  "paid_credits": 0,
+  "browser_scan_credits": 5,
+  "free_allowance": {
+    "enabled": true,
+    "reset_timezone": "UTC",
+    "browser_daily_limit": 5,
+    "browser_remaining": 5,
+    "api_trial_limit": 3,
+    "api_trial_remaining": 3,
+    "shared_daily_limit": 50,
+    "shared_monthly_limit": 500,
+    "shared_remaining": 50,
+    "failed_attempts_count": true
+  }
+}
+```
+
+This illustrative response omits the server's current `day` field. An exhausted allowance without paid funds returns `402 insufficient_api_credits`. A rate limit can independently return `429`. Do not poll either failure in a tight loop. These limits control free scan admission, **not a guaranteed dollar ceiling** on Cloudflare or AI-provider invoices. Homepage previews, speech, aircraft evidence and other features retain their own separate controls.
+
+## Authentication and request lifecycle
+
+1. Create an account in the browser and sign in. If you enroll a security key, keep a spare: password-plus-key sign-in is required thereafter.
+2. In [Settings → API access](/settings/user#apiAccess), create a named, expiring key. Start with **Road planner** for road work, or **Read-only** for inspection.
+3. Store the raw value once as `QRS_API_KEY` in your server's secret store. It is a QRoadScan key, not your OpenAI, Grok or Cloudflare credential.
+4. Send `Authorization: Bearer ...` over HTTPS. Do not put credentials in query strings, frontend bundles, mobile source code or analytics logs.
+5. Verify `GET /api/v1/key` and `GET /api/v1/account` before metered work. Choose the least required scope below.
+6. For scans, route analysis and image generation, generate an idempotency key of 16–128 allowed characters. Reuse the same key and unchanged payload only when recovering that same operation.
+7. Use a bounded request timeout. A transport timeout is not proof that provider work stopped. Check operation status where an operation ID is available, or retry with the original idempotency key.
+8. Inspect semantic status as well as HTTP status. A route can return `needs_context` without a usable navigation proposal. Never treat that as a connected road route.
+9. Save owned report IDs, request IDs and safe error codes. Redact keys, private images and full home-address payloads in logs.
+
+API Bearer requests do not use the browser CSRF-token flow. Browser session mutations do require the signed CSRF token and same-origin checks. An API key never grants admin publishing rights, account password changes or security-key management.
+
+## Endpoint reference
+
+The table below is generated from the deployed OpenAPI source. Use the workflow guides below for request bodies, examples and interpretation. Download [OpenAPI 3.1](/openapi.yaml) to import the full schemas into your API tooling. No browser “try it” widget sends private keys or spends your allowance implicitly.
+
+<!-- ENDPOINT_REFERENCE -->
+
+### Common request headers
+
+| Header | When to use | Notes |
+| --- | --- | --- |
+| `Authorization: Bearer $QRS_API_KEY` | Every versioned API request | Keep it on your trusted server |
+| `Content-Type: application/json` | JSON request bodies | Unsupported content types are rejected |
+| `Idempotency-Key: UUID` | Metered mutations | Same operation, same body, same key |
+| `Accept: application/json` | Optional | Errors may use `application/problem+json` |
+
+### Response envelopes and pagination
+
+Account and key endpoints return objects directly. Report lists return `data`, `pagination` and `meta`. Follow the signed `pagination.next_cursor` with the same account; do not edit the cursor or assume a numerical offset. Report ownership is enforced even if another ID is guessed. Image and marker endpoints return image bytes, so do not parse those bodies as JSON.
+
+### API versioning and compatibility
+
+The URL prefix is `/api/v1`. The capabilities document reports the additive API contract version; that number is distinct from the path prefix. Clients should tolerate extra response fields, handle documented enum/status cases, and reject unsafe assumptions about unknown proposal states. The machine-readable specification documents HTTP contracts; the guides explain data provenance and workflow limits.
+
 ## Quick start in the app
 
 Start at [Home](/home), create an account if registration is open, and sign in. Your account can have a garage, private API keys, security keys, signed-in sessions, and saved scan reports. Creating an account does not purchase credits or automatically grant administrator access. Purchases are currently disabled. If your account has no scan credits, you can still manage its settings and inspect the available briefing tools; metered analyses and generated illustrations require an existing credit balance.
@@ -360,7 +438,7 @@ All paths in this table are relative to the production origin. Unless noted othe
 | `POST /api/v1/scans` | `scans:write` | Metered scene report and operation ID. |
 | `POST /api/v1/route/geocode` | `routes:write` | Candidate places with precision/source labels. |
 | `POST /api/v1/route/atlas` | `routes:write` | Automatic imagery manifest and warnings, without a route-model analysis. |
-| `POST /api/v1/route/analyze` | `routes:write` | Metered visual proposal or refunded context request. |
+| `POST /api/v1/route/analyze` | `routes:write` | Metered visual proposal; paid-credit refund for a context-only result. |
 | `GET /api/v1/reports` | `scans:read` | Paginated owned report metadata. |
 | `GET /api/v1/reports/{id}` | `scans:read` | An owned, unexpired encrypted-at-rest report. |
 | `GET /api/v1/operations/{id}` | `operations:read` | Reserved/completed/refunded state and resource link. |
@@ -645,7 +723,7 @@ curl --fail-with-body --silent --show-error \
   --data-binary @route-with-real-capture.json
 ```
 
-A completed proposal includes sections, imported/modeled provenance, geometry alignment metadata, image-manifest metadata, weather samples, limitations, and a stored report identifier. A `needs_context` response can be HTTP 200 while indicating that no supported proposal was completed and the credit was refunded. Inspect the semantic `status`; HTTP success alone does not establish a usable route.
+A completed proposal includes sections, imported/modeled provenance, geometry alignment metadata, image-manifest metadata, weather samples, limitations, and a stored report identifier. A `needs_context` response can be HTTP 200 while indicating that no supported proposal was completed and any paid credit was refunded; a free attempt still counts. Inspect the semantic `status`; HTTP success alone does not establish a usable route.
 
 Road analysis currently accepts driving and walking contexts. Aircraft and train profiles are rejected by this road handler. Do not describe an aircraft as a car to force a road ribbon into an aviation UI. For long or unsupported corridors, refine the region or provide better evidence; do not invent a continuous line and label it a verified road trace.
 
@@ -653,7 +731,7 @@ Road analysis currently accepts driving and walking contexts. Aircraft and train
 
 ### Four-objective route comparison
 
-Use **Compare 4 objectives** in the road workspace to request fastest estimate, simplest maneuvers, lowest modeled caution, and fuel economy proposals for the same captured overview and endpoints. The comparison runs at most two requests at once. Four available scan credits are required to start; each successful proposal consumes one credit and is saved as its own report. A context-only response or analysis failure follows the existing refund behavior. **Finish current requests & stop** prevents queued objectives from starting; it does not cancel the two potentially active requests. Review saved reports before retrying after a network interruption.
+Use **Compare 4 objectives** in the road workspace to request fastest estimate, simplest maneuvers, lowest modeled caution, and fuel economy proposals for the same captured overview and endpoints. The comparison runs at most two requests at once. Four available scan credits are required to start; each admitted free attempt counts toward the free limits, while successful paid proposals consume one credit. Completed proposals are saved as separate reports. Context-only responses and failures return paid credits but do not restore free attempts. **Finish current requests & stop** prevents queued objectives from starting; it does not cancel the two potentially active requests. Review saved reports before retrying after a network interruption.
 
 The existing one-credit planning button remains available. Its **Single-proposal objective** selector requests only one of the objectives, or a balanced proposal. The API accepts optional `objective: balanced | fastest | simplest | caution | fuel` on the existing route-analysis request. To compare through an API client, make up to four ordinary requests with distinct idempotency keys; each has its own operation, credit reservation and saved report. Existing owner scopes, CSRF rules for browser calls, quotas and report encryption still apply.
 
@@ -719,7 +797,7 @@ curl --fail-with-body --silent --show-error \
   -H "Authorization: Bearer $QRS_API_KEY"
 ```
 
-`reserved` means the operation has reserved a credit and has not reached a settled terminal state. It does not mean the model is at a specific percentage. Respect `poll_after_seconds` rather than polling continuously. `completed` means settlement finished; the response can include a result resource link. `refunded` means the reservation was returned, which can result from a provider failure or an unsupported route requiring more context.
+`reserved` means the operation has reserved a credit and has not reached a settled terminal state. It does not mean the model is at a specific percentage. Respect `poll_after_seconds` rather than polling continuously. `completed` means settlement finished; the response can include a result resource link. `refunded` means the operation ended without consuming a paid credit, which can result from a provider failure or an unsupported route requiring more context. Free attempts remain counted even when the operation has this status.
 
 A status resource does not reveal another user’s operation. The server checks the owning account. A result link also does not bypass the scope required to retrieve the actual report or PNG. A key with operation-status permission alone does not automatically gain all report or image contents.
 
@@ -1466,7 +1544,7 @@ Responses with a known API budget include `RateLimit-Limit`, `RateLimit-Remainin
 | Feature | Current account/key budget | Additional considerations |
 | --- | --- | --- |
 | API baseline | 120 requests/key/minute | Applies to discovery and ordinary API calls too. |
-| Scene scans | 20 attempts/key/minute; 20 new scans/account/minute | API keys and browser scans share the account limit. Stored idempotent replays do not consume the new-scan allowance; ordinary per-key request limits still apply. Successful metered work uses a credit. |
+| Scene scans | 20 attempts/key/minute; 20 new scans/account/minute | API keys and browser scans share the account limit. Stored idempotent replays do not consume the new-scan allowance; ordinary per-key request limits still apply. Free attempts count at admission; paid credits retain debit/refund rules. |
 | Visual route analysis | 6 attempts/account/hour | A separate global route budget also applies. |
 | Atlas preview | 6 requests/account/hour | No route-model credit, but mapping-provider limits still apply. |
 | Route search | 15 requests/account/minute | Upstream geocoder pacing and availability also apply. |
