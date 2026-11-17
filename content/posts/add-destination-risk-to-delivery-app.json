@@ -1,0 +1,5 @@
+{
+  "title": "How to Add Destination-Approach Risk to a Delivery App",
+  "slug": "add-destination-risk-to-delivery-app",
+  "excerpt": "Build a small delivery-driver feature with Node.js and the QRoadScan API: send two endpoints, inspect the destination approach, and handle unknown or unsupported results."
+}

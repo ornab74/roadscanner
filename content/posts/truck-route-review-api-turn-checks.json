@@ -1,0 +1,5 @@
+{
+  "title": "Truck Route Review API: Turn Checks, Vehicle Profiles and Unknown Clearance",
+  "slug": "truck-route-review-api-turn-checks",
+  "excerpt": "Add truck-specific review to a dispatch interface using an owned vehicle profile, mapped route sections and explicit unknown restriction states. Includes a Node.js API example."
+}
