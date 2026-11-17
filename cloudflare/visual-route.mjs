@@ -3,7 +3,7 @@ import {routeObjectives,routeMetrics,truckTurnReviews} from './route-options.mjs
 import {importRoads,alignToRoads} from './road-geometry.mjs';
 import {annotateMappedRoute} from './mapped-directions.mjs';
 import {constrainImage} from './image-constraints.mjs';
-import {captureRouteImagery} from './route-imagery.mjs';
+import {captureRouteImagery,captureConnectorImagery} from './route-imagery.mjs';
 import {routeModelJSON} from './route-model.mjs';
 import {currentWeather,weatherLocation} from './weather.mjs';
 import {vehicleNavigationContext} from './public/pages/vehicle-guidance.mjs';
@@ -57,7 +57,7 @@ export async function analyzeVisualRoute(env,request,fetcher=fetch){
  let final=result;
  if(result.status==='proposal'&&env.ROUTE_ROAD_TRACE==='true'){
   stage='road_alignment';try{let source;for(let attempt=0;attempt<2;attempt++){try{source=await importRoads(request,fetcher);break;}catch(error){if(attempt||!alignmentFailure(error).retryable)throw error;}}final=alignToRoads(result,request,source);}catch(error){const diagnostic=alignmentFailure(error);final={...result,status:'needs_context',segments:[],alignment_failure:diagnostic,geometry_alignment:{status:'unmatched',failure_code:diagnostic.code},summary:diagnostic.message,limitations:[...result.limitations,'Road alignment did not complete: '+diagnostic.code+'. No road ribbon or GPS route was accepted.']};}
-  if(final.status==='proposal'){stage='mapped_review';final=await annotateMappedRoute(env,final,weather,request.notes,fetcher,facts.vehicle_navigation);}
+  if(final.status==='proposal'){stage='mapped_review';const connectors=await captureConnectorImagery(final,fetcher),reviewImagery={frames:[...connectors.frames,...imagery.frames.filter(f=>f.id.includes('-detail-'))],warnings:connectors.warnings};imagery.frames.push(...connectors.frames);imagery.warnings.push(...connectors.warnings);final=await annotateMappedRoute(env,final,weather,request.notes,fetcher,facts.vehicle_navigation,reviewImagery);}
  } else if(result.status==='proposal'){final={...result,geometry_alignment:{status:'unmatched',provenance:'DERIVED'}};}
  return {...final,objective:request.objective??'balanced',route_metrics:final.status==='proposal'?routeMetrics(final.segments,request.vehicle,request.mode):null,truck_turn_review:final.status==='proposal'?truckTurnReviews(final.segments,request.vehicle):null,navigation_profile:facts.vehicle_navigation,imagery_manifest:imagery.frames.map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:usedModel??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
  }catch(e){throw Object.assign(e instanceof Error?e:new Error('Route analysis failed'),{route_stage:stage});}
