@@ -44,6 +44,33 @@ curl --fail-with-body --silent --show-error \
 Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.
 
 
+## Delivery driver demo
+
+See how one API feature fits into a small delivery app: the driver reviews the destination approach, inspects the returned instructions, and completes a mock delivery.
+
+[![Parcel delivery-driver demo showing the route diagram, destination-approach risk and driver briefing](/images/delivery-demo.png)](/demo/delivery)
+
+[Open the interactive demo](/demo/delivery) · [Get the complete example source](https://github.com/ornab74/roadscanner/tree/main/examples/delivery-driver)
+
+The hosted preview uses a **recorded response from a real API test at public Fifth Avenue endpoints**. Opening it and switching its mock states do not send model requests or spend credits. The diagram draws the returned GeoJSON; its decorative city blocks are not a geographic basemap. The order and driver are fictional. It does not track GPS, provide live traffic or contact a dispatch service.
+
+### Run it locally
+
+Requires Node.js 22 or later. No packages are needed:
+
+```bash
+git clone https://github.com/ornab74/roadscanner.git
+cd roadscanner/examples/delivery-driver
+node server.mjs
+# Open http://127.0.0.1:8899
+```
+
+Without a key, it previews the recorded response. For a live request, configure a QRoadScan key with `routes:write` as `QRS_API_KEY` in the server environment before starting the server. The additional **Run live API · 1 attempt** button then appears. The key stays in Node; it is never included in browser HTML, JavaScript or storage. The local server posts to `/api/v1/routes`, and the UI reads `endpoint_inspections.destination`, `steps`, `risk_summary` and `route_geojson`.
+
+Each new live analysis uses an eligible trial attempt or paid credit; failed free attempts still count. The local example permits at most three new upstream attempts per process, retains the browser's operation ID for retries, and returns cached successful responses on replay. This local guard is not an account-wide billing cap. The hosted preview has no live proxy endpoint.
+
+This is a loopback-only teaching server, not a production deployment template. Before exposing a similar service publicly, add your own authenticated users, per-user ownership, CSRF protection appropriate to your session design, durable idempotency and budgets. Keep the existing QRoadScan account limits and permission checks. The app explicitly distinguishes unknown scores and unsupported connections from accepted route results.
+
 ## Create a route from endpoints
 
 **`POST /api/v1/routes`** is the recommended route-creation endpoint for server integrations. Supply coordinates; the server assembles the primary labeled overview, street and satellite endpoint close-ups, corridor imagery and available weather. You do not need to upload a browser map capture. The existing `/api/v1/route/analyze` interface remains available for integrations that explicitly supply georeferenced imagery.

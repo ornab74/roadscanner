@@ -245,6 +245,13 @@ save('radar',radar,'radar.mjs')
 example_files={'curl':'curl.sh','httpx':'httpx.py','requests':'requests.py','javascript':'javascript.mjs','go':'go.go','csharp':'csharp.cs','php':'php.php'}
 route_examples=json.loads((ROOT/'cloudflare/frontend/quickstart/endpoint-examples.json').read_text())
 (PAGES/'docs-examples.mjs').write_text('export const routeExamples='+json.dumps(route_examples)+';\n')
+demo_root=ROOT/'examples/delivery-driver/public'
+for name in ('delivery-demo.css','delivery-demo.mjs','delivery-demo-data.mjs'):
+    (PAGES/name).write_text((demo_root/name).read_text())
+demo_soup=BeautifulSoup((demo_root/'index.html').read_text(),'html.parser')
+for element,attribute in [(demo_soup.select_one('link[rel=stylesheet]'),'href'),(demo_soup.select_one('script[type=module]'),'src')]:
+    element[attribute]='/pages/'+element[attribute].removeprefix('./')
+(PAGES/'delivery-demo.html').write_text(str(demo_soup))
 docs=BeautifulSoup((ROOT/'cloudflare/frontend/docs.html').read_text(),'html.parser')
 manual=markdown.Markdown(extensions=['fenced_code','tables','toc'],extension_configs={'toc':{'toc_depth':'2-3'}})
 reference=['| Method | Endpoint | Required scope | Purpose |','| --- | --- | --- | --- |']
