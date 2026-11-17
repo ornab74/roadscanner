@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: QRoadScan Multimodal API
-  version: 2.1.0
+  version: 2.2.0
   description: Private multimodal garage, scene scans, visual road proposals and advisory aircraft briefings.
     Scoped Bearer keys, operation status, signed report pagination, request IDs and problem responses.
     Aircraft is not ATC or collision avoidance.
@@ -1825,6 +1825,50 @@ paths:
           type: string
           minLength: 16
           maxLength: 128
+  /api/v1/routes:
+    post:
+      summary: Create one mapped route and modeled section-risk review from endpoints
+      description: The server captures the overview, endpoint and corridor imagery and available weather. No map upload required. A proposal requires mapped geometry alignment; it is not verified navigation. Counts as one route attempt under existing free/paid limits.
+      security: *id005
+      x-required-scope: routes:write
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:-]+$
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointRouteRequest'
+      responses:
+        '200':
+          description: A mapped proposal with GeoJSON, instructions and modeled caution, or needs_context with empty geometry and null route score. Failed free attempts still count; paid-credit refunds retain existing rules.
+          headers:
+            X-Request-ID: *id001
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EndpointRouteResponse'
+        '400':
+          description: Invalid endpoints, unsupported area or span over 90 km; rejected before admission.
+        '401':
+          description: Missing, revoked or expired API key.
+        '402':
+          description: No eligible API trial allowance or paid credits.
+        '403':
+          description: routes:write permission required.
+        '409':
+          description: Operation pending, failed, or conflicting idempotency key. Recover the existing operation.
+        '429':
+          description: Request rate or feature quota exhausted. Respect Retry-After.
+        '503':
+          description: New work paused, route feature disabled, or imagery/model provider unavailable. Inspect safe diagnostics before retrying.
 components:
   securitySchemes:
     ApiKey:
@@ -1832,6 +1876,277 @@ components:
       scheme: bearer
       bearerFormat: qrs_live
   schemas:
+    EndpointCoordinate:
+      type: object
+      additionalProperties: false
+      required:
+      - latitude
+      - longitude
+      properties:
+        latitude:
+          type: number
+          minimum: -84.8
+          maximum: 84.8
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+    EndpointRouteRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - start
+      - destination
+      properties:
+        start:
+          $ref: '#/components/schemas/EndpointCoordinate'
+        destination:
+          $ref: '#/components/schemas/EndpointCoordinate'
+        mode:
+          type: string
+          enum:
+          - driving
+          - walking
+          default: driving
+        objective:
+          type: string
+          enum:
+          - balanced
+          - fastest
+          - simplest
+          - caution
+          - fuel
+          default: balanced
+        notes:
+          type: string
+          maxLength: 1200
+          default: ''
+        vehicle_id:
+          type: string
+          format: uuid
+    EndpointRouteResponse:
+      type: object
+      required:
+      - status
+      - operation_id
+      - route_geojson
+      - steps
+      - risk_summary
+      - endpoint_inspections
+      - navigation_verified
+      properties:
+        status:
+          type: string
+          enum:
+          - proposal
+          - needs_context
+        operation_id:
+          type: string
+          format: uuid
+        report_id:
+          type:
+          - integer
+          - 'null'
+        summary:
+          type: string
+        navigation_verified:
+          const: false
+        route_geojson:
+          type: object
+          properties:
+            type:
+              const: FeatureCollection
+            features:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:
+                    const: Feature
+                  geometry:
+                    type: object
+                    required:
+                    - type
+                    - coordinates
+                    properties:
+                      type:
+                        const: LineString
+                      coordinates:
+                        type: array
+                        minItems: 2
+                        items:
+                          type: array
+                          minItems: 2
+                          maxItems: 2
+                          items:
+                            type: number
+                        description: GeoJSON coordinate order is longitude, latitude.
+                  properties:
+                    type: object
+                    properties:
+                      section_id:
+                        type: integer
+                      street:
+                        type: string
+                      instruction:
+                        type: string
+                      distance_m:
+                        type: integer
+                        minimum: 0
+                      risk_score:
+                        type:
+                        - integer
+                        - 'null'
+                        minimum: 0
+                        maximum: 100
+                      score_basis:
+                        type: string
+                        description: weather_estimate, map_context, illustrative_baseline
+                          or unknown
+                      risk_reason:
+                        type: string
+                      name_provenance:
+                        type: string
+                      geometry_provenance:
+                        type: string
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              section_id:
+                type: integer
+              street:
+                type: string
+              instruction:
+                type: string
+              distance_m:
+                type: integer
+                minimum: 0
+              risk_score:
+                type:
+                - integer
+                - 'null'
+                minimum: 0
+                maximum: 100
+              score_basis:
+                type: string
+                description: weather_estimate, map_context, illustrative_baseline or unknown
+              risk_reason:
+                type: string
+              name_provenance:
+                type: string
+              geometry_provenance:
+                type: string
+        risk_summary:
+          type: object
+          properties:
+            unit:
+              const: modeled_caution_index_0_100
+            probability:
+              const: false
+            distance_weighted_score:
+              type:
+              - integer
+              - 'null'
+              minimum: 0
+              maximum: 100
+            peak_score:
+              type:
+              - integer
+              - 'null'
+              minimum: 0
+              maximum: 100
+            scored_distance_fraction:
+              type: number
+              minimum: 0
+              maximum: 1
+            illustrative_baseline_distance_fraction:
+              type: number
+              minimum: 0
+              maximum: 1
+            section_count:
+              type: integer
+              minimum: 0
+            unknown_section_count:
+              type: integer
+              minimum: 0
+            live_traffic_available:
+              const: false
+        endpoint_inspections:
+          type: object
+          properties:
+            start:
+              type: object
+              properties:
+                coordinates:
+                  $ref: '#/components/schemas/EndpointCoordinate'
+                mapped_offset_m:
+                  type:
+                  - number
+                  - 'null'
+                adjacent_section_id:
+                  type:
+                  - integer
+                  - 'null'
+                adjacent_section_risk_score:
+                  type:
+                  - integer
+                  - 'null'
+                  minimum: 0
+                  maximum: 100
+                access_verified:
+                  const: false
+                imagery_ids:
+                  type: array
+                  items:
+                    type: string
+            destination:
+              type: object
+              properties:
+                coordinates:
+                  $ref: '#/components/schemas/EndpointCoordinate'
+                mapped_offset_m:
+                  type:
+                  - number
+                  - 'null'
+                adjacent_section_id:
+                  type:
+                  - integer
+                  - 'null'
+                adjacent_section_risk_score:
+                  type:
+                  - integer
+                  - 'null'
+                  minimum: 0
+                  maximum: 100
+                access_verified:
+                  const: false
+                imagery_ids:
+                  type: array
+                  items:
+                    type: string
+            guidance:
+              type: array
+              items:
+                type: string
+        route_metrics:
+          type:
+          - object
+          - 'null'
+          description: Distance, road-class time and fuel scenarios; not measured traffic,
+            posted speeds or certified fuel planning.
+        weather:
+          type: array
+          items:
+            type: object
+        imagery_manifest:
+          type: array
+          items:
+            type: object
+          description: Image metadata only. Raw image bytes are not retained in the report.
     AccountSummary:
       type: object
       required: [plan, status, api_credits, paid_credits, browser_scan_credits, free_allowance]

@@ -1,3 +1,4 @@
+import {validateEndpointRoute,endpointRouteProducts} from './endpoint-route.mjs';
 import {freeAllowance} from './free-allowance.mjs';
 import {onboardingRoutes} from './onboarding.mjs';
 import {hasSecurityKeys,beginPasswordFactor,factorPolicySQL} from './login-factor.mjs';
@@ -163,7 +164,8 @@ async function runScan(request,env,p){
 async function runVisualRoute(request,env,p){
   if(!env.OPENAI_API_KEY)fail('route_model_not_configured',503);
   const idem=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idem??''))fail('invalid_idempotency_key',400);
-  const input=validateVisualRequest(await readJSON(request,4000000));
+  const endpointOnly=new URL(request.url).pathname==='/api/v1/routes';
+  const input=endpointOnly?validateEndpointRoute(await readJSON(request,8192)):validateVisualRequest(await readJSON(request,4000000));
   if(input.vehicle_id){input.vehicle=await vehicleFor(env,p.user_id,input.vehicle_id);if(!['car','motorcycle','truck'].includes(input.vehicle.kind))fail('vehicle_mode_incompatible',400);input.vehicle_scope=guidanceScope(input.vehicle);}
   const keyID=p.key_id??'web:'+p.user_id;
   await query(env,'INSERT OR IGNORE INTO api_keys(id,user_id,key_hash,created_at) VALUES (?,?,?,?)',keyID,p.user_id,await hmac(env.QRS_API_KEY_PEPPER,'web-session-v1:'+p.user_id),now()).run();
@@ -176,7 +178,7 @@ async function runVisualRoute(request,env,p){
   try{
     const assessment=await analyzeVisualRoute(env,input);
     const scores=assessment.segments.map(s=>s.risk_score).filter(Number.isFinite),peak=scores.length?Math.max(...scores):null;
-    const payload={...assessment,operation_id:id,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode,vehicle:input.vehicle?{id:input.vehicle.id,name:input.vehicle.name,kind:input.vehicle.kind,specs:input.vehicle.specs}:null};
+    const payload={...assessment,...(endpointOnly?endpointRouteProducts(assessment,input):{}),operation_id:id,report_id:reservation.rowid,result:assessment.summary,harm_level:peak===null?'Unknown':peak<40?'Low':peak<75?'Medium':'High',language:'en',start:input.start,destination:input.destination,mode:input.mode,vehicle:input.vehicle?{id:input.vehicle.id,name:input.vehicle.name,kind:input.vehicle.kind,specs:input.vehicle.specs}:null};
     if(assessment.status==='needs_context'){
       const failure=assessment.alignment_failure?{operation_id:id,stage:'road_alignment',reason:assessment.alignment_failure.code}:null;
       await query(env,"UPDATE api_requests SET status='refunded',response_json=?,updated_at=? WHERE id=? AND status='reserved'",failure?JSON.stringify({error:'route_alignment_failed',failure}):null,now(),id).run();if(failure)console.warn('route_alignment_failed',failure);
@@ -278,6 +280,7 @@ async function routes(request,env,context){
   }
   if(path.startsWith('/billing/'))fail('payments_disabled',503);
   if(path==='/api/v1/account'&&request.method==='GET'){requireScope(apiPrincipal,'account:read');return json(await account(env,apiPrincipal.user_id));}
+  if(path==='/api/v1/routes'&&request.method==='POST'){requireScope(apiPrincipal,'routes:write');return runVisualRoute(request,env,apiPrincipal);}
   if(path==='/api/v1/scans'&&request.method==='POST'){requireScope(apiPrincipal,'scans:write');return runScan(request,env,apiPrincipal);}
   if(path==='/api/session/scans'&&request.method==='POST'){
     browserOrigin(request);const p=await principal(request,env);

@@ -1,9 +1,10 @@
+import {endpointOverview} from './endpoint-route.mjs';
 import {alignmentFailure} from './alignment-failure.mjs';
 import {routeObjectives,routeMetrics,truckTurnReviews} from './route-options.mjs';
 import {importRoads,alignToRoads,meters} from './road-geometry.mjs';
 import {annotateMappedRoute} from './mapped-directions.mjs';
 import {constrainImage} from './image-constraints.mjs';
-import {captureRouteImagery,captureConnectorImagery} from './route-imagery.mjs';
+import {captureRouteImagery,captureConnectorImagery,fetchImagery} from './route-imagery.mjs';
 import {routeModelJSON} from './route-model.mjs';
 import {currentWeather,weatherLocation} from './weather.mjs';
 import {vehicleNavigationContext} from './public/pages/vehicle-guidance.mjs';
@@ -41,7 +42,9 @@ export function validateVisualResult(r,request){
  return {...r,segments};
 }
 export async function analyzeVisualRoute(env,request,fetcher=fetch){
- let stage='imagery';try{
+ let stage='imagery',overview=null;try{
+ if(request.server_overview){overview=await fetchImagery(endpointOverview(request),fetcher);const map={image:overview.image,bounds:overview.bounds,width:overview.width,height:overview.height};const validated=validateVisualRequest({start:request.start,destination:request.destination,mode:request.mode,objective:request.objective,notes:request.notes,context_images:[],map,...(request.vehicle_id?{vehicle_id:request.vehicle_id}:{})});request={...request,...validated};}
+
  const locations=[request.start,{latitude:(request.start.latitude+request.destination.latitude)/2,longitude:(request.start.longitude+request.destination.longitude)/2},request.destination],weather=[];
  for(const p of locations){const rounded=weatherLocation(p);if(weather.some(w=>w.latitude===rounded.latitude&&w.longitude===rounded.longitude))continue;try{weather.push({...rounded,estimate:await currentWeather(rounded,fetcher)});}catch{weather.push({...rounded,estimate:null});}}
  const imagery=await captureRouteImagery(request,fetcher);
@@ -56,10 +59,10 @@ export async function analyzeVisualRoute(env,request,fetcher=fetch){
  stage='visual_model';
  const {result,model:usedModel}=await routeModelJSON(env,{model,store:false,max_output_tokens:8192,reasoning:{effort:'low'},instructions:instructions+vehicleInstructions+objectiveInstructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name:'qrs_visual_route',strict:true,schema}}},fetcher,{maxBytes:262144,incompleteMessage:'Route model did not complete',httpMessage:'Route model failed: HTTP ',validate:r=>validateVisualResult(r,request)});
  let final=result;
- if(result.status==='proposal'&&env.ROUTE_ROAD_TRACE==='true'){
+ if(result.status==='proposal'&&(env.ROUTE_ROAD_TRACE==='true'||request.server_overview)){
   stage='road_alignment';try{let source;for(let attempt=0;attempt<2;attempt++){try{source=await importRoads(request,fetcher);break;}catch(error){if(attempt||!alignmentFailure(error).retryable)throw error;}}final=alignToRoads(result,request,source);}catch(error){const diagnostic=alignmentFailure(error);final={...result,status:'needs_context',segments:[],alignment_failure:diagnostic,geometry_alignment:{status:'unmatched',failure_code:diagnostic.code},summary:diagnostic.message,limitations:[...result.limitations,'Road alignment did not complete: '+diagnostic.code+'. No road ribbon or GPS route was accepted.']};}
   if(final.status==='proposal'){stage='mapped_review';const connectors=await captureConnectorImagery(final,fetcher),reviewImagery={frames:[...connectors.frames,...imagery.frames.filter(f=>f.id.includes('-detail-'))],warnings:connectors.warnings};imagery.frames.push(...connectors.frames);imagery.warnings.push(...connectors.warnings);final=await annotateMappedRoute(env,final,weather,request.notes,fetcher,facts.vehicle_navigation,reviewImagery);}
  } else if(result.status==='proposal'){final={...result,geometry_alignment:{status:'unmatched',provenance:'DERIVED'}};}
- return {...final,objective:request.objective??'balanced',route_metrics:final.status==='proposal'?routeMetrics(final.segments,request.vehicle,request.mode):null,truck_turn_review:final.status==='proposal'?truckTurnReviews(final.segments,request.vehicle):null,navigation_profile:facts.vehicle_navigation,imagery_manifest:imagery.frames.map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:usedModel??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
+ return {...final,objective:request.objective??'balanced',route_metrics:final.status==='proposal'?routeMetrics(final.segments,request.vehicle,request.mode):null,truck_turn_review:final.status==='proposal'?truckTurnReviews(final.segments,request.vehicle):null,navigation_profile:facts.vehicle_navigation,imagery_manifest:[...(overview?[overview]:[]),...imagery.frames].map(({image,...meta})=>meta),imagery_warnings:imagery.warnings,map_excellence_version:1,provider:'openai',model_requested:model,model_used:usedModel??model,weather,provenance:{source:'llm_visual_proposal',routing_engine:false,verified_navigation:false,raw_images_retained:false},created_at:Math.floor(Date.now()/1000)};
  }catch(e){throw Object.assign(e instanceof Error?e:new Error('Route analysis failed'),{route_stage:stage});}
 }

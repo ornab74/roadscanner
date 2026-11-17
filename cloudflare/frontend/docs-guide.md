@@ -42,6 +42,137 @@ curl --fail-with-body --silent --show-error \
 Capabilities describe supported surfaces, quotas, documentation links, and advisory scope. Key introspection returns the key’s identifier, scopes, and expiry metadata, not its secret. These discovery calls authenticate your key but do not require a separate content scope. They are useful when diagnosing why a valid Read-only key cannot create a vehicle or start a model analysis.
 
 
+## Create a route from endpoints
+
+**`POST /api/v1/routes`** is the recommended route-creation endpoint for server integrations. Supply coordinates; the server assembles the primary labeled overview, street and satellite endpoint close-ups, corridor imagery and available weather. You do not need to upload a browser map capture. The existing `/api/v1/route/analyze` interface remains available for integrations that explicitly supply georeferenced imagery.
+
+This performs a real request through the mapping, weather and model pipeline. It is a review of available mapped data and imagery—not a live camera inspection, traffic feed, legal-turn certification or guaranteed safe route. Satellite image dates can be unknown. Coordinates identify the chosen endpoints; they do not prove that a particular driveway is usable.
+
+### Request contract
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `start` | Yes | Object with numeric `latitude` and `longitude` only |
+| `destination` | Yes | Same coordinate shape as start |
+| `mode` | No | `driving` (default) or `walking` |
+| `objective` | No | `balanced` (default), `fastest`, `simplest`, `caution`, or `fuel` |
+| `vehicle_id` | No | UUID of an owned car, motorcycle or truck profile |
+| `notes` | No | At most 1,200 characters of route preferences and endpoint details |
+
+Latitude is limited to −84.8 through 84.8; longitude to −180 through 180. Endpoints must be at least one meter apart and no more than 90 km apart by direct distance. The bounded road-data coverage can impose a smaller usable area. Cross-antimeridian routes are not currently supported. Unsupported requests fail validation before a scan reservation or provider work. Unknown fields, arbitrary URLs and client-supplied model instructions are not accepted as configuration.
+
+If you start from addresses, call `POST /api/v1/route/geocode` with `{"query":"YOUR ADDRESS, CITY, POSTCODE"}`, inspect the returned candidate labels and precision, and choose the correct coordinates. Do not silently use the first ambiguous or street-only result as an exact home entrance. Geocoding uses provider data; it does not consume a model scan allowance, but search rate limits apply.
+
+### cURL: create one route
+
+Set `QRS_API_KEY` on your trusted server first. The example endpoints are public locations in Manhattan, not a private residential address.
+
+```bash
+# Generate this once; retain it if you need to retry the same operation.
+QRS_ROUTE_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+curl --fail-with-body --silent --show-error --max-time 240 \
+  'https://ride.qroadscan.com/api/v1/routes' \
+  -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $QRS_ROUTE_ID" \
+  --data '{
+    "start":{"latitude":40.7532,"longitude":-73.9822},
+    "destination":{"latitude":40.7587,"longitude":-73.9787},
+    "mode":"walking",
+    "objective":"balanced",
+    "notes":"Review visible crossings and the final public entrance."
+  }'
+```
+
+### Python httpx: inspect geometry and section risk
+
+```python
+import os
+import uuid
+import httpx
+
+operation_key = str(uuid.uuid4())  # Persist with the unchanged request for recovery.
+journey = {
+    "start": {"latitude": 40.7532, "longitude": -73.9822},
+    "destination": {"latitude": 40.7587, "longitude": -73.9787},
+    "mode": "walking",
+    "objective": "balanced",
+}
+with httpx.Client(timeout=httpx.Timeout(240, connect=10), follow_redirects=False) as client:
+    response = client.post(
+        "https://ride.qroadscan.com/api/v1/routes",
+        headers={
+            "Authorization": f"Bearer {os.environ['QRS_API_KEY']}",
+            "Idempotency-Key": operation_key,
+        },
+        json=journey,
+    )
+    response.raise_for_status()
+    route = response.json()
+
+if route["status"] != "proposal" or route.get("geometry_alignment", {}).get("status") != "matched":
+    print("More context needed:", route["summary"])
+    print(route["endpoint_inspections"]["guidance"])
+else:
+    print("Modeled caution index:", route["risk_summary"]["distance_weighted_score"])
+    print("Scored-distance fraction:", route["risk_summary"]["scored_distance_fraction"])
+    for step in route["steps"]:
+        print(step["index"], step["instruction"], step["distance_m"], step["risk_score"])
+    # Render route["route_geojson"] with a GeoJSON-capable map library.
+    # GeoJSON coordinate order is [longitude, latitude].
+```
+
+### JavaScript: server-side request
+
+```javascript
+// Node.js server only. Retain the idempotency key and body for recovery.
+const operationKey = crypto.randomUUID();
+const response = await fetch("https://ride.qroadscan.com/api/v1/routes", {
+  method: "POST",
+  redirect: "error",
+  signal: AbortSignal.timeout(240_000),
+  headers: {
+    Authorization: "Bearer " + process.env.QRS_API_KEY,
+    "Content-Type": "application/json",
+    "Idempotency-Key": operationKey
+  },
+  body: JSON.stringify({
+    start: {latitude: 40.7532, longitude: -73.9822},
+    destination: {latitude: 40.7587, longitude: -73.9787},
+    mode: "walking"
+  })
+});
+if (!response.ok) throw new Error("Route HTTP " + response.status);
+const route = await response.json();
+if (route.status === "proposal" && route.geometry_alignment?.status === "matched") {
+  console.log(route.route_geojson, route.steps, route.risk_summary);
+} else {
+  console.log("No connected route accepted:", route.summary);
+}
+```
+
+### What the response provides
+
+| Property | Use it for | Interpretation |
+| --- | --- | --- |
+| `route_geojson` | Draw one connected proposal with independently styled sections | FeatureCollection; each feature is a section LineString in longitude/latitude order |
+| `steps` | Build a turn-instruction list | Instruction, street, section distance, modeled score, reason and provenance; not verified lane navigation |
+| `risk_summary` | Compare modeled caution and score coverage | Distance-weighted score, peak, unknown sections and illustrative-baseline distance fraction |
+| `segments` | Access the original mapped review | Includes section geometry, components and supporting explanation |
+| `endpoint_inspections` | Review the first and last approach | Chosen coordinates, mapped offsets, adjacent section scores, relevant imagery IDs and guidance |
+| `weather` | Display source estimates and their validity | Missing estimates remain missing; they are not street-surface observations |
+| `imagery_manifest` | Explain the captured views and their bounds | Includes the server overview; raw image bytes are not retained in the report |
+| `route_metrics` | Display distance and time/fuel scenarios | Class-based estimates, not measured traffic or guaranteed arrival/consumption |
+| `operation_id`, `report_id` | Recover work and load a saved result | Use owned operation/report endpoints and least-required read scopes |
+
+The summary score averages only scored section distance. Always display `scored_distance_fraction` alongside it: a low index with poor coverage does not describe the whole journey. `peak_score` describes the largest available section index. Null scores stay unknown; do not replace them with zero. `illustrative_baseline_distance_fraction` tells you how much route length uses a modeled baseline rather than a weather/map-specific scoring basis. Scores are indices on a 0–100 scale, **not accident probabilities or a measured percentage of safety**.
+
+For a chromographic ribbon, style each feature using its own `risk_score` and `score_basis`. One display convention is green below 40, amber from 40 to 74, red from 75, and gray for null/unsupported. Keep the explanation available on selection. A visual color does not turn a hypothesis into observed evidence.
+
+An endpoint's `adjacent_section_risk_score` is the score of the accepted first/last mapped section, **not a separate certified driveway hazard scan**. `access_verified` remains false. Review the entrance imagery, mapped offset and endpoint guidance. Apartment numbers, indoor access, current obstacles and private permissions need independent confirmation.
+
+A `needs_context` result contains empty `steps` and empty GeoJSON features with a null route summary score. No straight line is substituted for a missing road connection. If imagery or the model is unavailable, an error can be returned instead. Paid credits follow the refund rules; an admitted free attempt remains counted. One call requests one objective; comparisons require separate calls with separate idempotency keys and separate attempts.
+
 ## Free access and usage limits
 
 Registration is open. Create an account at [Register](/register), accept the Terms, then sign in. The first dashboard visit offers a four-step guide that you can reopen with **Quick start**. You do not need to provide an API-provider key to use the browser trial.
