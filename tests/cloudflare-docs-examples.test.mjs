@@ -32,3 +32,26 @@ assert os.path.exists('route.geojson')
  execFileSync(process.env.QRS_TEST_PYTHON||'python3',['-c',script,new URL(language+'.py',root).pathname,JSON.stringify(route)],{cwd:dir,env:{...process.env,QRS_API_KEY:'example-key-not-a-secret'},stdio:'pipe'});
  }finally{rmSync(dir,{recursive:true,force:true});}}});
 test('all seven examples document route creation, stable identity, GeoJSON, report retrieval and safe error recovery',()=>{for(const file of ['curl.sh','httpx.py','requests.py','javascript.mjs','go.go','csharp.cs','php.php']){const text=readFileSync(new URL(file,root),'utf8');assert.match(text,/\/api\/v1\/routes/);assert.match(text,/Idempotency-Key/);assert.match(text,/qrs-operation\.json/);assert.match(text,/route\.geojson/);assert.match(text,/\/api\/v1\/reports\//);assert.match(text,/409/);assert.match(text,/QRS_API_KEY/);}});
+test('focused quick-start JavaScript makes one route request and displays destination risk',()=>{
+ const examples=JSON.parse(readFileSync(new URL('endpoint-examples.json',root),'utf8'));
+ const script=`let calls=0;globalThis.fetch=async(url,o)=>{calls++;if(url!=='https://ride.qroadscan.com/api/v1/routes')throw Error('Wrong endpoint');const b=JSON.parse(o.body);if(!b.start||!b.destination||o.headers['Idempotency-Key']!=='same-operation-123456')throw Error('Wrong request');return Response.json({status:'proposal',endpoint_inspections:{destination:{adjacent_section_risk_score:13,access_verified:false}}});};await import('data:text/javascript,'+encodeURIComponent(${JSON.stringify(examples.javascript)}));if(calls!==1)throw Error('Unexpected extra request');`;
+ const output=execFileSync(process.execPath,['--input-type=module','-e',script],{env:{...process.env,QRS_API_KEY:'example-key-not-a-secret',QRS_REQUEST_ID:'same-operation-123456'},encoding:'utf8'});assert.match(output,/13/);
+});
+test('focused Python examples each perform just one request and handle a null endpoint score',()=>{
+ const examples=JSON.parse(readFileSync(new URL('endpoint-examples.json',root),'utf8'));
+ for(const lib of ['httpx','requests']){const script=`import json,sys,types
+calls=[]
+class Response:
+ def raise_for_status(self):pass
+ def json(self):return {'status':'needs_context','endpoint_inspections':{'destination':{'adjacent_section_risk_score':None,'access_verified':False}}}
+def post(url,**kw):
+ assert url=='https://ride.qroadscan.com/api/v1/routes'
+ assert kw['headers']['Idempotency-Key']=='same-operation-123456'
+ assert 'start' in kw['json'] and 'destination' in kw['json']
+ calls.append(url)
+ return Response()
+sys.modules['${lib}']=types.SimpleNamespace(post=post)
+exec(sys.argv[1])
+assert len(calls)==1
+`;const out=execFileSync(process.env.QRS_TEST_PYTHON||'python3',['-c',script,examples[lib]],{env:{...process.env,QRS_API_KEY:'example-key-not-a-secret',QRS_REQUEST_ID:'same-operation-123456'},encoding:'utf8'});assert.match(out,/needs_context/);assert.match(out,/None/);}
+});

@@ -243,7 +243,7 @@ radar=BeautifulSoup(template('radar_page'),'html.parser')
 save('radar',radar,'radar.mjs')
 (PAGES/'radar.mjs').write_text("import './navigation.mjs';\n"+(ROOT/'static/js/radar.js').read_text())
 example_files={'curl':'curl.sh','httpx':'httpx.py','requests':'requests.py','javascript':'javascript.mjs','go':'go.go','csharp':'csharp.cs','php':'php.php'}
-route_examples={key:(ROOT/'cloudflare/frontend/quickstart'/name).read_text() for key,name in example_files.items()}
+route_examples=json.loads((ROOT/'cloudflare/frontend/quickstart/endpoint-examples.json').read_text())
 (PAGES/'docs-examples.mjs').write_text('export const routeExamples='+json.dumps(route_examples)+';\n')
 docs=BeautifulSoup((ROOT/'cloudflare/frontend/docs.html').read_text(),'html.parser')
 manual=markdown.Markdown(extensions=['fenced_code','tables','toc'],extension_configs={'toc':{'toc_depth':'2-3'}})
@@ -255,6 +255,8 @@ for path,block in re.findall(r'^  (/api/v1/[^:]+):\n(.*?)(?=^  /|^components:|\Z
         scope=re.search(r'^      x-required-scope: (.+)$',operation,re.M)
         reference.append('| `'+method.upper()+'` | `'+path+'` | `'+(scope.group(1) if scope else 'Authenticated key')+'` | '+(summary.group(1) if summary else 'See OpenAPI')+' |')
 manual_source=(ROOT/'cloudflare/frontend/docs-guide.md').read_text().replace('<!-- ENDPOINT_REFERENCE -->','\n'.join(reference))
+full_examples='\n\n'.join('### '+key+' full route client\n\n```'+({'curl':'bash','httpx':'python','requests':'python','javascript':'javascript','go':'go','csharp':'csharp','php':'php'}[key])+'\n'+(ROOT/'cloudflare/frontend/quickstart'/name).read_text()+'\n```' for key,name in example_files.items())
+manual_source=manual_source.replace('<!-- FULL_ROUTE_EXAMPLES -->',full_examples)
 rendered=fragment(manual.convert(manual_source))
 docs.select_one('#docsTOC').append(fragment(manual.toc))
 container=docs.select_one('#docsContent');section=None

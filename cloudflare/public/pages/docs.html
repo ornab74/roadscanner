@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 
-<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-a+ixOp7qO6p+Q43EtSO++wwz/OQyJVtoWtyvpwNTCBrAtDMSrz59UO6fY4VBxYc/" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-cuBIoilm5/2U4pKjSuEDtV41ktrd6PvY8TxN1IsrD0dlcD7wXOLXF9g5pY3zMai4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-1steGh8BiJtO/fIXNtAKd0DO1ENm1HF0NASSc3w+VDhzJPG/pWDioZFFsf0I2DjQ" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs-examples.mjs" integrity="sha384-snLFx1UH6jlThH+3mqXtGS8pmo1SsSHr9LRG5pkjwSeWQ8+aRwHPJGVzclWjANXG" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs-search.mjs" integrity="sha384-IbadlNHrC4zcxaYLKYoy+mcOx0l/flUYUQVE6pWEB9PMbtr+n1XZjV8ueJoRlz7f" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-44Kbh77fs3DZ9J8xHKJq9SK6vrR5ZmYQQbC9U43xfnFQSuSXNTpLExus4FcaD5+5" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>Build with QRoadScan.</h1><p>A practical API guide for route intelligence, private garages and aircraft briefings. Authenticate, send your first request, then build around clear schemas and limits.</p><div class="docs-hero-links"><a href="#complete-route-quick-start">Full API quick start</a><a href="#quick-start-in-the-app">Start in the app</a><a href="/openapi.yaml">Download OpenAPI</a></div><div class="docs-start-grid" id="complete-route-quick-start"><div class="docs-setup"><span class="docs-kicker">COMPLETE ROUTE INTEGRATION</span><h2>From API key to mapped route.</h2><p>Run the full server-side workflow: account check, route creation, directions, section risk, GeoJSON and saved-report retrieval.</p><ol class="docs-setup-steps"><li><strong>1. Create your account &amp; key</strong><span>In <a href="/settings/user#apiAccess">Settings → API access</a>, create an expiring Road planner key. This workflow needs <code>account:read</code>, <code>routes:write</code>, <code>scans:read</code>, and <code>operations:read</code>.</span></li><li><strong>2. Prepare your server</strong><span>Use a private working directory and install the selected language dependencies shown in the example. Store your key as <code>QRS_API_KEY</code> in the server environment. Never put it in a public browser bundle.</span></li><li><strong>3. Choose endpoints &amp; vehicle</strong><span>The example uses public, mapped Fifth Avenue road points. To use addresses, <a href="#create-a-route-from-endpoints">resolve and confirm the right candidate first</a>. Optionally supply an owned garage <code>vehicle_id</code>.</span></li><li><strong>4. Run &amp; inspect</strong><span>The script saves <code>route-response.json</code> and, for accepted routes, <code>route.geojson</code>. Read the turn instructions, modeled section scores, coverage and endpoint offsets.</span></li><li><strong>5. Recover without duplicate work</strong><span>Keep <code>qrs-operation.json</code>. After a timeout, rerun the same body and idempotency key. On a pending 409, wait; use operation status when its ID is known.</span></li></ol><div class="docs-start-meta"><span>One route attempt</span><span>Model-generated caution</span><span>Scoped server key</span></div><p class="docs-setup-note">Read calls use no scan allowance. Route requests consume an eligible attempt; failed free attempts still count. Protect local journey files and remove saved operation state only to deliberately start a new analysis.</p><a href="#create-a-route-from-endpoints">Read the full route contract →</a></div><div class="docs-start-code"><div aria-label="Complete route integration language" id="docsLanguageTabs" role="tablist"><button aria-controls="docsQuickPanel" aria-selected="true" data-lang="curl" id="lang-curl" role="tab" type="button">cURL</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="httpx" id="lang-httpx" role="tab" tabindex="-1" type="button">Python · httpx</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="requests" id="lang-requests" role="tab" tabindex="-1" type="button">requests</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="javascript" id="lang-javascript" role="tab" tabindex="-1" type="button">JavaScript</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="go" id="lang-go" role="tab" tabindex="-1" type="button">Go</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="csharp" id="lang-csharp" role="tab" tabindex="-1" type="button">C#</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="php" id="lang-php" role="tab" tabindex="-1" type="button">PHP</button></div><div aria-labelledby="lang-curl" id="docsQuickPanel" role="tabpanel" tabindex="0"><pre><code id="docsQuickExample">Loading the complete route-integration example…</code></pre></div><button id="docsQuickCopy" type="button">Copy full example</button><button aria-controls="docsQuickPanel" aria-expanded="false" id="docsExpandCode" type="button">Expand code</button></div></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search documentation</label><input autocomplete="off" id="docsSearch" maxlength="200" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><div class="docs-search-actions"><button aria-label="Previous search match" disabled="" id="docsSearchPrev" type="button">Previous</button><button aria-label="Next search match" disabled="" id="docsSearchNext" type="button">Next match</button></div><details id="docsNav" open=""><summary>Documentation</summary><nav aria-label="Start building" class="docs-core-nav"><a href="#api-quick-start">Quick start</a><a href="#create-a-route-from-endpoints">Create a route</a><a href="#free-access-and-usage-limits">Free access &amp; limits</a><a href="#endpoint-reference">API reference</a><a href="#authentication-and-request-lifecycle">Authentication &amp; requests</a><a href="#errors-request-ids-and-retries">Errors &amp; retries</a></nav><div id="docsTOC"><div class="toc">
+<html data-page="docs" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>Guides &amp; API reference · QRoadScan</title><link crossorigin="anonymous" href="/static/css/roboto.css" integrity="sha384-oU1UczyCwpOCB4GNNCNhS01dWbh64NSqu5KbkfURH3HLpdrIDo9xDeEDGBG4I8ot" rel="stylesheet"/><link crossorigin="anonymous" href="/static/css/orbitron.css" integrity="sha384-QCV5LJg7LSEQTmGbdR4fec1ZBSF9/mX1SCpE/03yXtEz9z3jPPmlANT2A+PbCGLu" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/docs.css" integrity="sha384-DnoWqjVHTFOdFURnz5LBgC/6o01iMV5YUPu3E7oCsT5QzxMzv/XKUDzd4Kip6DH7" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/shared.css" integrity="sha384-cuBIoilm5/2U4pKjSuEDtV41ktrd6PvY8TxN1IsrD0dlcD7wXOLXF9g5pY3zMai4" rel="stylesheet"/><link crossorigin="anonymous" href="/pages/common.mjs" integrity="sha384-1steGh8BiJtO/fIXNtAKd0DO1ENm1HF0NASSc3w+VDhzJPG/pWDioZFFsf0I2DjQ" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs-examples.mjs" integrity="sha384-0rKFGC5s0sgLE8edWUPSSYFRml52fBFD/J28gvjB7tUI5ZXMW8MfAC8fW2CI37uL" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs-search.mjs" integrity="sha384-IbadlNHrC4zcxaYLKYoy+mcOx0l/flUYUQVE6pWEB9PMbtr+n1XZjV8ueJoRlz7f" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/docs.mjs" integrity="sha384-s3KYfaaIqUXTQiIGQFDWiLig/0rVx0XDzFw9oVhwFi3fDYCifRF9MwyH2FnWIewH" rel="modulepreload"/><link crossorigin="anonymous" href="/pages/navigation.mjs" integrity="sha384-q/aTnzz0DOXjdAltGTr+eKshA5SM/NPs6nTrnQjezeew9cbsjHpRi69+eG7IhHnp" rel="modulepreload"/></head><body class="developer-docs"><a class="docs-skip" href="#docsContent">Skip to documentation</a><nav aria-label="Main navigation" class="docs-topnav"><a class="docs-brand" href="/home">QRS <span>DEVELOPERS</span></a><ul class="navbar-nav"><li><a href="/home">Home</a></li><li><a aria-current="page" href="/docs">Docs</a></li><li><a href="/blog">Blog</a></li><li><a href="/login">Login</a></li><li><a href="/register">Register</a></li></ul></nav><header class="docs-hero"><span class="docs-kicker">GUIDES / VEHICLES / AIRCRAFT / API</span><h1>Build with QRoadScan.</h1><p>A practical API guide for route intelligence, private garages and aircraft briefings. Authenticate, send your first request, then build around clear schemas and limits.</p><div class="docs-hero-links"><a href="#complete-route-quick-start">Full API quick start</a><a href="#quick-start-in-the-app">Start in the app</a><a href="/openapi.yaml">Download OpenAPI</a></div><div class="docs-start-grid" id="complete-route-quick-start"><div class="docs-setup"><span class="docs-kicker">ONE REQUEST · ONE FEATURE</span><h2>Check destination approach risk.</h2><p>Send a start and destination. Read the modeled risk of the last mapped section approaching your destination.</p><p>Set <code>QRS_API_KEY</code> to a server-side key with <code>routes:write</code>. Set <code>QRS_REQUEST_ID</code> to a UUID once; reuse it with the same body if you retry.</p><div class="docs-start-meta"><span>One route attempt</span><span>Server-side</span></div><p class="docs-setup-note">The API needs both endpoints to assess an approach. This is a modeled road-section score, not a verified driveway inspection or accident probability. A null score means no supported assessment.</p><p class="docs-response-label">Relevant response fields · illustrative</p><pre class="docs-response-example"><code>{"status":"proposal","destination":{
+  "adjacent_section_risk_score":13,
+  "access_verified":false
+}}</code></pre><a href="#complete-route-integration-examples">Full route setup &amp; reusable clients →</a></div><div class="docs-start-code"><div aria-label="Destination risk example language" id="docsLanguageTabs" role="tablist"><button aria-controls="docsQuickPanel" aria-selected="true" data-lang="curl" id="lang-curl" role="tab" type="button">cURL</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="httpx" id="lang-httpx" role="tab" tabindex="-1" type="button">Python · httpx</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="requests" id="lang-requests" role="tab" tabindex="-1" type="button">requests</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="javascript" id="lang-javascript" role="tab" tabindex="-1" type="button">JavaScript</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="go" id="lang-go" role="tab" tabindex="-1" type="button">Go</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="csharp" id="lang-csharp" role="tab" tabindex="-1" type="button">C#</button><button aria-controls="docsQuickPanel" aria-selected="false" data-lang="php" id="lang-php" role="tab" tabindex="-1" type="button">PHP</button></div><div aria-labelledby="lang-curl" id="docsQuickPanel" role="tabpanel" tabindex="0"><pre><code id="docsQuickExample">Loading the destination risk example…</code></pre></div><button id="docsQuickCopy" type="button">Copy example</button><button aria-controls="docsQuickPanel" aria-expanded="false" id="docsExpandCode" type="button">Expand code</button></div></div></header><div class="docs-layout"><aside class="docs-sidebar"><label for="docsSearch">Search documentation</label><input autocomplete="off" id="docsSearch" maxlength="200" placeholder="Fuel, keys, motorcycle, curl…" type="search"/><p aria-live="polite" id="docsSearchStatus" role="status"></p><div class="docs-search-actions"><button aria-label="Previous search match" disabled="" id="docsSearchPrev" type="button">Previous</button><button aria-label="Next search match" disabled="" id="docsSearchNext" type="button">Next match</button></div><details id="docsNav" open=""><summary>Documentation</summary><nav aria-label="Start building" class="docs-core-nav"><a href="#api-quick-start">Quick start</a><a href="#create-a-route-from-endpoints">Create a route</a><a href="#free-access-and-usage-limits">Free access &amp; limits</a><a href="#endpoint-reference">API reference</a><a href="#authentication-and-request-lifecycle">Authentication &amp; requests</a><a href="#errors-request-ids-and-retries">Errors &amp; retries</a></nav><div id="docsTOC"><div class="toc">
 <ul>
 <li><a href="#api-quick-start">API quick start</a></li>
 <li><a href="#create-a-route-from-endpoints">Create a route from endpoints</a><ul>
@@ -91,12 +94,22 @@
 <li><a href="#stripe-sandbox-billing">Stripe sandbox billing</a></li>
 <li><a href="#admin-blog-publishing">Admin blog publishing</a></li>
 <li><a href="#administrator-runtime-settings">Administrator runtime settings</a></li>
+<li><a href="#complete-route-integration-examples">Complete route integration examples</a><ul>
+<li><a href="#curl-full-route-client">curl full route client</a></li>
+<li><a href="#httpx-full-route-client">httpx full route client</a></li>
+<li><a href="#requests-full-route-client">requests full route client</a></li>
+<li><a href="#javascript-full-route-client">javascript full route client</a></li>
+<li><a href="#go-full-route-client">go full route client</a></li>
+<li><a href="#csharp-full-route-client">csharp full route client</a></li>
+<li><a href="#php-full-route-client">php full route client</a></li>
+</ul>
+</li>
 </ul>
 </div>
 </div></details><a class="docs-top-link" href="#">Back to top ↑</a></aside><main class="docs-content" id="docsContent" tabindex="-1"><p>This handbook describes the deployed QRoadScan application and its versioned HTTP API. It covers the browser workspace, private vehicle garage, road proposals, aircraft briefings, account security, and server integration. Examples use illustrative vehicles and public airport coordinates. Example performance values are not manufacturer recommendations, flight-planning standards, or observations about your vehicle.</p>
 <p>The visible interface and the machine-readable <a href="/openapi.yaml">OpenAPI specification</a> serve different purposes. This handbook explains the workflows, assumptions, failure cases, and integration decisions. The specification lists request fields and endpoint contracts. Use both when building an integration. Keep your API key on your own server, and begin with the smallest permissions needed for the job.</p>
 <section class="doc-section" id="api-quick-start"><h2>API quick start</h2>
-<p>For the complete runnable setup in seven languages—including saved request identity, route creation, GeoJSON, directions, section scores and report retrieval—start with the <a href="#complete-route-quick-start">full integration panel</a> above. The discovery requests below are the initial credential check, not the entire integration.</p>
+<p>Start with the focused <a href="#complete-route-quick-start">destination approach risk example</a> above. For reusable server clients, see the <a href="#complete-route-integration-examples">complete route integration examples</a>.</p>
 <p>Choose a server client: <a href="#python-with-httpx">Python httpx</a>, <a href="#python-with-async-httpx">async httpx</a>, <a href="#python-with-requests">Python requests</a>, <a href="#javascript-server-client-example">JavaScript fetch</a>, <a href="#javascript-with-axios">Axios</a>, <a href="#typescript-with-fetch">TypeScript</a>, <a href="#go-client-example">Go</a>, <a href="#c-sharp-client-example">C#/.NET</a>, or <a href="#php-curl-client-example">PHP cURL</a>. The complete examples below read credentials from server environment settings and include timeout, redirect, and error handling.</p>
 <p>The versioned API uses the production base URL below. The URL path remains <code>/api/v1/</code> for compatibility, while the capabilities response identifies the current additive API contract. Existing clients can continue using established endpoints. New clients should discover capabilities and key permissions before starting expensive work.</p>
 <pre><code class="language-text">https://ride.qroadscan.com/api/v1
@@ -2080,4 +2093,376 @@ be on. Runtime controls cannot enable Stripe, reveal or replace provider keys,
 change provider URLs, grant administrator roles or access private user reports.
 Stripe remains controlled by the separately configured operator switch and
 sandbox/live safeguards. Configuration writes are versioned and audited with the
-admin's reason; a stale browser cannot silently overwrite a newer configuration.</p></section></main></div><footer class="docs-footer">QRoadScan · Evidence and uncertainty stay visible. <a href="/dashboard">Open workspace</a> · <a href="/settings/user#garage">Your garage</a> · <a href="/aircraft">Aircraft briefing</a></footer><p aria-live="polite" class="docs-copy-status" id="docsCopyStatus" role="status"></p><a class="qrs-terms-link" href="/terms">Terms of Service</a><script crossorigin="anonymous" integrity="sha384-44Kbh77fs3DZ9J8xHKJq9SK6vrR5ZmYQQbC9U43xfnFQSuSXNTpLExus4FcaD5+5" src="/pages/docs.mjs" type="module"></script></body></html>
+admin's reason; a stale browser cannot silently overwrite a newer configuration.</p>
+</section><section class="doc-section" id="complete-route-integration-examples"><h2>Complete route integration examples</h2>
+<p>These longer clients cover saved request identity, full route creation, GeoJSON export, directions, risk data and stored-report retrieval. Start with the shorter destination-risk quick start above when exploring the API.</p>
+<h3 id="curl-full-route-client">curl full route client</h3>
+<pre><code class="language-bash">#!/usr/bin/env bash
+# Requires Bash, curl, jq, Python 3. Save as route.sh; run: bash route.sh
+# Set QRS_API_KEY securely on your server first. Never commit keys or enable set -x.
+set -euo pipefail
+umask 077
+: "${QRS_API_KEY:?Set QRS_API_KEY in your server environment}"
+BASE='https://ride.qroadscan.com'
+# Save the unchanged body and key before sending. Keep them after a timeout.
+if [[ ! -f qrs-operation.json ]]; then
+  python3 - &lt;&lt;'PY'
+import json, uuid
+state = {"idempotency_key": str(uuid.uuid4()), "journey": {
+    "start": {"latitude":40.75854190779626,"longitude":-73.97720754146576},
+    "destination": {"latitude":40.753478752021245,"longitude":-73.98087680339813},
+    "mode":"driving", "objective":"balanced",
+    "notes":"Public road journey southbound on Fifth Avenue. Review junctions."
+}}
+# Optional: state["journey"]["vehicle_id"] = "OWNED_GARAGE_VEHICLE_UUID"
+with open("qrs-operation.json", "x") as f: json.dump(state, f, indent=2)
+PY
+fi
+IDEMPOTENCY_KEY=$(jq -er '.idempotency_key' qrs-operation.json)
+jq '.journey' qrs-operation.json &gt; journey.json
+curl --fail-with-body --silent --show-error --max-time 30 \
+  "$BASE/api/v1/account" -H "Authorization: Bearer $QRS_API_KEY" | jq .
+curl --fail-with-body --silent --show-error --max-time 240 \
+  "$BASE/api/v1/routes" -H "Authorization: Bearer $QRS_API_KEY" \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
+  --data-binary @journey.json &gt; route-response.json
+if jq -e '.status == "proposal" and .geometry_alignment.status == "matched"' route-response.json &gt;/dev/null; then
+  jq '.route_geojson' route-response.json &gt; route.geojson
+  jq '{risk_summary, steps, endpoint_inspections, route_metrics}' route-response.json
+  REPORT_ID=$(jq -er '.report_id' route-response.json)
+  curl --fail-with-body --silent --show-error --max-time 30 \
+    "$BASE/api/v1/reports/$REPORT_ID" -H "Authorization: Bearer $QRS_API_KEY" \
+    &gt; saved-report.json
+else
+  rm -f -- route.geojson saved-report.json
+  jq '{status, summary, endpoint_inspections, limitations}' route-response.json
+fi
+# Timeout? Rerun the same file/key. 409? Wait if processing; don't create a new key.
+# If an operation_id is known: GET /api/v1/operations/{operation_id} (operations:read).
+# Inspect its status; do not poll in a tight loop. Paid refunds and free limits differ.
+
+</code></pre>
+<h3 id="httpx-full-route-client">httpx full route client</h3>
+<pre><code class="language-python"># Install: python -m pip install httpx
+# Run: python route.py (set QRS_API_KEY securely on your server first).
+import json
+import os
+from pathlib import Path
+import uuid
+import httpx
+
+os.umask(0o077)  # Protect local journey and response files.
+BASE = "https://ride.qroadscan.com"
+KEY = os.environ["QRS_API_KEY"]
+# Persist both files. Rerunning recovers the same operation, not a new scan.
+state_file = Path("qrs-operation.json")
+if state_file.exists():
+    state = json.loads(state_file.read_text())
+else:
+    journey = {'start': {'latitude': 40.75854190779626, 'longitude': -73.97720754146576}, 'destination': {'latitude': 40.753478752021245, 'longitude': -73.98087680339813}, 'mode': 'driving', 'objective': 'balanced', 'notes': 'Public road journey southbound on Fifth Avenue. Review junctions.'}
+    # Optional: journey["vehicle_id"] = "OWNED_GARAGE_VEHICLE_UUID"
+    state = {"idempotency_key": str(uuid.uuid4()), "journey": journey}
+    with state_file.open("x") as f:
+        json.dump(state, f, indent=2)
+
+with httpx.Client(timeout=httpx.Timeout(240, connect=10), follow_redirects=False) as client:
+    def api(method, path, body=None, idem=None):
+        headers = {"Authorization": "Bearer " + KEY}
+        if idem:
+            headers["Idempotency-Key"] = idem
+        response = client.request(method, BASE + path, headers=headers, json=body, follow_redirects=False)
+        if response.status_code &gt;= 300:
+            raise RuntimeError(f"HTTP {response.status_code}; request ID: "
+                               + response.headers.get("X-Request-ID", "unknown"))
+        return response.json()
+
+    account = api("GET", "/api/v1/account")
+    print("Available API attempts:", account["api_credits"])
+    # Always preserve the same request/key after a timeout, even if balance is zero.
+    route = api("POST", "/api/v1/routes", state["journey"], state["idempotency_key"])
+    Path("route-response.json").write_text(json.dumps(route, indent=2))
+    if route["status"] != "proposal" or route.get("geometry_alignment", {}).get("status") != "matched":
+        Path("route.geojson").unlink(missing_ok=True)
+        print("No accepted route:", route["summary"])
+        print(route["endpoint_inspections"]["guidance"])
+    else:
+        Path("route.geojson").write_text(json.dumps(route["route_geojson"], indent=2))
+        print("Modeled caution (not accident probability):", route["risk_summary"])
+        for step in route["steps"]:
+            print(step["index"], step["instruction"], step["distance_m"], step["risk_score"])
+        # The key also needs scans:read to retrieve the stored report.
+        saved = api("GET", "/api/v1/reports/" + str(route["report_id"]))
+        print("Saved report:", saved["report_id"])
+# Network timeout? Rerun with the saved state. 409? Do not generate a new key:
+# wait if processing; inspect /api/v1/operations/{operation_id} when available.
+# Delete the state file only when deliberately starting a NEW analysis attempt.
+
+</code></pre>
+<h3 id="requests-full-route-client">requests full route client</h3>
+<pre><code class="language-python"># Install: python -m pip install requests
+# Run: python route.py (set QRS_API_KEY securely on your server first).
+import json
+import os
+from pathlib import Path
+import uuid
+import requests
+
+os.umask(0o077)  # Protect local journey and response files.
+BASE = "https://ride.qroadscan.com"
+KEY = os.environ["QRS_API_KEY"]
+# Persist both files. Rerunning recovers the same operation, not a new scan.
+state_file = Path("qrs-operation.json")
+if state_file.exists():
+    state = json.loads(state_file.read_text())
+else:
+    journey = {'start': {'latitude': 40.75854190779626, 'longitude': -73.97720754146576}, 'destination': {'latitude': 40.753478752021245, 'longitude': -73.98087680339813}, 'mode': 'driving', 'objective': 'balanced', 'notes': 'Public road journey southbound on Fifth Avenue. Review junctions.'}
+    # Optional: journey["vehicle_id"] = "OWNED_GARAGE_VEHICLE_UUID"
+    state = {"idempotency_key": str(uuid.uuid4()), "journey": journey}
+    with state_file.open("x") as f:
+        json.dump(state, f, indent=2)
+
+with requests.Session() as client:
+    def api(method, path, body=None, idem=None):
+        headers = {"Authorization": "Bearer " + KEY}
+        if idem:
+            headers["Idempotency-Key"] = idem
+        response = client.request(method, BASE + path, headers=headers, json=body, timeout=(10, 240), allow_redirects=False)
+        if response.status_code &gt;= 300:
+            raise RuntimeError(f"HTTP {response.status_code}; request ID: "
+                               + response.headers.get("X-Request-ID", "unknown"))
+        return response.json()
+
+    account = api("GET", "/api/v1/account")
+    print("Available API attempts:", account["api_credits"])
+    # Always preserve the same request/key after a timeout, even if balance is zero.
+    route = api("POST", "/api/v1/routes", state["journey"], state["idempotency_key"])
+    Path("route-response.json").write_text(json.dumps(route, indent=2))
+    if route["status"] != "proposal" or route.get("geometry_alignment", {}).get("status") != "matched":
+        Path("route.geojson").unlink(missing_ok=True)
+        print("No accepted route:", route["summary"])
+        print(route["endpoint_inspections"]["guidance"])
+    else:
+        Path("route.geojson").write_text(json.dumps(route["route_geojson"], indent=2))
+        print("Modeled caution (not accident probability):", route["risk_summary"])
+        for step in route["steps"]:
+            print(step["index"], step["instruction"], step["distance_m"], step["risk_score"])
+        # The key also needs scans:read to retrieve the stored report.
+        saved = api("GET", "/api/v1/reports/" + str(route["report_id"]))
+        print("Saved report:", saved["report_id"])
+# Network timeout? Rerun with the saved state. 409? Do not generate a new key:
+# wait if processing; inspect /api/v1/operations/{operation_id} when available.
+# Delete the state file only when deliberately starting a NEW analysis attempt.
+
+</code></pre>
+<h3 id="javascript-full-route-client">javascript full route client</h3>
+<pre><code class="language-javascript">// Requires Node.js 22+. Save as route.mjs; run: node route.mjs
+// Set QRS_API_KEY in your server's environment. Never embed it in a browser.
+import {readFile, writeFile, rm} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+const base = 'https://ride.qroadscan.com';
+const key = process.env.QRS_API_KEY;
+if (!key) throw new Error('Set QRS_API_KEY first');
+let state;
+try { state = JSON.parse(await readFile('qrs-operation.json', 'utf8')); }
+catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+  state = {
+    idempotency_key: randomUUID(),
+    journey: {
+      start: {latitude: 40.75854190779626, longitude: -73.97720754146576},
+      destination: {latitude: 40.753478752021245, longitude: -73.98087680339813},
+      mode: 'driving', objective: 'balanced',
+      notes: 'Public road journey southbound on Fifth Avenue. Review junctions.'
+      // Optional: vehicle_id: 'OWNED_GARAGE_VEHICLE_UUID'
+    }
+  };
+  await writeFile('qrs-operation.json', JSON.stringify(state, null, 2), {flag: 'wx', mode: 0o600});
+}
+async function api(method, path, body, idem) {
+  const response = await fetch(base + path, {
+    method, redirect: 'error', signal: AbortSignal.timeout(240_000),
+    headers: {Authorization: 'Bearer ' + key,
+      ...(body ? {'Content-Type': 'application/json'} : {}),
+      ...(idem ? {'Idempotency-Key': idem} : {})},
+    ...(body ? {body: JSON.stringify(body)} : {})
+  });
+  if (!response.ok) throw new Error('HTTP ' + response.status + '; request ID: ' + response.headers.get('X-Request-ID'));
+  return response.json();
+}
+console.log('Account:', await api('GET', '/api/v1/account'));
+const route = await api('POST', '/api/v1/routes', state.journey, state.idempotency_key);
+await writeFile('route-response.json', JSON.stringify(route, null, 2), {mode: 0o600});
+if (route.status !== 'proposal' || route.geometry_alignment?.status !== 'matched') {
+  await rm('route.geojson', {force: true});
+  console.log('No accepted route:', route.summary, route.endpoint_inspections.guidance);
+} else {
+  await writeFile('route.geojson', JSON.stringify(route.route_geojson), {mode: 0o600});
+  console.log('Modeled caution, not accident probability:', route.risk_summary);
+  for (const step of route.steps) console.log(step.index, step.instruction, step.distance_m, step.risk_score);
+  console.log('Saved report:', await api('GET', '/api/v1/reports/' + route.report_id));
+}
+// On a timeout, rerun with the saved state; do not change the key or request.
+// On 409, wait if processing. Poll /api/v1/operations/{operation_id} when known.
+// Only remove qrs-operation.json when deliberately starting a NEW paid/free attempt.
+
+</code></pre>
+<h3 id="go-full-route-client">go full route client</h3>
+<pre><code class="language-go">// Requires Go 1.22+. Save as route.go; run: go run route.go
+// Set QRS_API_KEY securely in your server environment first.
+package main
+import (
+ "bytes"; "crypto/rand"; "encoding/hex"; "encoding/json"; "fmt"; "io"; "net/http"; "os"; "time"
+)
+type State struct { Key string `json:"idempotency_key"`; Journey json.RawMessage `json:"journey"` }
+func main() {
+ key := os.Getenv("QRS_API_KEY"); if key == "" { panic("Set QRS_API_KEY") }
+ var state State
+ data, err := os.ReadFile("qrs-operation.json")
+ if os.IsNotExist(err) {
+  random := make([]byte, 16); if _,err = rand.Read(random); err != nil { panic(err) }
+  state = State{Key:hex.EncodeToString(random), Journey:json.RawMessage(`{
+   "start":{"latitude":40.75854190779626,"longitude":-73.97720754146576},
+   "destination":{"latitude":40.753478752021245,"longitude":-73.98087680339813},
+   "mode":"driving","objective":"balanced",
+   "notes":"Public road journey southbound on Fifth Avenue. Review junctions."
+  }`)} // Optional: add vehicle_id for an owned garage vehicle.
+  data,err = json.MarshalIndent(state,"","  "); if err != nil { panic(err) }
+  f,e := os.OpenFile("qrs-operation.json",os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600); if e != nil { panic(e) }
+  if _,e=f.Write(data); e != nil { f.Close(); panic(e) }; f.Close()
+ } else if err != nil { panic(err) } else if err=json.Unmarshal(data,&amp;state); err != nil { panic(err) }
+ client := &amp;http.Client{Timeout:240*time.Second, CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
+ api := func(method,path string,body []byte,idem string) map[string]any {
+  req,e:=http.NewRequest(method,"https://ride.qroadscan.com"+path,bytes.NewReader(body));if e!=nil{panic(e)}
+  req.Header.Set("Authorization","Bearer "+key)
+  if body!=nil{req.Header.Set("Content-Type","application/json")};if idem!=""{req.Header.Set("Idempotency-Key",idem)}
+  res,e:=client.Do(req);if e!=nil{panic(e)};defer res.Body.Close()
+  if res.StatusCode&lt;200||res.StatusCode&gt;=300{panic(fmt.Sprintf("HTTP %d; request ID: %s",res.StatusCode,res.Header.Get("X-Request-ID")))}
+  var out map[string]any;if e=json.NewDecoder(io.LimitReader(res.Body,1048576)).Decode(&amp;out);e!=nil{panic(e)};return out
+ }
+ fmt.Println("Account:",api("GET","/api/v1/account",nil,""))
+ route:=api("POST","/api/v1/routes",state.Journey,state.Key)
+ save:=func(name string,v any){b,e:=json.MarshalIndent(v,"","  ");if e!=nil{panic(e)};if e=os.WriteFile(name,b,0600);e!=nil{panic(e)}}
+ save("route-response.json",route)
+ alignment,_:=route["geometry_alignment"].(map[string]any)
+ if route["status"]!="proposal"||alignment["status"]!="matched"{os.Remove("route.geojson");os.Remove("saved-report.json");fmt.Println("No accepted route:",route["summary"]);return}
+ save("route.geojson",route["route_geojson"])
+ fmt.Println("Modeled caution, not accident probability:",route["risk_summary"])
+ for _,step:=range route["steps"].([]any){fmt.Println(step)}
+ report:=fmt.Sprintf("%.0f",route["report_id"].(float64))
+ save("saved-report.json",api("GET","/api/v1/reports/"+report,nil,""))
+}
+// Timeout? Rerun with the saved state; do not change request or key.
+// 409? Wait if processing. Poll /api/v1/operations/{operation_id} when known.
+// Remove state only to deliberately start a NEW analysis attempt.
+
+</code></pre>
+<h3 id="csharp-full-route-client">csharp full route client</h3>
+<pre><code class="language-csharp">// Requires .NET 8+. dotnet new console -n QrsRoute; replace Program.cs with this.
+// Set QRS_API_KEY in your server environment; run: dotnet run --project QrsRoute
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+var key = Environment.GetEnvironmentVariable("QRS_API_KEY")
+    ?? throw new InvalidOperationException("Set QRS_API_KEY");
+JsonNode state;
+if (File.Exists("qrs-operation.json")) {
+    state = JsonNode.Parse(await File.ReadAllTextAsync("qrs-operation.json"))!;
+} else {
+    state = new JsonObject {
+        ["idempotency_key"] = Guid.NewGuid().ToString(),
+        ["journey"] = JsonNode.Parse("""
+        {"start":{"latitude":40.75854190779626,"longitude":-73.97720754146576},
+         "destination":{"latitude":40.753478752021245,"longitude":-73.98087680339813},
+         "mode":"driving","objective":"balanced",
+         "notes":"Public road journey southbound on Fifth Avenue. Review junctions."}
+        """) // Optional: add vehicle_id for an owned garage vehicle.
+    };
+    await using var file = new FileStream("qrs-operation.json",FileMode.CreateNew);
+    await JsonSerializer.SerializeAsync(file,state);
+}
+using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(240) };
+async Task&lt;JsonNode&gt; Api(HttpMethod method,string path,JsonNode? body=null,string? idem=null) {
+    using var request = new HttpRequestMessage(method,"https://ride.qroadscan.com"+path);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer",key);
+    if (idem != null) request.Headers.Add("Idempotency-Key",idem);
+    if (body != null) request.Content = new StringContent(body.ToJsonString(),Encoding.UTF8,"application/json");
+    using var response = await client.SendAsync(request);
+    response.EnsureSuccessStatusCode();
+    return JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+}
+Console.WriteLine("Account: "+await Api(HttpMethod.Get,"/api/v1/account"));
+var route = await Api(HttpMethod.Post,"/api/v1/routes",state["journey"],state["idempotency_key"]!.GetValue&lt;string&gt;());
+await File.WriteAllTextAsync("route-response.json",route.ToJsonString());
+if (route["status"]?.GetValue&lt;string&gt;() != "proposal" || route["geometry_alignment"]?["status"]?.GetValue&lt;string&gt;() != "matched") {
+    File.Delete("route.geojson"); File.Delete("saved-report.json");
+    Console.WriteLine("No accepted route: "+route["summary"]);
+} else {
+    await File.WriteAllTextAsync("route.geojson",route["route_geojson"]!.ToJsonString());
+    Console.WriteLine("Modeled caution, not accident probability: "+route["risk_summary"]);
+    foreach (var step in route["steps"]!.AsArray()) Console.WriteLine(step);
+    var saved = await Api(HttpMethod.Get,"/api/v1/reports/"+route["report_id"]!.GetValue&lt;long&gt;());
+    await File.WriteAllTextAsync("saved-report.json",saved.ToJsonString());
+}
+// On a timeout, rerun with the SAME saved state; no automatic new operation.
+// On 409, wait if processing; inspect /api/v1/operations/{operation_id} when known.
+// Protect local journey/report files; restrict their filesystem permissions.
+
+</code></pre>
+<h3 id="php-full-route-client">php full route client</h3>
+<pre><code class="language-php">&lt;?php
+// Requires PHP 8.1+ with cURL. Save as route.php; run: php route.php
+// Set QRS_API_KEY securely in your server environment first.
+$key = getenv('QRS_API_KEY');
+if (!$key) throw new RuntimeException('Set QRS_API_KEY');
+umask(0077);
+if (file_exists('qrs-operation.json')) {
+    $state = json_decode(file_get_contents('qrs-operation.json'),true,512,JSON_THROW_ON_ERROR);
+} else {
+    $state = ['idempotency_key'=&gt;bin2hex(random_bytes(16)), 'journey'=&gt;[
+        'start'=&gt;['latitude'=&gt;40.75854190779626,'longitude'=&gt;-73.97720754146576],
+        'destination'=&gt;['latitude'=&gt;40.753478752021245,'longitude'=&gt;-73.98087680339813],
+        'mode'=&gt;'driving','objective'=&gt;'balanced',
+        'notes'=&gt;'Public road journey southbound on Fifth Avenue. Review junctions.'
+        // Optional: 'vehicle_id'=&gt;'OWNED_GARAGE_VEHICLE_UUID'
+    ]];
+    $f = fopen('qrs-operation.json','x');
+    if ($f === false) throw new RuntimeException('State already exists or is unwritable');
+    fwrite($f,json_encode($state,JSON_THROW_ON_ERROR)); fclose($f);
+}
+function api(string $method,string $path,?array $body=null,?string $idem=null): array {
+    global $key;
+    $headers = ['Authorization: Bearer '.$key];
+    if ($body !== null) $headers[] = 'Content-Type: application/json';
+    if ($idem !== null) $headers[] = 'Idempotency-Key: '.$idem;
+    $ch = curl_init('https://ride.qroadscan.com'.$path);
+    $options = [CURLOPT_CUSTOMREQUEST=&gt;$method,CURLOPT_RETURNTRANSFER=&gt;true,
+        CURLOPT_FOLLOWLOCATION=&gt;false,CURLOPT_TIMEOUT=&gt;240,CURLOPT_CONNECTTIMEOUT=&gt;10,
+        CURLOPT_HTTPHEADER=&gt;$headers];
+    if ($body !== null) $options[CURLOPT_POSTFIELDS] = json_encode($body,JSON_THROW_ON_ERROR);
+    curl_setopt_array($ch,$options);$response = curl_exec($ch);
+    if ($response === false) { $error=curl_error($ch);curl_close($ch);throw new RuntimeException($error); }
+    $status=curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);
+    if ($status&lt;200||$status&gt;=300) throw new RuntimeException('HTTP '.$status);
+    return json_decode($response,true,512,JSON_THROW_ON_ERROR);
+}
+print_r(api('GET','/api/v1/account'));
+$route=api('POST','/api/v1/routes',$state['journey'],$state['idempotency_key']);
+file_put_contents('route-response.json',json_encode($route,JSON_PRETTY_PRINT|JSON_THROW_ON_ERROR));
+if ($route['status']!=='proposal'||($route['geometry_alignment']['status']??null)!=='matched') {
+    if (is_file('route.geojson')) unlink('route.geojson');
+    if (is_file('saved-report.json')) unlink('saved-report.json');
+    echo 'No accepted route: '.$route['summary'].PHP_EOL;
+} else {
+    file_put_contents('route.geojson',json_encode($route['route_geojson'],JSON_THROW_ON_ERROR));
+    echo 'Modeled caution, not accident probability:'.PHP_EOL; print_r($route['risk_summary']);
+    foreach ($route['steps'] as $step) print_r($step);
+    $saved=api('GET','/api/v1/reports/'.$route['report_id']);
+    file_put_contents('saved-report.json',json_encode($saved,JSON_THROW_ON_ERROR));
+}
+// Timeout? Rerun the SAME saved state. 409? Wait if processing; don't create a new key.
+// Inspect /api/v1/operations/{operation_id} when known. Respect poll_after_seconds.
+// Delete state only when intentionally requesting a NEW analysis attempt.
+
+</code></pre></section></main></div><footer class="docs-footer">QRoadScan · Evidence and uncertainty stay visible. <a href="/dashboard">Open workspace</a> · <a href="/settings/user#garage">Your garage</a> · <a href="/aircraft">Aircraft briefing</a></footer><p aria-live="polite" class="docs-copy-status" id="docsCopyStatus" role="status"></p><a class="qrs-terms-link" href="/terms">Terms of Service</a><script crossorigin="anonymous" integrity="sha384-s3KYfaaIqUXTQiIGQFDWiLig/0rVx0XDzFw9oVhwFi3fDYCifRF9MwyH2FnWIewH" src="/pages/docs.mjs" type="module"></script></body></html>

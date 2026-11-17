@@ -4,7 +4,7 @@ The visible interface and the machine-readable [OpenAPI specification](/openapi.
 
 ## API quick start
 
-For the complete runnable setup in seven languages—including saved request identity, route creation, GeoJSON, directions, section scores and report retrieval—start with the [full integration panel](#complete-route-quick-start) above. The discovery requests below are the initial credential check, not the entire integration.
+Start with the focused [destination approach risk example](#complete-route-quick-start) above. For reusable server clients, see the [complete route integration examples](#complete-route-integration-examples).
 
 Choose a server client: [Python httpx](#python-with-httpx), [async httpx](#python-with-async-httpx), [Python requests](#python-with-requests), [JavaScript fetch](#javascript-server-client-example), [Axios](#javascript-with-axios), [TypeScript](#typescript-with-fetch), [Go](#go-client-example), [C#/.NET](#c-sharp-client-example), or [PHP cURL](#php-curl-client-example). The complete examples below read credentials from server environment settings and include timeout, redirect, and error handling.
 
@@ -1869,3 +1869,9 @@ change provider URLs, grant administrator roles or access private user reports.
 Stripe remains controlled by the separately configured operator switch and
 sandbox/live safeguards. Configuration writes are versioned and audited with the
 admin's reason; a stale browser cannot silently overwrite a newer configuration.
+
+## Complete route integration examples
+
+These longer clients cover saved request identity, full route creation, GeoJSON export, directions, risk data and stored-report retrieval. Start with the shorter destination-risk quick start above when exploring the API.
+
+<!-- FULL_ROUTE_EXAMPLES -->
