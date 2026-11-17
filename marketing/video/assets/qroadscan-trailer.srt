@@ -1,0 +1,27 @@
+1
+00:00:00,000 --> 00:00:05,000
+QRoadScan: more context for the last mile.
+
+2
+00:00:05,000 --> 00:00:16,000
+Delivery demo: inspect the destination approach and its modeled context.
+
+3
+00:00:16,000 --> 00:00:27,000
+Truck demo: review vehicle inputs, turn checks and unknown clearance.
+
+4
+00:00:27,000 --> 00:00:38,000
+Aircraft demo: keep missing weather, traffic and fuel evidence visible.
+
+5
+00:00:38,000 --> 00:00:48,000
+Build a focused feature with the route API. Keep keys on your server.
+
+6
+00:00:48,000 --> 00:00:56,000
+Registration is open. Five browser attempts per UTC day; three API trial attempts total. Shared limits apply.
+
+7
+00:00:56,000 --> 00:01:04,000
+Try the demos and developer docs at ride.qroadscan.com/docs. Model-generated review; human decisions.

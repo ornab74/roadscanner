@@ -1,3 +1,15 @@
+# QRoadScan
+
+## Product video
+
+[![Watch the QRoadScan product demo](marketing/video/assets/youtube-thumbnail.png)](https://github.com/ornab74/roadscanner/raw/refs/heads/main/marketing/video/assets/qroadscan-trailer-1080p.mp4)
+
+**[Watch / download the 64-second product video (1080p MP4)](https://github.com/ornab74/roadscanner/raw/refs/heads/main/marketing/video/assets/qroadscan-trailer-1080p.mp4)** · [Vertical social edit (38 seconds)](https://github.com/ornab74/roadscanner/raw/refs/heads/main/marketing/video/assets/qroadscan-social-vertical.mp4) · [Captions and editable source](marketing/video/README.md)
+
+Demo footage, motion titles and original music. Delivery footage uses recorded public API output; truck and aircraft previews use labeled illustrative data. Model scores are not accident probabilities, routes/access are not verified, and aircraft briefing is not ATC.
+
+[Try the demos and API docs](https://ride.qroadscan.com/docs) · [QRoadScan website](https://qroadscan.com)
+
 <img width="1218" height="813" alt="image" src="https://github.com/user-attachments/assets/7a3c9837-fdfd-4bbb-9f13-da1d4b8ad4b0" />
 
 https://qroadscan.com
